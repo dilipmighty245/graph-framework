@@ -6,7 +6,7 @@ import (
 
 	"github.com/vektah/gqlparser/v2/ast"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/config"
 )
 
 type Interface struct {

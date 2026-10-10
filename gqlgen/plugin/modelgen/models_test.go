@@ -12,12 +12,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/modelgen/out_struct_pointers"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/modelgen/out_struct_pointers"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/config"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/modelgen/out"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/modelgen/out"
 )
 
 func TestModelGeneration(t *testing.T) {

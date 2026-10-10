@@ -5,12 +5,12 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/internal/code"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/internal/code"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/config"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/templates"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/templates"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin"
 )
 
 //go:embed stubs.gotpl

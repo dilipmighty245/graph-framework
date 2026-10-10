@@ -23,7 +23,7 @@ menu:
       weight: 10
     - name: pkg.go.dev →
       parent: reference
-      url: https://pkg.go.dev/github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen
+      url: https://pkg.go.dev/github.com/dilipmighty245/graph-framework-for-microservices/gqlgen
 
 security:
   funcs:

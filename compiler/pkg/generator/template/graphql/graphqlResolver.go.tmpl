@@ -2,16 +2,24 @@ package graph
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"os"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/flowcontrol"
 
 	qm "github.com/vmware-tanzu/graph-framework-for-microservices/nexus/generated/query-manager"
 	nexus_client "{{.BaseImportPath}}nexus-client"
 	"{{.BaseImportPath}}nexus-gql/graph/model"
+)
+
+var (
+	_ = metav1.ListOptions{}
+	_ = (*qm.MetricArg)(nil)
 )
 
 var c = GrpcClients{
@@ -19,6 +27,11 @@ var c = GrpcClients{
 		Clients: map[string]GrpcClient{},
 }
 var nc *nexus_client.Clientset
+
+// SetNexusClient allows setting the shared nexus clientset
+func SetNexusClient(client *nexus_client.Clientset) {
+	nc = client
+}
 
 func getParentName(parentLabels map[string]interface{}, key string) string {
     if v, ok := parentLabels[key]; ok && v != nil {

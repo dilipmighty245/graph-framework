@@ -5,12 +5,12 @@ import (
 	"regexp"
 	"syscall"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/config"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/federation"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/modelgen"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/resolvergen"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/federation"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/modelgen"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/resolvergen"
 )
 
 func Generate(cfg *config.Config, option ...Option) error {

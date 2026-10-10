@@ -4,7 +4,7 @@ import (
 	"mime"
 	"net/http"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql"
 )
 
 // POST implements the POST side of the default HTTP transport

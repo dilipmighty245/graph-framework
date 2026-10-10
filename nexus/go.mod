@@ -1,6 +1,6 @@
-module github.com/intel-innersource/applications.development.nexus.core/nexus
+module github.com/dilipmighty245/graph-framework-for-microservices/nexus
 
-go 1.17
+go 1.22.0
 
 require (
 	github.com/golang/mock v1.6.0

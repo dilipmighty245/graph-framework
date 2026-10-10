@@ -139,7 +139,7 @@ That invokes the following operation:
 }
 ```
 
-See the [\_examples/fileupload](https://github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/tree/master/_examples/fileupload) package for more examples.
+See the [\_examples/fileupload](https://github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/tree/master/_examples/fileupload) package for more examples.
 
 # Usage with Apollo
 

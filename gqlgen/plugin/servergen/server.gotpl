@@ -2,8 +2,8 @@
 {{ reserveImport "log" }}
 {{ reserveImport "net/http" }}
 {{ reserveImport "os" }}
-{{ reserveImport "github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/playground" }}
-{{ reserveImport "github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler" }}
+{{ reserveImport "github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/playground" }}
+{{ reserveImport "github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler" }}
 
 const defaultPort = "8080"
 

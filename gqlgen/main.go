@@ -13,11 +13,11 @@ import (
 	"path/filepath"
 
 	"github.com/urfave/cli/v2"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/api"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/config"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/internal/code"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/servergen"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/api"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/internal/code"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/servergen"
 )
 
 //go:embed init-templates/schema.graphqls

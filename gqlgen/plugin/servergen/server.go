@@ -7,9 +7,9 @@ import (
 	"log"
 	"os"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/templates"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/templates"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin"
 )
 
 //go:embed server.gotpl

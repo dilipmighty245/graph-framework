@@ -5,9 +5,9 @@ package singlefile
 import (
 	"context"
 
-	introspection1 "github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/testserver/singlefile/introspection"
-	invalid_packagename "github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/testserver/singlefile/invalid-packagename"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/testserver/singlefile/otherpkg"
+	introspection1 "github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/testserver/singlefile/introspection"
+	invalid_packagename "github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/testserver/singlefile/invalid-packagename"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/testserver/singlefile/otherpkg"
 )
 
 type Resolver struct{}

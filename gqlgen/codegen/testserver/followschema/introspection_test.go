@@ -5,11 +5,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/client"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler/transport"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/introspection"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/client"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler/transport"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/introspection"
 )
 
 func TestIntrospection(t *testing.T) {

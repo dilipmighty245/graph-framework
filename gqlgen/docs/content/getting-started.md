@@ -33,7 +33,7 @@ Next, create a `tools.go` file and add gqlgen as a [tool dependency for your mod
 package tools
 
 import (
-	_ "github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen"
+	_ "github.com/dilipmighty245/graph-framework-for-microservices/gqlgen"
 )
 ```
 
@@ -46,7 +46,7 @@ go mod tidy
 By default you'll be using the latest version of gqlgen, but if you want to specify a particular version you can use `go get` (replacing `VERSION` with the particular version desired)
 
 ```shell
-go get -d github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen@VERSION
+go get -d github.com/dilipmighty245/graph-framework-for-microservices/gqlgen@VERSION
 ```
 
 ## Building the server
@@ -54,7 +54,7 @@ go get -d github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen@VERSI
 ### Create the project skeleton
 
 ```shell
-go run github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen init
+go run github.com/dilipmighty245/graph-framework-for-microservices/gqlgen init
 ```
 
 This will create our suggested package layout. You can modify these paths in gqlgen.yml if you need to.
@@ -217,15 +217,15 @@ And add `Todo` fields resolver config in `gqlgen.yml` to generate resolver for `
 models:
   ID:
     model:
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.ID
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int64
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int32
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.ID
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int64
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int32
   Int:
     model:
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int64
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int32
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int64
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int32
   Todo:
     fields:
       user:
@@ -246,9 +246,9 @@ type Todo struct {
 }
 ```
 
-And run `go run github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen generate`.
+And run `go run github.com/dilipmighty245/graph-framework-for-microservices/gqlgen generate`.
 
-> If you run into this error `package github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen: no Go files` while executing the `generate` command above, follow the instructions in [this](https://github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/issues/800#issuecomment-888908950) comment for a possible solution.
+> If you run into this error `package github.com/dilipmighty245/graph-framework-for-microservices/gqlgen: no Go files` while executing the `generate` command above, follow the instructions in [this](https://github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/issues/800#issuecomment-888908950) comment for a possible solution.
 
 Now if we look in `graph/schema.resolvers.go` we can see a new resolver, lets implement it and fix `CreateTodo`.
 
@@ -274,7 +274,7 @@ func (r *todoResolver) User(ctx context.Context, obj *model.Todo) (*model.User, 
 At the top of our `resolver.go`, between `package` and `import`, add the following line:
 
 ```go
-//go:generate go run github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen generate
+//go:generate go run github.com/dilipmighty245/graph-framework-for-microservices/gqlgen generate
 ```
 
 This magic comment tells `go generate` what command to run when we want to regenerate our code. To run go generate recursively over your entire project, use this command:

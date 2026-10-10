@@ -11,7 +11,7 @@ import (
 
 	"github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/internal/code"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/internal/code"
 	"gopkg.in/yaml.v3"
 )
 
@@ -227,8 +227,8 @@ func (c *Config) Init() error {
 
 func (c *Config) packageList() []string {
 	pkgs := []string{
-		"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql",
-		"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/introspection",
+		"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql",
+		"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/introspection",
 	}
 	pkgs = append(pkgs, c.Models.ReferencedPackages()...)
 	pkgs = append(pkgs, c.AutoBind...)
@@ -576,26 +576,26 @@ func (c *Config) autobind() error {
 
 func (c *Config) injectBuiltins() {
 	builtins := TypeMap{
-		"__Directive":         {Model: StringList{"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/introspection.Directive"}},
-		"__DirectiveLocation": {Model: StringList{"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.String"}},
-		"__Type":              {Model: StringList{"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/introspection.Type"}},
-		"__TypeKind":          {Model: StringList{"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.String"}},
-		"__Field":             {Model: StringList{"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/introspection.Field"}},
-		"__EnumValue":         {Model: StringList{"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/introspection.EnumValue"}},
-		"__InputValue":        {Model: StringList{"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/introspection.InputValue"}},
-		"__Schema":            {Model: StringList{"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/introspection.Schema"}},
-		"Float":               {Model: StringList{"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.FloatContext"}},
-		"String":              {Model: StringList{"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.String"}},
-		"Boolean":             {Model: StringList{"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Boolean"}},
+		"__Directive":         {Model: StringList{"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/introspection.Directive"}},
+		"__DirectiveLocation": {Model: StringList{"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.String"}},
+		"__Type":              {Model: StringList{"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/introspection.Type"}},
+		"__TypeKind":          {Model: StringList{"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.String"}},
+		"__Field":             {Model: StringList{"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/introspection.Field"}},
+		"__EnumValue":         {Model: StringList{"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/introspection.EnumValue"}},
+		"__InputValue":        {Model: StringList{"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/introspection.InputValue"}},
+		"__Schema":            {Model: StringList{"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/introspection.Schema"}},
+		"Float":               {Model: StringList{"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.FloatContext"}},
+		"String":              {Model: StringList{"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.String"}},
+		"Boolean":             {Model: StringList{"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Boolean"}},
 		"Int": {Model: StringList{
-			"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int",
-			"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int32",
-			"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int64",
+			"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int",
+			"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int32",
+			"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int64",
 		}},
 		"ID": {
 			Model: StringList{
-				"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.ID",
-				"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.IntID",
+				"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.ID",
+				"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.IntID",
 			},
 		},
 	}
@@ -608,10 +608,10 @@ func (c *Config) injectBuiltins() {
 
 	// These are additional types that are injected if defined in the schema as scalars.
 	extraBuiltins := TypeMap{
-		"Time":   {Model: StringList{"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Time"}},
-		"Map":    {Model: StringList{"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Map"}},
-		"Upload": {Model: StringList{"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Upload"}},
-		"Any":    {Model: StringList{"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Any"}},
+		"Time":   {Model: StringList{"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Time"}},
+		"Map":    {Model: StringList{"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Map"}},
+		"Upload": {Model: StringList{"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Upload"}},
+		"Any":    {Model: StringList{"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Any"}},
 	}
 
 	for typeName, entry := range extraBuiltins {

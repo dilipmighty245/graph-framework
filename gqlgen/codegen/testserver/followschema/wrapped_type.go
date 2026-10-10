@@ -1,6 +1,6 @@
 package followschema
 
-import "github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/testserver/followschema/otherpkg"
+import "github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/testserver/followschema/otherpkg"
 
 type (
 	WrappedScalar = otherpkg.Scalar

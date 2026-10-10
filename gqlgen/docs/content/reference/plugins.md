@@ -23,9 +23,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/api"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/config"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/stubgen"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/api"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/stubgen"
 )
 
 func main() {
@@ -53,9 +53,9 @@ There are currently only two hooks:
 
 - MutateConfig: Allows a plugin to mutate the config before codegen starts. This allows plugins to add
   custom directives, define types, and implement resolvers. see
-  [modelgen](https://github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/tree/master/plugin/modelgen) for an example
+  [modelgen](https://github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/tree/master/plugin/modelgen) for an example
 - GenerateCode: Allows a plugin to generate a new output file, see
-  [stubgen](https://github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/tree/master/plugin/stubgen) for an example
+  [stubgen](https://github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/tree/master/plugin/stubgen) for an example
 
-Take a look at [plugin.go](https://github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/blob/master/plugin/plugin.go) for the full list of
+Take a look at [plugin.go](https://github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/blob/master/plugin/plugin.go) for the full list of
 available hooks. These are likely to change with each release.

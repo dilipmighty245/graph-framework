@@ -10,8 +10,8 @@ import (
 
 	"github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/executor"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/executor"
 )
 
 type MockResponse struct {

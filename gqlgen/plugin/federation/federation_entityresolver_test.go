@@ -8,11 +8,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/client"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/client"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/federation/testdata/entityresolver"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/federation/testdata/entityresolver/generated"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/federation/testdata/entityresolver"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/federation/testdata/entityresolver/generated"
 )
 
 func TestEntityResolver(t *testing.T) {

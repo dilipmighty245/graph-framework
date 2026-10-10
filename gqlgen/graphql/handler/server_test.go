@@ -13,9 +13,9 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 	"github.com/vektah/gqlparser/v2/parser"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler/testserver"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler/transport"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler/testserver"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler/transport"
 )
 
 func TestServer(t *testing.T) {

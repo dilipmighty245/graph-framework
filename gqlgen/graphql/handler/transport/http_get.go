@@ -9,8 +9,8 @@ import (
 
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/gqlerror"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/errcode"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/errcode"
 )
 
 // GET implements the GET side of the default HTTP transport

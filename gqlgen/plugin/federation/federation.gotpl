@@ -4,7 +4,7 @@
 {{ reserveImport "strings"  }}
 {{ reserveImport "sync"  }}
 
-{{ reserveImport "github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/federation/fedruntime" }}
+{{ reserveImport "github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/federation/fedruntime" }}
 
 var (
 	ErrUnknownType = errors.New("unknown type")

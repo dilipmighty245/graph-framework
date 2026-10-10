@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/federation/testdata/entityresolver/generated"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/federation/testdata/entityresolver/generated"
 )
 
 // FindHelloByName is the resolver for the findHelloByName field.

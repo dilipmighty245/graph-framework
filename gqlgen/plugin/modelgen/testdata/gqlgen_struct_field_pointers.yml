@@ -11,14 +11,14 @@ omit_getters: true
 
 models:
   ExistingModel:
-    model: github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/modelgen/out_struct_pointers.ExistingModel
+    model: github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/modelgen/out_struct_pointers.ExistingModel
   ExistingInput:
-    model: github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/modelgen/out_struct_pointers.ExistingInput
+    model: github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/modelgen/out_struct_pointers.ExistingInput
   ExistingEnum:
-    model: github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/modelgen/out_struct_pointers.ExistingEnum
+    model: github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/modelgen/out_struct_pointers.ExistingEnum
   ExistingInterface:
-    model: github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/modelgen/out_struct_pointers.ExistingInterface
+    model: github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/modelgen/out_struct_pointers.ExistingInterface
   ExistingUnion:
-    model: github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/modelgen/out_struct_pointers.ExistingUnion
+    model: github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/modelgen/out_struct_pointers.ExistingUnion
   ExistingType:
-    model: github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/modelgen/out_struct_pointers.ExistingType
+    model: github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/modelgen/out_struct_pointers.ExistingType

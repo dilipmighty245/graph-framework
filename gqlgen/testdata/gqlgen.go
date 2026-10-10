@@ -8,10 +8,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/api"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/config"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/stubgen"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/api"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/stubgen"
 )
 
 func main() {

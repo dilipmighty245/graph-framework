@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/vektah/gqlparser/v2/ast"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/templates"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/templates"
 )
 
 type DirectiveList map[string]*Directive

@@ -70,15 +70,15 @@ resolver:
 models:
   ID:
     model:
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.ID
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int64
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int32
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.ID
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int64
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int32
   Int:
     model:
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int64
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int32
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int64
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int32
 ```
 
 Everything has defaults, so add things as you need.
@@ -109,7 +109,7 @@ directive @goTag(
 > Here be dragons
 >
 > gqlgen doesnt currently support user-configurable directives for SCALAR, ENUM, INTERFACE or UNION. This only works
-> for internal directives. You can track the progress [here](https://github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/issues/760)
+> for internal directives. You can track the progress [here](https://github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/issues/760)
 
 Now you can use these directives when defining types in your schema:
 

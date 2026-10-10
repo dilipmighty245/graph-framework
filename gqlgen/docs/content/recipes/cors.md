@@ -17,13 +17,13 @@ package main
 import (
 	"net/http"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler/transport"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/_examples/starwars"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler/transport"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/_examples/starwars"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler"
 	"github.com/go-chi/chi"
 	"github.com/rs/cors"
 	"github.com/gorilla/websocket"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/playground"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/playground"
 )
 
 func main() {

@@ -1,4 +1,4 @@
-# regression test for https://github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/issues/721
+# regression test for https://github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/issues/721
 
 extend type Query {
     wrappedStruct: WrappedStruct!

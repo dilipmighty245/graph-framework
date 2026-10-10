@@ -6,10 +6,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler/extension"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler/testserver"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler/transport"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler/extension"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler/testserver"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler/transport"
 )
 
 func TestAPQIntegration(t *testing.T) {

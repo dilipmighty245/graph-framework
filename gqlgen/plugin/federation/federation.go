@@ -8,11 +8,11 @@ import (
 
 	"github.com/vektah/gqlparser/v2/ast"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/config"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/templates"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/federation/fieldset"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/templates"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/federation/fieldset"
 )
 
 //go:embed federation.gotpl
@@ -43,21 +43,21 @@ func (f *federation) MutateConfig(cfg *config.Config) error {
 	builtins := config.TypeMap{
 		"_Service": {
 			Model: config.StringList{
-				"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/federation/fedruntime.Service",
+				"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/federation/fedruntime.Service",
 			},
 		},
 		"_Entity": {
 			Model: config.StringList{
-				"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/federation/fedruntime.Entity",
+				"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/federation/fedruntime.Entity",
 			},
 		},
 		"Entity": {
 			Model: config.StringList{
-				"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/federation/fedruntime.Entity",
+				"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/federation/fedruntime.Entity",
 			},
 		},
 		"_Any": {
-			Model: config.StringList{"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Map"},
+			Model: config.StringList{"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Map"},
 		},
 	}
 

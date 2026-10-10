@@ -12,4 +12,4 @@ resolver:
 
 models:
   Resolver:
-    model: github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/resolvergen/testdata/singlefile/out.Resolver
+    model: github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/resolvergen/testdata/singlefile/out.Resolver

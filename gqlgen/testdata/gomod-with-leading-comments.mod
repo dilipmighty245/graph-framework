@@ -2,6 +2,6 @@
 
    // and another module to test stripping of comment lines
 
-module github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen // replace it for new project
+module github.com/dilipmighty245/graph-framework-for-microservices/gqlgen // replace it for new project
 
 go 1.16

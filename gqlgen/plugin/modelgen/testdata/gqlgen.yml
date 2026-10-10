@@ -8,17 +8,17 @@ model:
 
 models:
   ExistingModel:
-    model: github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/modelgen/out.ExistingModel
+    model: github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/modelgen/out.ExistingModel
   ExistingInput:
-    model: github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/modelgen/out.ExistingInput
+    model: github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/modelgen/out.ExistingInput
   ExistingEnum:
-    model: github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/modelgen/out.ExistingEnum
+    model: github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/modelgen/out.ExistingEnum
   ExistingInterface:
-    model: github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/modelgen/out.ExistingInterface
+    model: github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/modelgen/out.ExistingInterface
   ExistingUnion:
-    model: github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/modelgen/out.ExistingUnion
+    model: github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/modelgen/out.ExistingUnion
   ExistingType:
-    model: github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/modelgen/out.ExistingType
+    model: github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/modelgen/out.ExistingType
   RenameFieldTest:
     fields:
       badName:

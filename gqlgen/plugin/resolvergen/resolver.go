@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/config"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/templates"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/internal/rewrite"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/templates"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/internal/rewrite"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )

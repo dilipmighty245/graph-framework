@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/client"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/client"
 )
 
 func TestClient(t *testing.T) {

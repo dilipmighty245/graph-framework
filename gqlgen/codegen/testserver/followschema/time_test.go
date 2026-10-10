@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/client"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/client"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler"
 )
 
 func TestTime(t *testing.T) {

@@ -5,9 +5,9 @@ package followschema
 import (
 	"context"
 
-	introspection1 "github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/testserver/followschema/introspection"
-	invalid_packagename "github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/testserver/followschema/invalid-packagename"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/testserver/followschema/otherpkg"
+	introspection1 "github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/testserver/followschema/introspection"
+	invalid_packagename "github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/testserver/followschema/invalid-packagename"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/testserver/followschema/otherpkg"
 )
 
 type Resolver struct{}

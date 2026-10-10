@@ -3,7 +3,7 @@ package codegen
 import (
 	"fmt"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/config"
 )
 
 func (b *builder) buildTypes() map[string]*config.TypeReference {

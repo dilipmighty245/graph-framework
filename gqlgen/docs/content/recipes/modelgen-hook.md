@@ -21,9 +21,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/api"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/config"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/modelgen"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/api"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/modelgen"
 )
 
 // Defining mutation function
@@ -90,9 +90,9 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 	"os"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/api"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/config"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/modelgen"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/api"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/modelgen"
 )
 
 // Defining mutation function

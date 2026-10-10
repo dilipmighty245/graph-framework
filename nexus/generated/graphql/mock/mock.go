@@ -7,7 +7,7 @@ package mock_graphql
 import (
 	context "context"
 	gomock "github.com/golang/mock/gomock"
-	graphql "github.com/intel-innersource/applications.development.nexus.core/nexus/generated/graphql"
+	graphql "github.com/dilipmighty245/graph-framework-for-microservices/nexus/generated/graphql"
 	grpc "google.golang.org/grpc"
 	reflect "reflect"
 )

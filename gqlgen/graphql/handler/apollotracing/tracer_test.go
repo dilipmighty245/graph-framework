@@ -12,12 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/gqlerror"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler/apollotracing"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler/extension"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler/lru"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler/testserver"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler/transport"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler/apollotracing"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler/extension"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler/lru"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler/testserver"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler/transport"
 )
 
 func TestApolloTracing(t *testing.T) {

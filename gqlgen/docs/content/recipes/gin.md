@@ -25,8 +25,8 @@ import (
 	"github.com/[username]/gqlgen-todos/graph/generated" // Replace username with your github username
 	"github.com/gin-gonic/gin"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/playground"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/playground"
 )
 
 // Defining the Graphql handler

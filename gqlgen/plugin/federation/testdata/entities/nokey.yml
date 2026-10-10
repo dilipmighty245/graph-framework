@@ -6,4 +6,4 @@ federation:
   filename: testdata/entities/generated/federation.go
 
 autobind:
-  - "github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/federation/test_data/model"
+  - "github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/federation/test_data/model"

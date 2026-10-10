@@ -68,7 +68,7 @@ input ValidInput {
     _: String! @goField(name: "Underscore")
 }
 
-# see https://github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/issues/694
+# see https://github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/issues/694
 type Content_User {
     foo: String
 }

@@ -9,7 +9,7 @@ import (
 
 	"github.com/vektah/gqlparser/v2/ast"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/codegen/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/config"
 )
 
 // Data is a unified model of the code to be generated. Plugins may modify this structure to do things like implement

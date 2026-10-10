@@ -40,7 +40,7 @@ rebuild() {
 currentBranch=$(git rev-parse --abbrev-ref HEAD)
 
 if ! git remote  | grep -q origin ; then
-    git remote add origin https://github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen
+    git remote add origin https://github.com/dilipmighty245/graph-framework-for-microservices/gqlgen
 fi
 git fetch origin --tags
 

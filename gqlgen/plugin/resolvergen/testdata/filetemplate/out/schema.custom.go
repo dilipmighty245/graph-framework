@@ -6,7 +6,7 @@ package customresolver
 import (
 	"context"
 
-	customresolver "github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/plugin/resolvergen/testdata/singlefile/out"
+	customresolver "github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/resolvergen/testdata/singlefile/out"
 )
 
 // Resolver is the resolver for the resolver field.

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql"
 )
 
 // Use adds the given extension to this Executor.

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/internal/code"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/internal/code"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

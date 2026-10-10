@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/vektah/gqlparser/v2/gqlerror"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql"
 )
 
 // EnableIntrospection enables clients to reflect all of the types available on the graph.

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql"
 )
 
 // Options responds to http OPTIONS and HEAD requests

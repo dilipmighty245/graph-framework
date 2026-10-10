@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/vektah/gqlparser/v2/gqlerror"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/executor"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler/extension"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler/lru"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler/transport"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/executor"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler/extension"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler/lru"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler/transport"
 )
 
 type (

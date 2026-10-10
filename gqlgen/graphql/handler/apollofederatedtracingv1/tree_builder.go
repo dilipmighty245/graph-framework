@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql/handler/apollofederatedtracingv1/generated"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler/apollofederatedtracingv1/generated"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

@@ -10,7 +10,7 @@ import (
 	"go/token"
 	"strings"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/internal/code"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/internal/code"
 
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/imports"
