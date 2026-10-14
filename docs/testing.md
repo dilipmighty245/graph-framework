@@ -125,3 +125,36 @@ If cluster deletion fails, the runner reports its exact name and fails. Inspect
 the first failing stage before rerunning. Passing repeated checks gives evidence
 of stability for these paths; it cannot establish that every deployment and
 external integration is free of flakes.
+
+## Cleanup
+
+```sh
+make clean.preview                    # Inspect project cleanup without changing resources
+make clean                            # Remove project runtime and generated artifacts
+make clean CLUSTER_NAME=my-cluster     # Include a specifically named Kind cluster
+make clean.all                        # Include ALL local Docker-backed Kind clusters
+python3 scripts/clean-framework.py --all-kind-clusters --dry-run
+```
+
+Cleanup needs Python 3, Git, Docker, and Kind when matching clusters exist. Stop
+active builds and test runs first. Project clusters are identified by directories
+under `nexus-runtime-manifests/kind/` or the test runner's `nexus-e2e-` prefix.
+Cluster deletion also removes its Kubernetes workloads and node storage.
+
+Cleanup removes associated proxy/gateway containers, this checkout's legacy
+Compose runtime containers and their anonymous volumes, the legacy k0s kubeconfig
+volume, unused `nexus`/`kind` networks, and local image tags under `nexus/`,
+`nexus-e2e/`, `authz`, and `authz-builder`. Image removal is not forced; images
+still used by other containers cause a reported failure. Registry-prefixed or
+custom image tags are retained.
+
+Local cleanup removes build/test artifacts, generated admin APIs, executables,
+coverage output, Python bytecode, and runtime certificates/kubeconfigs. Tracked
+fixtures and source files are preserved, as are `.cursor/`, `features/`, and
+`context.md`. Regenerate the admin API before subsequent service builds.
+
+The target does not prune Docker globally or clear shared Go caches. External
+result directories, old temporary E2E snapshots, and installed tools are retained.
+A failed runtime operation makes cleanup fail and retains local files for another
+attempt. Repeat cleanup after resolving the error. Preview lists current actions;
+networks that become empty during cleanup are removed on the actual run.

@@ -506,6 +506,17 @@ traffic.demo.uninstall.kubeconfig: core.uninstall.kubeconfig
 	kubectl delete -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 
 # Cross-module checks; see docs/testing.md for prerequisites and coverage.
+.PHONY: clean clean.preview clean.all
+clean:
+	@CLUSTER_NAME="$(CLUSTER_NAME)" python3 scripts/clean-framework.py
+
+clean.preview:
+	@CLUSTER_NAME="$(CLUSTER_NAME)" python3 scripts/clean-framework.py --dry-run
+
+# Explicitly includes unrelated local Kind clusters. Preview with the script first.
+clean.all:
+	@CLUSTER_NAME="$(CLUSTER_NAME)" python3 scripts/clean-framework.py --all-kind-clusters
+
 .PHONY: test.framework.builders test.framework test.framework.compiler test.framework.gateway test.framework.all test.framework.e2e test.framework.stability test.framework.race test.framework.help
 test.framework:
 	@bash scripts/test-framework.sh regression

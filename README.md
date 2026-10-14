@@ -136,6 +136,12 @@ make test.framework.e2e
 See the [testing guide](docs/testing.md) for prerequisites, coverage, component
 selection, optional compiler images, and logs.
 
+Use `make clean.preview` to inspect local cleanup, then `make clean` to remove
+framework clusters, runtime containers and volumes, local framework image tags,
+and generated build/test artifacts. Supply `CLUSTER_NAME=name` for a cluster
+without a repository runtime directory. `make clean.all` also deletes every
+local Docker-backed Kind cluster. See the [cleanup details](docs/testing.md#cleanup).
+
 ## Development status
 
 Run the source suites and disposable Kind checks before submitting framework changes. Services that import `api/build` need generated admin APIs; the E2E runner generates these in an isolated snapshot. Gateway controller tests use Kubernetes envtest assets or an explicitly configured disposable cluster.
