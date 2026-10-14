@@ -13,7 +13,7 @@ import (
 const (
 	examplePath    = "../../../example/"
 	exampleDSLPath = examplePath + "datamodel"
-	baseGroupName  = "tsm.tanzu.vmware.com"
+	baseGroupName  = "nexus.com"
 	crdModulePath  = "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/"
 )
 

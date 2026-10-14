@@ -99,7 +99,7 @@ var _ = Describe("Rest tests", func() {
 				},
 			},
 		}
-		rest.ValidateRestApiSpec(restApiSpec, parentsMap, "dnses.gns.tsm.tanzu.vmware.com")
+		rest.ValidateRestApiSpec(restApiSpec, parentsMap, "dnses.gns.nexus.com")
 		Expect(fail).To(BeFalse())
 	})
 
@@ -122,7 +122,7 @@ var _ = Describe("Rest tests", func() {
 				},
 			},
 		}
-		rest.ValidateRestApiSpec(restApiSpec, parentsMap, "dnses.gns.tsm.tanzu.vmware.com")
+		rest.ValidateRestApiSpec(restApiSpec, parentsMap, "dnses.gns.nexus.com")
 		Expect(fail).To(BeTrue())
 	})
 

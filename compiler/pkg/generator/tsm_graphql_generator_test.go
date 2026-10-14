@@ -42,7 +42,7 @@ var _ = Describe("Template renderers tests", func() {
 		Expect(vars[2].IsSingletonNode).To(BeFalse())
 		Expect(vars[2].IsNexusNode).To(BeFalse())
 		Expect(vars[2].BaseImportPath).To(Equal("nexustempmodule/"))
-		Expect(vars[2].CrdName).To(Equal("queryfilterses.root.tsm.tanzu.vmware.com"))
+		Expect(vars[2].CrdName).To(Equal("queryfilterses.root.nexus.com"))
 
 		// Test that nexus-secret Node should not be present
 		Expect(vars).NotTo(ContainElement(HaveField("NodeName", "Foo")))

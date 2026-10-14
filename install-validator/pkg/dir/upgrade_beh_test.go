@@ -27,7 +27,7 @@ var _ = Describe("Generator", func() {
 
 	ff := fake.NewSimpleClientset()
 	groupRes := schema.GroupVersionResource{
-		Group:    "outdated.tsm.tanzu.vmware.com",
+		Group:    "outdated.nexus.com",
 		Version:  "v1",
 		Resource: "roots",
 	}

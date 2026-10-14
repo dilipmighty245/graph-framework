@@ -135,26 +135,26 @@ for ((sdk_run=1; sdk_run<=sdk_runs; sdk_run++)); do
         -ldflags="$link_flags" ./integration) 2>&1 | tee "$results/subscriptions-$sdk_run.log"
 done
 # These names follow common-library/pkg/nexus's hierarchy-aware naming contract.
-root_name=$(python3 -c 'import hashlib; print(hashlib.sha1(b"roots.root.tsm.tanzu.vmware.com:default").hexdigest())')
-config_name=$(python3 -c 'import hashlib; print(hashlib.sha1(b"roots.root.tsm.tanzu.vmware.com:default/configs.config.tsm.tanzu.vmware.com:default").hexdigest())')
+root_name=$(python3 -c 'import hashlib; print(hashlib.sha1(b"roots.root.nexus.com:default").hexdigest())')
+config_name=$(python3 -c 'import hashlib; print(hashlib.sha1(b"roots.root.nexus.com:default/configs.config.nexus.com:default").hexdigest())')
 python3 - "$work/objects.json" "$root_name" "$config_name" <<'PY'
 import json, sys
 path, root_name, config_name = sys.argv[1:]
 def resource(kind, group, name, spec):
     return {"apiVersion": group + "/v1", "kind": kind,
             "metadata": {"name": name, "labels": {"nexus/display_name": "default", "nexus/is_name_hashed": "true"}}, "spec": spec}
-root = resource("Root", "root.tsm.tanzu.vmware.com", root_name, {})
-config = resource("Config", "config.tsm.tanzu.vmware.com", config_name, {
+root = resource("Root", "root.nexus.com", root_name, {})
+config = resource("Config", "config.nexus.com", config_name, {
     "myStr0": "before", "myStr1": [], "myStr2": {}, "xYZPort": 8080,
     "aBCHost": [], "clusterNamespaces": [], "instance": 0, "option_cu": "",
     "testValMarkers": {"myStr": "ab", "myInt": 3, "mySlice": ["a", "b"]},
 })
-config["metadata"]["labels"]["roots.root.tsm.tanzu.vmware.com"] = "default"
+config["metadata"]["labels"]["roots.root.nexus.com"] = "default"
 with open(path, "w") as f:
     json.dump({"apiVersion": "v1", "kind": "List", "items": [root, config]}, f)
 PY
 kube create -f "$work/objects.json"
-if kube patch configs.config.tsm.tanzu.vmware.com "$config_name" --type=merge \
+if kube patch configs.config.nexus.com "$config_name" --type=merge \
     -p '{"spec":{"testValMarkers":{"mySlice":["a","a"]}}}' > "$results/validation.log" 2>&1; then
     echo 'CRD validation accepted duplicate values in a unique list.' >&2
     exit 1
@@ -164,15 +164,15 @@ if ! grep -qi 'duplicate' "$results/validation.log"; then
     echo 'Unique-list validation failed for an unexpected reason.' >&2
     exit 1
 fi
-kube get configs.config.tsm.tanzu.vmware.com "$config_name" -o json > "$results/created.json"
+kube get configs.config.nexus.com "$config_name" -o json > "$results/created.json"
 python3 - "$results/created.json" <<'PY'
 import json, sys
 with open(sys.argv[1]) as f: obj = json.load(f)
 assert obj["spec"]["myStr0"] == "before", obj
-assert obj["metadata"]["labels"]["roots.root.tsm.tanzu.vmware.com"] == "default", obj
+assert obj["metadata"]["labels"]["roots.root.nexus.com"] == "default", obj
 PY
-kube patch configs.config.tsm.tanzu.vmware.com "$config_name" --type=merge -p '{"spec":{"myStr0":"after"}}'
-kube get configs.config.tsm.tanzu.vmware.com "$config_name" -o json > "$results/updated.json"
+kube patch configs.config.nexus.com "$config_name" --type=merge -p '{"spec":{"myStr0":"after"}}'
+kube get configs.config.nexus.com "$config_name" -o json > "$results/updated.json"
 python3 - "$results/updated.json" <<'PY'
 import json, sys
 with open(sys.argv[1]) as f: obj = json.load(f)
@@ -237,14 +237,14 @@ YAML
     kube -n framework-e2e expose deployment "$component" --port=8080 --target-port=8080
     forward "$component"
     if [[ $component == gateway ]]; then
-        path="/apis/config.tsm.tanzu.vmware.com/v1/configs/$config_name"
+        path="/apis/config.nexus.com/v1/configs/$config_name"
     else
         path=/query
     fi
     python3 "$root/scripts/framework-http-probe.py" "$component" "http://127.0.0.1:$forwarded_port$path" --name "$config_name"
 done
 kube delete -f "$work/objects.json" --wait=true --timeout=60s
-for resource in "configs.config.tsm.tanzu.vmware.com/$config_name" "roots.root.tsm.tanzu.vmware.com/$root_name"; do
+for resource in "configs.config.nexus.com/$config_name" "roots.root.nexus.com/$root_name"; do
     remaining=$(kube get "$resource" --ignore-not-found -o name)
     [[ -z "$remaining" ]] || { echo "Resource remained after deletion: $remaining" >&2; exit 1; }
 done

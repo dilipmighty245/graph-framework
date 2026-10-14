@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	configv1 "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/apis/config.tsm.tanzu.vmware.com/v1"
-	gnsv1 "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/apis/gns.tsm.tanzu.vmware.com/v1"
-	rootv1 "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/apis/root.tsm.tanzu.vmware.com/v1"
+	configv1 "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/apis/config.nexus.com/v1"
+	gnsv1 "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/apis/gns.nexus.com/v1"
+	rootv1 "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/apis/root.nexus.com/v1"
 	nexusclient "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/nexus-client"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -155,7 +155,7 @@ func TestGeneratedClientSubscriptions(t *testing.T) {
 	for _, reader := range []*nexusclient.Clientset{first, second} {
 		waitFor("parent-child cache", func() bool {
 			child, err := reader.RootRoot().GetConfig(ctx, "default")
-			return err == nil && child.Name == name && child.Labels["roots.root.tsm.tanzu.vmware.com"] == "default"
+			return err == nil && child.Name == name && child.Labels["roots.root.nexus.com"] == "default"
 		})
 	}
 	t.Log("PASS: SDK node creation, add callbacks, hashed names, and hierarchy caches")

@@ -19,23 +19,17 @@ import (
 )
 
 const (
-	baseGroupName               = "tsm.tanzu.vmware.com"
-	crdModulePath               = "nexustempmodule/"
-	examplePath                 = "../../example/"
-	exampleDSLPath              = examplePath + "datamodel"
-	exampleCRDOutputPath        = examplePath + "output/_rendered_templates/"
-	exampleCRDApisOutputPath    = exampleCRDOutputPath + "apis"
-	gnsExamplePath              = exampleCRDApisOutputPath + "/gns.tsm.tanzu.vmware.com/"
-	gnsDocPath                  = gnsExamplePath + "v1/doc.go"
-	gnsRegisterGroupPath        = gnsExamplePath + "register.go"
-	gnsRegisterCRDPath          = gnsExamplePath + "v1/register.go"
-	gnsTypesPath                = gnsExamplePath + "v1/types.go"
-	gnsCrdBasePath              = exampleCRDOutputPath + "crds/gns_gns.yaml"
-	exampleCRDClientOutputPath  = exampleCRDOutputPath + "/nexus-client/client.go"
-	exampleCRDHelperOutputPath  = exampleCRDOutputPath + "/helper/helper.go"
-	gglToolOutputPath           = exampleCRDOutputPath + "/nexus-gql/tools.go"
-	gglResolverOutputPath       = exampleCRDOutputPath + "/nexus-gql/graph/resolver.go"
-	gglSchemaResolverOutputPath = exampleCRDOutputPath + "/nexus-gql/graph/schema.resolvers.go"
+	baseGroupName              = "nexus.com"
+	crdModulePath              = "nexustempmodule/"
+	examplePath                = "../../example/"
+	exampleDSLPath             = examplePath + "datamodel"
+	gnsDocPath                 = "testdata/gns_doc.go.golden"
+	gnsRegisterGroupPath       = "testdata/gns_register_group.go.golden"
+	gnsRegisterCRDPath         = "testdata/gns_register_crd.go.golden"
+	gnsTypesPath               = "testdata/gns_types.go.golden"
+	gnsCrdBasePath             = "testdata/gns_gns.yaml.golden"
+	exampleCRDClientOutputPath = "testdata/client.go.golden"
+	exampleCRDHelperOutputPath = "testdata/helper.go.golden"
 )
 
 var _ = Describe("Template renderers tests", func() {
@@ -168,7 +162,6 @@ var _ = Describe("Template renderers tests", func() {
 		Expect(string(formatted)).To(Equal(string(expectedTypes)))
 	})
 
-	// Path:"example/output/_rendered_templates/nexus-gql/server.go"
 	It("should parse nexus-gql server template", func() {
 		var vars generator.ServerVars
 		vars.BaseImportPath = crdModulePath
@@ -176,47 +169,44 @@ var _ = Describe("Template renderers tests", func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 
-	// Path:"example/output/_rendered_templates/nexus-gql/graph/schema.graphqls"
 	It("should parse graph schema graphql template", func() {
 		_, err := generator.RenderGraphqlSchemaTemplate(gql, crdModulePath)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
-	// Path:"example/output/_rendered_templates/nexus-gql/gqlgen.yml"
 	It("should parse nexus-gql gqlgen config template", func() {
 		_, err := generator.RenderGQLGenTemplate(gql, crdModulePath)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
-	// Path:"example/output/_rendered_templates/nexus-gql/graph/graphqlResolver.go"
 	It("should parse graphql resolver template", func() {
 		_, err := generator.RenderGraphqlResolverTemplate(gql, crdModulePath)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
 	It("should test GetPackageName ", func() {
-		expectedPackageName := "tsm_tanzu_vmware_com"
+		expectedPackageName := "nexus_demo_com"
 
-		groupName := "tsm-tanzu.vmware.com"
+		groupName := "nexus-demo.com"
 		packageName := util.GetPackageName(groupName)
 		Expect(packageName).To(Equal(expectedPackageName))
 
-		groupName = "tsm.tanzu-vmware.com"
+		groupName = "nexus.demo-com"
 		packageName = util.GetPackageName(groupName)
 		Expect(packageName).To(Equal(expectedPackageName))
 	})
 
 	It("should test GetGroupGoName", func() {
-		expectedGroupGoName := "Tsm"
-		groupName := "tsm-tanzu.vmware.com"
+		expectedGroupGoName := "Nexus"
+		groupName := "nexus-demo.com"
 		packageName := util.GetGroupGoName(groupName)
 		Expect(packageName).To(Equal(expectedGroupGoName))
 	})
 
 	It("should handle hyphen in group-name", func() {
 		datamodelPath := "../../example/test-utils/group-name-with-hyphen-datamodel"
-		groupName := "tsm-tanzu.vmware.com"
-		crdModulePath := "../../example/test-utils/output-group-name-with-hyphen-datamodel/crd_generated/"
+		groupName := "nexus-demo.com"
+		crdModulePath := "nexustempmodule/"
 		outputDir, err := os.MkdirTemp("", "nexus-hyphen-model-*")
 		Expect(err).NotTo(HaveOccurred())
 		defer os.RemoveAll(outputDir)

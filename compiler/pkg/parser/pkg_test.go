@@ -37,7 +37,7 @@ var _ = Describe("Pkg tests", func() {
 		imports := generator.GenerateImports(&pkg, aliasNameMap)
 
 		expectedImports := []string{
-			"configtsmtanzuvmwarecomv1 \"github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/apis/config.tsm.tanzu.vmware.com/v1\"",
+			"confignexuscomv1 \"github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/apis/config.nexus.com/v1\"",
 			" \"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus\""}
 
 		Expect(imports).To(Equal(expectedImports))

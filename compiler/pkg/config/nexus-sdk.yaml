@@ -1,2 +1,2 @@
-groupName: "tsm.tanzu.vmware.com"
+groupName: "nexus.com"
 crdModulePath: "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/crd/"

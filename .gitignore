@@ -41,6 +41,9 @@ compiler/cmd/nexus-openapi-gen
 compiler/cmd/gqlgen
 compiler/compiler.tar
 compiler/_generated
+/compiler/example/output/
+/compiler/example/datamodel/build/
+/compiler/example/test-utils/output-group-name-with-hyphen-datamodel/
 
 ### GoLand ###
 compiler/.idea

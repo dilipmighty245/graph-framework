@@ -19,7 +19,7 @@ var _ = Describe("Graphql parsing tests", func() {
 		pkgs = parser.ParseDSLPkg(exampleDSLPath)
 		graphqlQueries := parser.ParseGraphqlQuerySpecs(pkgs)
 		graph, _, _ = parser.ParseDSLNodes(exampleDSLPath, baseGroupName, pkgs, graphqlQueries)
-		root, ok := graph["roots.root.tsm.tanzu.vmware.com"]
+		root, ok := graph["roots.root.nexus.com"]
 		Expect(ok).To(BeTrue())
 		config, ok := root.SingleChildren["Config"]
 		Expect(ok).To(BeTrue())
@@ -54,7 +54,7 @@ var _ = Describe("Graphql parsing tests", func() {
 		pkgs = parser.ParseDSLPkg(exampleDSLPath)
 		graphqlQueries := parser.ParseGraphqlQuerySpecs(pkgs)
 		graph, _, _ = parser.ParseDSLNodes(exampleDSLPath, baseGroupName, pkgs, graphqlQueries)
-		root, ok := graph["roots.root.tsm.tanzu.vmware.com"]
+		root, ok := graph["roots.root.nexus.com"]
 		Expect(ok).To(BeTrue())
 		config, ok := root.SingleChildren["Config"]
 		Expect(ok).To(BeTrue())

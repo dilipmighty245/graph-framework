@@ -12,7 +12,13 @@ Inputs are Go structs containing Nexus node markers, relationship tags, API decl
 - GraphQL schemas, resolvers, and server sources.
 - Installation and supporting artifacts used by downstream applications.
 
-The pipeline parses the model, builds its relationship graph, renders templates, and runs Kubernetes and GraphQL generators. See [example/datamodel](example/datamodel) for input and [example/output](example/output) for checked-in output and fixtures.
+The pipeline parses the model, builds its relationship graph, renders templates, and runs Kubernetes and GraphQL generators. See [example/datamodel](example/datamodel) for input. Generated example output is ignored by Git and created on demand.
+
+Keep the example datamodel's Go source, GraphQL queries, module files, and
+configuration in Git: compiler tests and generation use them as inputs. Its
+`build/` directory contains generated clients, informers, CRDs, and GraphQL
+output; it is ignored along with `example/output/`. The DSL parser skips `build/`
+entirely, so these artifacts are not required in a checkout.
 
 ## Repository dependencies
 
@@ -34,7 +40,7 @@ The principal Make inputs are `DATAMODEL_PATH`, `CONFIG_FILE`, `GENERATED_OUTPUT
 make generate_example
 ```
 
-That target writes under `example/output/generated`. Run it in a clean checkout and review output changes. To inspect the parser entry point and its options:
+That target writes under `example/output/generated`. These files are local build artifacts and should not be committed. To inspect the parser entry point and its options:
 
 ```sh
 go run ./cmd/nexus-sdk -help
@@ -44,6 +50,6 @@ The CLI wraps these operations for application workflows; see [cli](../cli/READM
 
 ## Validation
 
-Run package checks from this module. Parser, preparser, generator, and generated-client tests cover different stages. Several checked-in fixtures currently disagree with the example model, so establish the baseline before attributing failures to a change.
+Run package checks from this module. Parser, preparser, generator, and generated-client tests cover different stages.
 
-Files under `example/output/_rendered_templates` are expected output read by tests. `example/tests` and other nested modules need their own checks; `go test ./...` in this module does not traverse module boundaries. End-to-end validation must regenerate a model, compile the result, and exercise its APIs against a runtime.
+Generator unit tests compare against the seven regression fixtures in `pkg/generator/testdata`; they run without generated example output. `example/tests` and other nested modules need their own checks; `go test ./...` in this module does not traverse module boundaries. From the repository root, `make test.framework.e2e` regenerates the example in an isolated snapshot, compiles the result, and exercises its APIs in a fresh Kind cluster. `make clean` removes locally generated example output.

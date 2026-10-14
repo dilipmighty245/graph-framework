@@ -68,6 +68,15 @@ authorization and connector-controller suites. Generate the admin API before
 using this target directly. The E2E target performs generation itself in a
 snapshot of the current working tree, including uncommitted changes.
 
+The example model uses the `nexus.com` base domain, including `root.nexus.com`
+and `config.nexus.com`. Changing an API group creates new Kubernetes resource
+types; it does not migrate resources stored under a previous group. Use a fresh
+disposable cluster when testing generated example models.
+
+`compiler/example/output/` is generated on demand and ignored by Git. The E2E
+runner creates it inside its temporary source snapshot; source-only compiler
+tests use regression fixtures in `compiler/pkg/generator/testdata`.
+
 E2E performs these steps:
 
 1. Generate the example CRDs, resource types, and clients from the source model.

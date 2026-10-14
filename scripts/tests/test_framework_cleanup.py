@@ -25,6 +25,12 @@ class CleanupTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(root), "add", "."], check=True)
             generated = tracked.with_name("generated.go")
             generated.write_text("generated")
+            example = root / "compiler/example/output/generated/client.go"
+            example.parent.mkdir(parents=True)
+            example.write_text("generated")
+            model_build = root / "compiler/example/datamodel/build/client.go"
+            model_build.parent.mkdir(parents=True)
+            model_build.write_text("generated")
             for name in ("features", ".cursor"):
                 notes = root / name / "bin/notes"
                 notes.parent.mkdir(parents=True)
@@ -41,6 +47,8 @@ class CleanupTests(unittest.TestCase):
             cleaner.files()
             cleaner.files()
             self.assertFalse(generated.exists())
+            self.assertFalse((root / "compiler/example/output").exists())
+            self.assertFalse(model_build.parent.exists())
             self.assertEqual(tracked.read_text(), "fixture")
             self.assertEqual(outside.read_text(), "keep")
             for name in ("features", ".cursor"):

@@ -1,0 +1,187 @@
+package helper
+
+//nolint:gci // generated imports.
+import (
+	"context"
+	//nolint:gosec // only useful fixed strig hashing and not for security.
+	"crypto/sha1"
+	"encoding/hex"
+	"fmt"
+
+	"github.com/elliotchance/orderedmap"
+
+	datamodel "nexustempmodule/client/clientset/versioned"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+const DefaultKey = "default"
+const DisplayNameLabel = "nexus/display_name"
+const IsNameHashedLabel = "nexus/is_name_hashed"
+
+//nolint:lll // Generated code. Length depends on actual graph depth.
+func GetCRDParentsMap() map[string][]string {
+	return map[string][]string{
+		"accesscontrolpolicies.policypkg.nexus.com":                  {"roots.root.nexus.com", "configs.config.nexus.com", "gnses.gns.nexus.com"},
+		"acpconfigs.policypkg.nexus.com":                             {"roots.root.nexus.com", "configs.config.nexus.com", "gnses.gns.nexus.com", "accesscontrolpolicies.policypkg.nexus.com"},
+		"barchilds.gns.nexus.com":                                    {"roots.root.nexus.com", "configs.config.nexus.com", "gnses.gns.nexus.com"},
+		"configs.config.nexus.com":                                   {"roots.root.nexus.com"},
+		"dnses.gns.nexus.com":                                        {"roots.root.nexus.com", "configs.config.nexus.com"},
+		"domains.config.nexus.com":                                   {"roots.root.nexus.com", "configs.config.nexus.com"},
+		"foos.gns.nexus.com":                                         {"roots.root.nexus.com", "configs.config.nexus.com", "gnses.gns.nexus.com"},
+		"footypeabcs.config.nexus.com":                               {"roots.root.nexus.com", "configs.config.nexus.com"},
+		"gnses.gns.nexus.com":                                        {"roots.root.nexus.com", "configs.config.nexus.com"},
+		"ignorechilds.gns.nexus.com":                                 {"roots.root.nexus.com", "configs.config.nexus.com", "gnses.gns.nexus.com"},
+		"optionalparentpathparams.optionalparentpathparam.nexus.com": {"roots.root.nexus.com", "configs.config.nexus.com", "gnses.gns.nexus.com"},
+		"roots.root.nexus.com":                                       {},
+		"svcgrouplinkinfos.servicegroup.nexus.com":                   {"roots.root.nexus.com", "configs.config.nexus.com"},
+		"svcgroups.servicegroup.nexus.com":                           {"roots.root.nexus.com", "configs.config.nexus.com", "gnses.gns.nexus.com"},
+		"vmpolicies.policypkg.nexus.com":                             {"roots.root.nexus.com", "configs.config.nexus.com"},
+	}
+}
+
+//nolint:gocyclo,funlen,cyclop // Generated code. Length depends on actual graph depth.
+func GetObjectByCRDName(dmClient *datamodel.Clientset, crdName, name string) interface{} {
+	if crdName == "accesscontrolpolicies.policypkg.nexus.com" {
+		obj, err := dmClient.PolicypkgNexusV1().AccessControlPolicies().Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			return nil
+		}
+		return obj
+	}
+	if crdName == "acpconfigs.policypkg.nexus.com" {
+		obj, err := dmClient.PolicypkgNexusV1().ACPConfigs().Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			return nil
+		}
+		return obj
+	}
+	if crdName == "barchilds.gns.nexus.com" {
+		obj, err := dmClient.GnsNexusV1().BarChilds().Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			return nil
+		}
+		return obj
+	}
+	if crdName == "configs.config.nexus.com" {
+		obj, err := dmClient.ConfigNexusV1().Configs().Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			return nil
+		}
+		return obj
+	}
+	if crdName == "dnses.gns.nexus.com" {
+		obj, err := dmClient.GnsNexusV1().Dnses().Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			return nil
+		}
+		return obj
+	}
+	if crdName == "domains.config.nexus.com" {
+		obj, err := dmClient.ConfigNexusV1().Domains().Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			return nil
+		}
+		return obj
+	}
+	if crdName == "foos.gns.nexus.com" {
+		obj, err := dmClient.GnsNexusV1().Foos().Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			return nil
+		}
+		return obj
+	}
+	if crdName == "footypeabcs.config.nexus.com" {
+		obj, err := dmClient.ConfigNexusV1().FooTypeABCs().Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			return nil
+		}
+		return obj
+	}
+	if crdName == "gnses.gns.nexus.com" {
+		obj, err := dmClient.GnsNexusV1().Gnses().Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			return nil
+		}
+		return obj
+	}
+	if crdName == "ignorechilds.gns.nexus.com" {
+		obj, err := dmClient.GnsNexusV1().IgnoreChilds().Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			return nil
+		}
+		return obj
+	}
+	if crdName == "optionalparentpathparams.optionalparentpathparam.nexus.com" {
+		obj, err := dmClient.OptionalparentpathparamNexusV1().OptionalParentPathParams().Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			return nil
+		}
+		return obj
+	}
+	if crdName == "roots.root.nexus.com" {
+		obj, err := dmClient.RootNexusV1().Roots().Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			return nil
+		}
+		return obj
+	}
+	if crdName == "svcgrouplinkinfos.servicegroup.nexus.com" {
+		obj, err := dmClient.ServicegroupNexusV1().SvcGroupLinkInfos().Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			return nil
+		}
+		return obj
+	}
+	if crdName == "svcgroups.servicegroup.nexus.com" {
+		obj, err := dmClient.ServicegroupNexusV1().SvcGroups().Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			return nil
+		}
+		return obj
+	}
+	if crdName == "vmpolicies.policypkg.nexus.com" {
+		obj, err := dmClient.PolicypkgNexusV1().VMpolicies().Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			return nil
+		}
+		return obj
+	}
+
+	return nil
+}
+
+func ParseCRDLabels(crdName string, labels map[string]string) *orderedmap.OrderedMap {
+	parents := GetCRDParentsMap()[crdName]
+
+	m := orderedmap.NewOrderedMap()
+	for _, parent := range parents {
+		if label, ok := labels[parent]; ok {
+			m.Set(parent, label)
+		} else {
+			m.Set(parent, DefaultKey)
+		}
+	}
+
+	return m
+}
+
+func GetHashedName(crdName string, labels map[string]string, name string) string {
+	orderedLabels := ParseCRDLabels(crdName, labels)
+
+	var output string
+	for i, key := range orderedLabels.Keys() {
+		value, _ := orderedLabels.Get(key)
+
+		output += fmt.Sprintf("%s:%s", key, value)
+		if i < orderedLabels.Len()-1 {
+			output += "/"
+		}
+	}
+
+	output += fmt.Sprintf("%s:%s", crdName, name)
+	//nolint:gosec // only useful fixed strig hashing and not for security.
+	h := sha1.New()
+	_, _ = h.Write([]byte(output))
+	return hex.EncodeToString(h.Sum(nil))
+}

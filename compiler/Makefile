@@ -172,6 +172,7 @@ preparser:
 	rm -rf _tsm_temp
 	@echo "Copying Datamodel to temp directory"
 	cp -R ${DATAMODEL_PATH} _tsm_temp
+	mkdir -p ${DATAMODEL_PATH}/build
 	cp -R _generated_base_structure/* ${DATAMODEL_PATH}/build
 	@echo "Nexus Compiler: Running Preparser"
 	go run cmd/preparser/main.go -config-file ${CONFIG_FILE} -dsl _tsm_temp -output _generated -modpath ${PREPARSER_MODPATH}
@@ -298,9 +299,4 @@ render_templates:
 
 .PHONY: test_render_templates
 test_render_templates: render_templates
-	@if [ -n "$$(git ls-files --modified --exclude-standard)" ]; then\
-    	echo "The following changes should be committed:";\
-    	git status;\
-    	git diff;\
-    	return 1;\
-    fi
+	go test -mod=readonly -count=1 ./pkg/generator
