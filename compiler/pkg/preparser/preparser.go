@@ -15,10 +15,10 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/config"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser"
 	log "github.com/sirupsen/logrus"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser"
 	"golang.org/x/tools/imports"
 )
 

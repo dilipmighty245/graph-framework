@@ -8,7 +8,7 @@
 // - ability to add link and remove link to given object,
 // - recursive delete of object and all it's children.
 // To initialize client use NewForConfig function with Rest Config as a parameter. After that you can start using
-// nexus client. You can check example in: https://gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/docs/-/tree/master/example/crudapp
+// nexus client. You can check example in: https://github.com/dilipmighty245/graph-framework-for-microservices/tree/main/compiler/example
 
 package nexus_client
 

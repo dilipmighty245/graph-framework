@@ -19,7 +19,7 @@ import (
 	k8sFake "k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/yaml"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/validation.git/pkg/validate"
+	"github.com/dilipmighty245/graph-framework-for-microservices/validation/pkg/validate"
 )
 
 var _ = Describe("Validation tests", func() {

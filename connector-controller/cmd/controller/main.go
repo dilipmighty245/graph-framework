@@ -22,11 +22,11 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	nxcontrollers "github.com/dilipmighty245/graph-framework-for-microservices/connector-controller/controllers"
+	"github.com/dilipmighty245/graph-framework-for-microservices/connector-controller/helpers"
 	"github.com/fluxcd/pkg/runtime/logger"
 	flag "github.com/spf13/pflag"
-	nxcontrollers "gitlab.eng.vmware.com/nexus/controller/controllers"
-	"gitlab.eng.vmware.com/nexus/controller/helpers"
-	nxv1 "golang-appnet.eng.vmware.com/nexus-sdk/api/build/apis/connect.admin.nexus.com/v1"
+	nxv1 "nexus/admin/api/build/apis/connect.admin.nexus.com/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"

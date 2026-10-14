@@ -4,11 +4,8 @@ FROM --platform=linux/amd64 gcr.io/nsx-sm/nexus/golang:1.19
 ENV GOPATH /go
 ENV PATH $PATH:/usr/local/go/bin:/go/bin
 ENV GO111MODULE=on
-ENV GOPRIVATE=*.vmware.com
 ENV GOPROXY=""
 ENV GOFLAGS="-buildvcs=false"
-ENV GONOPROXY=*.eng.vmware.com
-ENV GOINSECURE=golang-appnet.eng.vmware.com
 
 RUN git config --global --add safe.directory '*'
 RUN tdnf -y --refresh install \

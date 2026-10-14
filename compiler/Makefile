@@ -7,7 +7,7 @@ GO_PROJECT_NAME ?= compiler
 GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 DOCKER_BUILDER_PLATFORM ?= linux/${GOARCH}
-PKG_NAME?=/go/src/github.com/vmware-tanzu/graph-framework-for-microservices/${GO_PROJECT_NAME}
+PKG_NAME?=/go/src/github.com/dilipmighty245/graph-framework-for-microservices/${GO_PROJECT_NAME}
 
 
 IMAGE_NAME ?= nexus/compiler
@@ -45,7 +45,7 @@ endif
 ifeq ($(CONTAINER_ID),)
 define run_in_container
   docker run \
-  --volume $(realpath .)/..:/go/src/github.com/vmware-tanzu/graph-framework-for-microservices/ \
+  --volume $(realpath .)/..:/go/src/github.com/dilipmighty245/graph-framework-for-microservices/ \
   --volume ~/.ssh:/root/.ssh \
   --network=host \
   --workdir ${PKG_NAME} \
@@ -57,7 +57,6 @@ define run_in_container
  docker run \
  --volumes-from ${CONTAINER_ID} \
  --workdir ${PKG_NAME} \
- --env CICD_TOKEN=${CICD_TOKEN} \
  --env PKG_NAME=${PKG_NAME} \
  "${BUILDER_DOCKER_TAG}" /bin/bash -c "${1}"
 endef
@@ -242,7 +241,7 @@ generate_code:
 	find . -name "*.bak" -type f -delete
 	@echo "Nexus Compiler: Moving files to output directory"
 	mkdir -p ${GENERATED_OUTPUT_DIRECTORY}/install-validator
-	cp -r ${GOPATH}/src/github.com/vmware-tanzu/graph-framework-for-microservices/install-validator/install.so ${GENERATED_OUTPUT_DIRECTORY}/install-validator/install.so || echo "Could not find install.so file, skipping"
+	cp -r ${GOPATH}/src/github.com/dilipmighty245/graph-framework-for-microservices/install-validator/install.so ${GENERATED_OUTPUT_DIRECTORY}/install-validator/install.so || echo "Could not find install.so file, skipping"
 	cp -r _generated/{client,apis,crds,common,clusterroles,nexus-client,helper,nexus-gql,tsm-nexus-gql,model} ${GENERATED_OUTPUT_DIRECTORY}
 	@echo "Nexus Compiler: Compiler code generation completed"
 
@@ -252,7 +251,7 @@ test_generate_code_in_container: docker.builder.image.exists init_submodules
 	cd ../gqlgen && go install && cd - && \
 	make generate_code DATAMODEL_PATH=example/datamodel \
 	CONFIG_FILE=example/nexus-sdk.yaml \
-	CRD_MODULE_PATH="github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/output/generated/" \
+	CRD_MODULE_PATH="github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/" \
 	LOG_LEVEL=trace \
 	GENERATED_OUTPUT_DIRECTORY=example/output/generated && \
 	cd example/output/generated && [ ! -f model/model.go ] || mv model/model.go model/model.tmp && \
@@ -266,7 +265,7 @@ test_generate_code_in_container: docker.builder.image.exists init_submodules
 
 .PHONY: generate_example
 generate_example:
-	$(MAKE) generate_code DATAMODEL_PATH=example/datamodel CONFIG_FILE=example/nexus-sdk.yaml CRD_MODULE_PATH="github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/output/generated/" GENERATED_OUTPUT_DIRECTORY=example/output/generated
+	$(MAKE) generate_code DATAMODEL_PATH=example/datamodel CONFIG_FILE=example/nexus-sdk.yaml CRD_MODULE_PATH="github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/" GENERATED_OUTPUT_DIRECTORY=example/output/generated
 
 .PHONY: show-image-name
 show-image-name:
@@ -303,16 +302,3 @@ test_render_templates: render_templates
     	git diff;\
     	return 1;\
     fi
-
-.PHONY: docker.gitlab_credentials
-docker.gitlab_credentials:
-	echo "Updating gitlab settings";
-	@if test -z $$CICD_TOKEN; then\
-		echo "Using ssh authentication" && \
-		git config --global --add url."git@gitlab.eng.vmware.com:".insteadOf "https://gitlab.eng.vmware.com/"; \
-	else \
-		echo "Using https authentication" && \
-		git config --global credential.helper store && \
-			echo -e  "https://gitlab-ci-token:${CICD_TOKEN}@gitlab.eng.vmware.com/" >> ~/.git-credentials && \
-			git config --global url."https://gitlab.eng.vmware.com/".insteadOf "git@gitlab.eng.vmware.com:"; \
-	fi

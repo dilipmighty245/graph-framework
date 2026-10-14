@@ -4,12 +4,12 @@ import (
 	"flag"
 	"os"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser/rest"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser/rest"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/generator"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser"
 	log "github.com/sirupsen/logrus"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/config"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/generator"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser"
 )
 
 func main() {

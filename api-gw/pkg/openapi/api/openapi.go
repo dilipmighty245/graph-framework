@@ -7,9 +7,9 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 	"github.com/getkin/kin-openapi/openapi3"
 	log "github.com/sirupsen/logrus"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
 

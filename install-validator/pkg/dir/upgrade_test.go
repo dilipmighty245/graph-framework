@@ -7,9 +7,9 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	kubewrapper "github.com/dilipmighty245/graph-framework-for-microservices/install-validator/pkg/k8s-utils"
+	mockkubernetes "github.com/dilipmighty245/graph-framework-for-microservices/install-validator/pkg/k8s-utils/mocks"
 	"github.com/golang/mock/gomock"
-	kubewrapper "github.com/vmware-tanzu/graph-framework-for-microservices/install-validator/pkg/k8s-utils"
-	mockkubernetes "github.com/vmware-tanzu/graph-framework-for-microservices/install-validator/pkg/k8s-utils/mocks"
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
 )

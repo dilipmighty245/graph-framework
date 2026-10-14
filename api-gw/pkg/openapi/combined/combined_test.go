@@ -7,11 +7,11 @@ import (
 	"api-gw/pkg/openapi/declarative"
 	"encoding/json"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 	"github.com/getkin/kin-openapi/openapi3"
 	yamlv1 "github.com/ghodss/yaml"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )

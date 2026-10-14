@@ -1,5 +1,5 @@
 # Compiler
-[![Build Compiler image](https://github.com/vmware-tanzu/graph-framework-for-microservices/actions/workflows/build.yml/badge.svg)](https://github.com/vmware-tanzu/graph-framework-for-microservices/actions/workflows/build.yml)
+[![Build Compiler image](https://github.com/dilipmighty245/graph-framework-for-microservices/actions/workflows/build.yml/badge.svg)](https://github.com/dilipmighty245/graph-framework-for-microservices/actions/workflows/build.yml)
 
 Compiler's main responsibility is to generate code based on provided datamodel. Currently, generated are:
 - CRD yamls with OpenAPI schema,
@@ -25,11 +25,11 @@ Very detailed flow chart
 
 # Run compiler in container
 
-1. Create datamodel based on [docs](https://gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/docs/-/blob/master/getting_started/WorkingWithDatamodel.md)
+1. Create datamodel based on [docs](../docs/getting_started/DatamodelWorkflow.md)
 2. Download compiler image or build in compiler repo using `make docker.builder && make docker` command
 3. Run compiler from your application nexus directory. Specify GROUP_NAME env variable with your CRD group name:
-Your datamodel should be mounted to /go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/datamodel directory, and directory to
-which you would like to generate your files should be mounted to /go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/generated
+Your datamodel should be mounted to /go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/datamodel directory, and directory to
+which you would like to generate your files should be mounted to /go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/generated
 directory. CRD_MODULE_PATH env var will determine import paths for generated files.
 If you follow structure from example above you just need to specify GROUP_NAME and copy rest of following example
 command
@@ -37,17 +37,17 @@ command
 $ cd nexus
 $ GROUP_NAME=helloworld.com && \
 docker run  \
- --volume $(realpath .)/datamodel:/go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/datamodel  \
- --volume $(realpath .)/generated:/go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/generated \
+ --volume $(realpath .)/datamodel:/go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/datamodel  \
+ --volume $(realpath .)/generated:/go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/generated \
  -e CRD_MODULE_PATH=$(go list -m)/nexus/generated/ \
  -e GROUP_NAME=$GROUP_NAME  \
- --workdir /go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/ \
+ --workdir /go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/ \
   nexus-compiler:1ce29d44
 ```
 
 # Run compiler locally
 
-1. Create datamodel based on [docs](https://gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/docs/-/blob/master/getting_started/WorkingWithDatamodel.md)
+1. Create datamodel based on [docs](../docs/getting_started/DatamodelWorkflow.md)
 2. Init submodules by running `make init_submodules` (step required only once)
 3. Install necessary tools by running `make tools` (step required only once)
 4. Specify required env variables:
@@ -56,13 +56,12 @@ docker run  \
 - `GENERATED_OUTPUT_DIRECTORY` - path to which code should be generated
 - `CRD_MODULE_PATH` - name of module to which code should be generated
 5. Run `make generate_code`
-For example to generate code for org-chart datamodel example download it your GOPATH/src/gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/datamodel-examples/ and
-run compiler like this:
+For example, from the compiler directory, generate the included datamodel:
 ```
-DATAMODEL_PATH=${GOPATH}/src/gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/datamodel-examples/org-chart \
-CONFIG_FILE=${DATAMODEL_PATH}/nexus.yaml \
-GENERATED_OUTPUT_DIRECTORY=${DATAMODEL_PATH}/build \
-CRD_MODULE_PATH=gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/datamodel-examples.git/org-chart/build \
+DATAMODEL_PATH=example/datamodel \
+CONFIG_FILE=example/nexus-sdk.yaml \
+GENERATED_OUTPUT_DIRECTORY=example/output/generated \
+CRD_MODULE_PATH=github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/ \
  make generate_code
 ```
 

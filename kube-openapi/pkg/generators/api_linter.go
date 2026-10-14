@@ -24,7 +24,7 @@ import (
 	"os"
 	"sort"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/generators/rules"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/generators/rules"
 
 	"k8s.io/gengo/generator"
 	"k8s.io/gengo/types"

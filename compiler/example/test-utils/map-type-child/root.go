@@ -1,8 +1,8 @@
 package root
 
 import (
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/test-utils/map-type-child/config"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/test-utils/map-type-child/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 type Root struct {

@@ -4,10 +4,7 @@ FROM harbor-repo.vmware.com/nexus/golang:1.18
 ENV GOPATH /go
 ENV PATH $PATH:/usr/local/go/bin:/go/bin
 ENV GO111MODULE=on
-ENV GOPRIVATE=*.vmware.com
-ENV GOPROXY=https://build-artifactory.eng.vmware.com/srp-mds-go-remote,direct
-ENV GONOPROXY=*.eng.vmware.com
-ENV GOINSECURE=golang-appnet.eng.vmware.com
+ENV GOPROXY=https://proxy.golang.org,direct
 
 RUN tdnf -y --refresh install \
   make=4.3-2.ph4 \

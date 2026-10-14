@@ -22,10 +22,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/schemamutation"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/util"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/schemamutation"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/util"
 )
 
 const gvkKey = "x-kubernetes-group-version-kind"

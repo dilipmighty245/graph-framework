@@ -23,7 +23,7 @@ import (
 	"api-gw/pkg/model"
 	"api-gw/pkg/utils"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/common-library/pkg/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/common-library/pkg/nexus"
 )
 
 type DefaultResponse struct {

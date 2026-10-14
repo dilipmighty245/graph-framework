@@ -8,9 +8,9 @@ import (
 	ext "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/client-go/dynamic"
 
-	nexuscompare "github.com/vmware-tanzu/graph-framework-for-microservices/common-library/pkg/nexus-compare"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/install-validator/pkg/dir"
-	kubewrapper "github.com/vmware-tanzu/graph-framework-for-microservices/install-validator/pkg/k8s-utils"
+	nexuscompare "github.com/dilipmighty245/graph-framework-for-microservices/common-library/pkg/nexus-compare"
+	"github.com/dilipmighty245/graph-framework-for-microservices/install-validator/pkg/dir"
+	kubewrapper "github.com/dilipmighty245/graph-framework-for-microservices/install-validator/pkg/k8s-utils"
 )
 
 const (

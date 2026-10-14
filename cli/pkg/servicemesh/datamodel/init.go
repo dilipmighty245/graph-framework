@@ -7,11 +7,11 @@ import (
 
 	"github.com/otiai10/copy"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/log"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/log"
 
+	. "github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/common"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/utils"
 	"github.com/spf13/cobra"
-	. "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/common"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/utils"
 )
 
 const (

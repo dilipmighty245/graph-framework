@@ -1,10 +1,10 @@
 - name: nexusCli
-  repoName: git@gitlab.eng.vmware.com:nsx-allspark_users/nexus-sdk/cli.git
+  repoName: https://github.com/dilipmighty245/graph-framework-for-microservices.git
 - name: nexusAppTemplates
-  repoName: git@gitlab.eng.vmware.com:nsx-allspark_users/nexus-sdk/app-templates.git
+  repoName: https://github.com/dilipmighty245/graph-framework-for-microservices.git
 - name: nexusDatamodelTemplates
-  repoName: git@gitlab.eng.vmware.com:nsx-allspark_users/nexus-sdk/datamodel-templates.git
+  repoName: https://github.com/dilipmighty245/graph-framework-for-microservices.git
 - name: nexusCompiler
-  repoName: git@gitlab.eng.vmware.com:nsx-allspark_users/nexus-sdk/compiler.git
+  repoName: https://github.com/dilipmighty245/graph-framework-for-microservices.git
 - name: nexusValidation
-  repoName: git@gitlab.eng.vmware.com:nsx-allspark_users/nexus-sdk/nexus-validation.git
+  repoName: https://github.com/dilipmighty245/graph-framework-for-microservices.git

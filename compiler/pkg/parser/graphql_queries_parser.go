@@ -4,8 +4,8 @@ import (
 	"go/ast"
 	"strconv"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 	log "github.com/sirupsen/logrus"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
 )
 
 func ParseGraphqlQuerySpecs(pkgs Packages) map[string]nexus.GraphQLQuerySpec {

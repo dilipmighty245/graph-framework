@@ -24,13 +24,13 @@ import (
 	"testing"
 	"time"
 
+	. "github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 	"github.com/go-openapi/jsonreference"
 	"github.com/google/gnostic/compiler"
 	openapi_v2 "github.com/google/gnostic/openapiv2"
 	"github.com/google/go-cmp/cmp"
 	fuzz "github.com/google/gofuzz"
 	"github.com/stretchr/testify/require"
-	. "github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 	"google.golang.org/protobuf/proto"
 	"gopkg.in/yaml.v3"
 )

@@ -31,13 +31,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/common"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/internal/handler"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/spec3"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 	"github.com/golang/protobuf/proto"
 	openapi_v3 "github.com/google/gnostic/openapiv3"
 	"github.com/munnerz/goautoneg"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/common"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/internal/handler"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/spec3"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 )
 
 const (

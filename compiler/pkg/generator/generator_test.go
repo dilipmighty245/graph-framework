@@ -5,17 +5,17 @@ import (
 	"go/format"
 	"os"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/util"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/util"
 	"gopkg.in/yaml.v2"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser/rest"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser/rest"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/generator"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/generator"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser"
 )
 
 const (
@@ -51,7 +51,7 @@ var _ = Describe("Template renderers tests", func() {
 
 	BeforeEach(func() {
 		pkgs = parser.ParseDSLPkg(exampleDSLPath)
-		pkg, ok = pkgs["github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/datamodel/config/gns"]
+		pkg, ok = pkgs["github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/datamodel/config/gns"]
 		Expect(ok).To(BeTrue())
 		graphqlQueries := parser.ParseGraphqlQuerySpecs(pkgs)
 		graph, _, _ := parser.ParseDSLNodes(exampleDSLPath, baseGroupName, pkgs, graphqlQueries)

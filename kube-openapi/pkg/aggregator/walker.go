@@ -19,7 +19,7 @@ package aggregator
 import (
 	"strings"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 )
 
 const (

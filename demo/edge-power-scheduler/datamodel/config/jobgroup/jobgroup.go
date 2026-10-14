@@ -3,7 +3,7 @@ package jobgroup
 import (
 	"powerschedulermodel/config/jobgroup/jobscheduler"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus"
 )
 
 type Jobgroup struct {

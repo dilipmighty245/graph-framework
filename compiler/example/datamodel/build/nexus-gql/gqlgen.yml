@@ -21,15 +21,15 @@ resolver:
 models:
   ID:
     model:
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.ID
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int64
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int32
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.ID
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int64
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int32
   Int:
     model:
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int64
-      - github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen/graphql.Int32
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int64
+      - github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql.Int32
   root_Root:
     fields:
       Config:

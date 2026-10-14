@@ -12,7 +12,6 @@ package common
 import (
 	"embed"
 	"fmt"
-	"os"
 	"time"
 )
 
@@ -72,13 +71,7 @@ var WaitTimeout = 2 * time.Minute
 var NexusGroupSuffix string = ".tsm.vmware.com"
 
 func GetEnvList() []string {
-	return []string{
-		fmt.Sprintf("GOPRIVATE=%s", getGoPrivate()),
-	}
-}
-
-func getGoPrivate() string {
-	return "*.eng.vmware.com," + os.Getenv("GOPRIVATE")
+	return []string{}
 }
 
 type Tags struct {

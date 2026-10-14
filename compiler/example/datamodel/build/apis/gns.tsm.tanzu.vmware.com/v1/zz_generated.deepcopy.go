@@ -22,7 +22,7 @@ limitations under the License.
 package v1
 
 import (
-	v1alpha1 "github.com/vmware-tanzu/cartographer/pkg/apis/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	intstr "k8s.io/apimachinery/pkg/util/intstr"
 )
@@ -521,7 +521,7 @@ func (in *GnsSpec) DeepCopyInto(out *GnsSpec) {
 	in.WorkloadSpec.DeepCopyInto(&out.WorkloadSpec)
 	if in.DifferentSpec != nil {
 		in, out := &in.DifferentSpec, &out.DifferentSpec
-		*out = new(v1alpha1.WorkloadSpec)
+		*out = new(corev1.PodSpec)
 		(*in).DeepCopyInto(*out)
 	}
 	out.ServiceSegmentRef = in.ServiceSegmentRef

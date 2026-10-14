@@ -3,9 +3,9 @@ set -e
 ### Pinning this dependency version for graphql and compiler libraries using similar version to build plugin
 COMPILER_SRC_DIRECTORY=$1
 go mod edit -require sigs.k8s.io/yaml@v1.3.0
-go mod edit -replace github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen=${COMPILER_SRC_DIRECTORY}/../gqlgen
-go mod edit -replace github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi=${COMPILER_SRC_DIRECTORY}/../kube-openapi
-go mod edit -replace github.com/vmware-tanzu/graph-framework-for-microservices/nexus=${COMPILER_SRC_DIRECTORY}/../nexus
+go mod edit -replace github.com/dilipmighty245/graph-framework-for-microservices/gqlgen=${COMPILER_SRC_DIRECTORY}/../gqlgen
+go mod edit -replace github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi=${COMPILER_SRC_DIRECTORY}/../kube-openapi
+go mod edit -replace github.com/dilipmighty245/graph-framework-for-microservices/nexus=${COMPILER_SRC_DIRECTORY}/../nexus
 go mod edit -require github.com/cespare/xxhash/v2@v2.1.2
 go mod edit -require github.com/google/gofuzz@v1.1.0
 go mod edit -require github.com/imdario/mergo@v0.3.12

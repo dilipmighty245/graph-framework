@@ -3,8 +3,8 @@
 package v1
 
 import (
-	cartv1 "github.com/vmware-tanzu/cartographer/pkg/apis/v1alpha1"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
@@ -124,8 +124,8 @@ type GnsSpec struct {
 	OtherDescription          *Description                 `json:"otherDescription" yaml:"otherDescription"`
 	MapPointer                *map[string]string           `json:"mapPointer" yaml:"mapPointer"`
 	SlicePointer              *[]string                    `json:"slicePointer" yaml:"slicePointer"`
-	WorkloadSpec              cartv1.WorkloadSpec          `json:"workloadSpec" yaml:"workloadSpec"`
-	DifferentSpec             *cartv1.WorkloadSpec         `json:"differentSpec" yaml:"differentSpec"`
+	WorkloadSpec              corev1.PodSpec               `json:"workloadSpec" yaml:"workloadSpec"`
+	DifferentSpec             *corev1.PodSpec              `json:"differentSpec" yaml:"differentSpec"`
 	ServiceSegmentRef         ServiceSegmentRef            `json:"serviceSegmentRef,omitempty" yaml:"serviceSegmentRef,omitempty"`
 	ServiceSegmentRefPointer  *ServiceSegmentRef           `json:"serviceSegmentRefPointer,omitempty" yaml:"serviceSegmentRefPointer,omitempty"`
 	ServiceSegmentRefs        []ServiceSegmentRef          `json:"serviceSegmentRefs,omitempty" yaml:"serviceSegmentRefs,omitempty"`

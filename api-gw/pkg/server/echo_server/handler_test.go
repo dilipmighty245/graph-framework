@@ -33,7 +33,7 @@ import (
 	"api-gw/pkg/model"
 	"api-gw/pkg/utils"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 var _ = Describe("Echo server tests", func() {

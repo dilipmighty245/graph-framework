@@ -16,7 +16,7 @@ require (
 require (
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.17.0
-	golang-appnet.eng.vmware.com/nexus-sdk/api v0.0.12-0.20220805055439-bdca7779c44d
+	nexus/admin/api v0.0.12-0.20220805055439-bdca7779c44d
 	k8s.io/api v0.24.2
 )
 
@@ -88,3 +88,5 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.1 // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )
+
+replace nexus/admin/api => ../api

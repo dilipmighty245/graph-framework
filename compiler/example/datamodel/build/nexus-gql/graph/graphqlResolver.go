@@ -15,9 +15,9 @@ import (
 	nexus_client "/build/nexus-client"
 	"/build/nexus-gql/graph/model"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/generated/graphql"
-	qm "github.com/vmware-tanzu/graph-framework-for-microservices/nexus/generated/query-manager"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/generated/graphql"
+	qm "github.com/dilipmighty245/graph-framework-for-microservices/nexus/generated/query-manager"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 var c = GrpcClients{

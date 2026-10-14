@@ -38,16 +38,14 @@ datamodel_build:
 	mkdir -p ${BUILD_DIR}
 	if [ -z $(CONTAINER_ID) ]; then \
 		docker run --pull=missing\
-			--volume $(realpath .):/go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/datamodel/ \
-			-v /go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/datamodel/build/ \
-			--volume $(realpath .)/build:/go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/generated/ \
+			--volume $(realpath .):/go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/datamodel/ \
+			-v /go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/datamodel/build/ \
+			--volume $(realpath .)/build:/go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/generated/ \
 			--volume ~/.ssh:/root/.ssh \
 			--volume ${HOME}/.cache/go-build:/root/.cache/go-build \
 	        -e GOCACHE=/root/.cache/go-build \
 			-e CRD_MODULE_PATH=${CRD_MODULE_PATH} \
 			-e CONFIG_FILE=datamodel/nexus.yaml \
-			-e GOPRIVATE=*.eng.vmware.com \
-			-e GOINSECURE=*.eng.vmware.com \
 			${COMPILER_DOCKER_TAG}; \
 	else \
 		docker run --pull=missing\
@@ -56,9 +54,6 @@ datamodel_build:
 			-e GENERATED_OUTPUT_DIRECTORY=$(DATAMODEL_LOCAL_PATH)/build \
 			-e CONFIG_FILE=${DATAMODEL_LOCAL_PATH}/nexus.yaml \
 			-e CRD_MODULE_PATH=${CRD_MODULE_PATH} \
-			-e GOPRIVATE=*.eng.vmware.com \
-			-e GOINSECURE=*.eng.vmware.com \
-			-e CICD_TOKEN=${CICD_TOKEN} \
 			${COMPILER_DOCKER_TAG}; \
 	fi
 

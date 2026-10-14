@@ -1,4 +1,4 @@
-module gitlab.eng.vmware.com/nexus/controller
+module github.com/dilipmighty245/graph-framework-for-microservices/connector-controller
 
 go 1.18
 
@@ -61,7 +61,7 @@ require (
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.21.0 // indirect
-	golang-appnet.eng.vmware.com/nexus-sdk/api v0.0.20
+	nexus/admin/api v0.0.20
 	golang.org/x/net v0.10.0 // indirect
 	golang.org/x/oauth2 v0.0.0-20211104180415-d3ed0bb246c8 // indirect
 	golang.org/x/sys v0.8.0 // indirect
@@ -83,3 +83,5 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.1 // indirect
 	sigs.k8s.io/yaml v1.3.0
 )
+
+replace nexus/admin/api => ../api

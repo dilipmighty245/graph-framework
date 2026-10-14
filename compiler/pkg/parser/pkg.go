@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/util"
 	"github.com/fatih/structtag"
 	log "github.com/sirupsen/logrus"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/util"
 )
 
 type Packages map[string]Package

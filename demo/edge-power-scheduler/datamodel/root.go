@@ -5,7 +5,7 @@ import (
 	"powerschedulermodel/inventory"
 	"powerschedulermodel/runtimedesiredconfig"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus"
 )
 
 // Simulation scenario for DM demo :

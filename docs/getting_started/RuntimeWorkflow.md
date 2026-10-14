@@ -16,21 +16,10 @@
 
 1. Install Nexus CLI
     ```
-    GOPRIVATE="gitlab.eng.vmware.com" go install gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/cmd/plugin/nexus@master
+    go install github.com/dilipmighty245/graph-framework-for-microservices/cli/cmd/plugin/nexus@latest
     ```
 
-<details><summary>FAQ</summary>
-1. The above command shows unable to connect to gitlab.eng.vmware.com ?
 
-Verify that you have permissions to the repo
-            
-    git ls-remote git@gitlab.eng.vmware.com:nsx-allspark_users/nexus-sdk/cli.git
-
-Update gitconfig to use ssh instead of https
-
-    git config --global url.git@gitlab.eng.vmware.com:.insteadOf https://gitlab.eng.vmware.com
-
-</details>
 
 2. Verify nexus sdk pre-requisites are satisfied
 

@@ -9,9 +9,9 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	generator "github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/generator"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser/rest"
+	generator "github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/generator"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser/rest"
 )
 
 var _ = Describe("Node parser tests", func() {
@@ -123,7 +123,7 @@ var _ = Describe("Node parser tests", func() {
 		}
 
 		pkgs := parser.ParseDSLPkg("../../example/test-utils/nexus-rest-api-gen-wrong-name")
-		pkg, ok := pkgs["github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/test-utils/nexus-rest-api-gen-wrong-name"]
+		pkg, ok := pkgs["github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/test-utils/nexus-rest-api-gen-wrong-name"]
 		Expect(ok).To(BeTrue())
 		graphqlQueries := parser.ParseGraphqlQuerySpecs(pkgs)
 		graph, _, _ := parser.ParseDSLNodes("../../example/test-utils/nexus-rest-api-gen-wrong-name", baseGroupName, pkgs, graphqlQueries)

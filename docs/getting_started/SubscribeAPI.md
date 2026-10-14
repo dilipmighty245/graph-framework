@@ -3,7 +3,7 @@
 Subscribe API feature is to provide a way to create cache for the nexus nodes. If GET and LIST calls will be made frequently for the nexus node then creating cache for the nexus node will be the best thing to avoid making a lot of calls to the api-server and hence to reduce the load to the api-server.
 
 Subscribe API feature in nexus-client library is implemented using informers from k8s generated code.
-Link to see the example of k8s informers generated code https://github.com/vmware-tanzu/graph-framework-for-microservices/tree/main/compiler/example/output/generated/client/informers/externalversions
+Link to see the example of k8s informers generated code https://github.com/dilipmighty245/graph-framework-for-microservices/tree/main/compiler/example/output/generated/client/informers/externalversions
 
 ### Below methods are present in nexus-client library to use Subscribe API feature:
 

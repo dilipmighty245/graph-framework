@@ -99,7 +99,7 @@ lint: ## lint checks using the make targets
 	$(MAKE) vet
 
 go_get:
-	GOINSECURE=*.eng.vmware.com GOPRIVATE=*.eng.vmware.com go get . ;
+	go mod download
 
 ##@ Test
 .PHONY: init-unit-test
@@ -187,7 +187,7 @@ add_operator: install-nexus-kubebuilder
 
 NEXUS-KUBEBUILDER = $(PROJECT_DIR)/bin/nexus-kubebuilder
 install-nexus-kubebuilder:
-	test -s ${PROJECT_DIR}/bin/nexus-kubebuilder || { mkdir -p ${PROJECT_DIR}/bin; cd ${PROJECT_DIR}/bin; GOBIN=${PROJECT_DIR}/bin go install gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/cmd/nexus-kubebuilder@master ; }
+	test -s ${PROJECT_DIR}/bin/nexus-kubebuilder || { mkdir -p ${PROJECT_DIR}/bin; cd ${PROJECT_DIR}/bin; GOBIN=${PROJECT_DIR}/bin go install github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/cmd/nexus-kubebuilder@latest ; }
 
 
 build_manifests:

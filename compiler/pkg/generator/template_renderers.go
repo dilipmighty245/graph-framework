@@ -14,15 +14,15 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 	log "github.com/sirupsen/logrus"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 	"golang.org/x/tools/imports"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser/rest"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/util"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser/rest"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/util"
 )
 
 //go:embed template/doc.go.tmpl

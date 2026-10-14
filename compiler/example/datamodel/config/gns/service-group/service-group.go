@@ -1,7 +1,7 @@
 package servicegroup
 
 import (
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 // nexus-secret-spec:ApiKeySecretSpec

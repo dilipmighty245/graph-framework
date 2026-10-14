@@ -1,7 +1,7 @@
 package v1
 
 import (
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/openapi_generator/test_data/proto"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/openapi_generator/test_data/proto"
 )
 
 // +k8s:openapi-gen=true

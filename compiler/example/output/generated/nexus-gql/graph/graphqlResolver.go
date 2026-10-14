@@ -9,7 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 
-	qm "github.com/vmware-tanzu/graph-framework-for-microservices/nexus/generated/query-manager"
+	qm "github.com/dilipmighty245/graph-framework-for-microservices/nexus/generated/query-manager"
 	nexus_client "nexustempmodule/nexus-client"
 	"nexustempmodule/nexus-gql/graph/model"
 )

@@ -15,7 +15,7 @@ import (
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	handler "gitlab.eng.vmware.com/nsx-allspark_users/m7/handler.git"
+	handler "connector/pkg/handler"
 
 	"connector/controllers"
 	"connector/pkg/utils"

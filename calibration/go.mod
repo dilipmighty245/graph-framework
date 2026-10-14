@@ -1,4 +1,4 @@
-module gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/nexus-calibration
+module github.com/dilipmighty245/graph-framework-for-microservices/calibration
 
 go 1.18
 

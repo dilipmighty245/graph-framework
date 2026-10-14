@@ -30,10 +30,10 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
 
-	api_nexus_org "golang-appnet.eng.vmware.com/nexus-sdk/api/build/apis/api.nexus.org/v1"
-	auth_nexus_org "golang-appnet.eng.vmware.com/nexus-sdk/api/build/apis/authorization.nexus.org/v1"
-	config_nexus_org "golang-appnet.eng.vmware.com/nexus-sdk/api/build/apis/config.nexus.org/v1"
-	nexus_client "golang-appnet.eng.vmware.com/nexus-sdk/api/build/nexus-client"
+	api_nexus_org "nexus/admin/api/build/apis/api.nexus.org/v1"
+	auth_nexus_org "nexus/admin/api/build/apis/authorization.nexus.org/v1"
+	config_nexus_org "nexus/admin/api/build/apis/config.nexus.org/v1"
+	nexus_client "nexus/admin/api/build/nexus-client"
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to

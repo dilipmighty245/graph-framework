@@ -17,7 +17,7 @@ limitations under the License.
 package spec3
 
 import (
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 )
 
 // OpenAPI is an object that describes an API and conforms to the OpenAPI Specification.

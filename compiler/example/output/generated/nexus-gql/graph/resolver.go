@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/generated/graphql"
+	qm "github.com/dilipmighty245/graph-framework-for-microservices/nexus/generated/query-manager"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 	"github.com/golang/protobuf/proto" // nolint: staticcheck
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/generated/graphql"
-	qm "github.com/vmware-tanzu/graph-framework-for-microservices/nexus/generated/query-manager"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/output/generated/nexus-gql/graph/model"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/nexus-gql/graph/model"
 )
 
 type Resolver struct{}

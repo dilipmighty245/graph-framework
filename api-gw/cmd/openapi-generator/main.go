@@ -13,8 +13,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 	yamlv1 "github.com/ghodss/yaml"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
 

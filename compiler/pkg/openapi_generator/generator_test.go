@@ -13,11 +13,11 @@ import (
 
 	extensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 
-	pkg_generator "github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/generator"
-	generator "github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/openapi_generator"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/openapi_generator/test_data/openapi"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/common"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
+	pkg_generator "github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/generator"
+	generator "github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/openapi_generator"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/openapi_generator/test_data/openapi"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/common"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 )
 
 var _ = Describe("Generator", func() {
@@ -47,7 +47,7 @@ var _ = Describe("Generator", func() {
 		gen, err := generator.NewGenerator(openapi.GetOpenAPIDefinitions(ref))
 		Expect(err).NotTo(HaveOccurred())
 
-		namePrefix := "github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/openapi_generator/test_data"
+		namePrefix := "github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/openapi_generator/test_data"
 		gen.SetNamePrefix(namePrefix)
 
 		oneOfDefinition := common.OpenAPIDefinition{

@@ -16,7 +16,7 @@ import (
 	middlewarenexusv1 "nexus/admin/api/build/apis/domain.admin.nexus.com/v1"
 	tenantv1 "nexus/admin/api/build/apis/tenantconfig.admin.nexus.com/v1"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 // adding this global variables for CORS to support multiple domain and header configuration

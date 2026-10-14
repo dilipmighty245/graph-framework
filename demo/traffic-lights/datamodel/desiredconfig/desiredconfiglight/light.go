@@ -3,7 +3,7 @@ package desiredconfiglight
 import (
 	"trafficlight/common"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 var DesiredConfigLightRestAPISpec = nexus.RestAPISpec{

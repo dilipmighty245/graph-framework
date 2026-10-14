@@ -65,7 +65,7 @@ Copy & paste the below code snippet to file root.go in the datamodel directory
 package root
 
 import (
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 type SockShop struct {

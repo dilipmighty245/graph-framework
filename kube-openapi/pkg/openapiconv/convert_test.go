@@ -23,8 +23,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/spec3"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/spec3"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 )
 
 func TestConvert(t *testing.T) {

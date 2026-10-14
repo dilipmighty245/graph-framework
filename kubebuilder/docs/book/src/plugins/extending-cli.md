@@ -18,13 +18,13 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/cli"
-	cfgv3 "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config/v3"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugin"
-	kustomizecommonv1 "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/common/kustomize/v1"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang"
-	declarativev1 "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/declarative/v1"
-	golangv3 "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/v3"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/cli"
+	cfgv3 "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config/v3"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugin"
+	kustomizecommonv1 "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/common/kustomize/v1"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang"
+	declarativev1 "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/declarative/v1"
+	golangv3 "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/v3"
 
 )
 
@@ -199,15 +199,15 @@ kubebuider init --plugins=myplugin.example/v1
 - And then, runs init sub-command of the plugin C 
 
 [project-file-config]: ../reference/project-config.md
-[plugin-interface]: https://pkg.go.dev/gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugin#Plugin
-[go-dev-doc]: https://pkg.go.dev/gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git
-[plugin-sub-command]: https://pkg.go.dev/gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugin#Subcommand
+[plugin-interface]: https://pkg.go.dev/github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugin#Plugin
+[go-dev-doc]: https://pkg.go.dev/github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder
+[plugin-sub-command]: https://pkg.go.dev/github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugin#Subcommand
 [project-file]: ../reference/project-config.md
-[plugin-subc]: https://pkg.go.dev/gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugin#Subcommand
+[plugin-subc]: https://pkg.go.dev/github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugin#Subcommand
 [cobra]:https://pkg.go.dev/github.com/spf13/cobra
-[kb-go-plugin]: https://pkg.go.dev/gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/v3
-[bundle-plugin-doc]: https://pkg.go.dev/gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugin#Bundle
-[deprecate-plugin-doc]: https://pkg.go.dev/gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugin#Deprecated
-[plugin-update-meta]: https://pkg.go.dev/gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugin#UpdatesMetadata
-[cli]: https://pkg.go.dev/gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/cli
-[plugin-version-type]: https://pkg.go.dev/gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugin#Version
+[kb-go-plugin]: https://pkg.go.dev/github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/v3
+[bundle-plugin-doc]: https://pkg.go.dev/github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugin#Bundle
+[deprecate-plugin-doc]: https://pkg.go.dev/github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugin#Deprecated
+[plugin-update-meta]: https://pkg.go.dev/github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugin#UpdatesMetadata
+[cli]: https://pkg.go.dev/github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/cli
+[plugin-version-type]: https://pkg.go.dev/github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugin#Version

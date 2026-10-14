@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"authz-controller/pkg/utils"
-	auth_nexus_org "golang-appnet.eng.vmware.com/nexus-sdk/api/build/apis/authorization.nexus.org/v1"
+	auth_nexus_org "nexus/admin/api/build/apis/authorization.nexus.org/v1"
 )
 
 // ResourceRoleBindingReconciler reconciles ResourceRoleBinding object

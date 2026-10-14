@@ -17,7 +17,7 @@ limitations under the License.
 package schemamutation
 
 import (
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 )
 
 // Walker runs callback functions on all references of an OpenAPI spec,

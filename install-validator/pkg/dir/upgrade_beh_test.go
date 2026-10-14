@@ -11,14 +11,14 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 
-	nexus_compare "github.com/vmware-tanzu/graph-framework-for-microservices/common-library/pkg/nexus-compare"
+	nexus_compare "github.com/dilipmighty245/graph-framework-for-microservices/common-library/pkg/nexus-compare"
 
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
+	kubewrapper "github.com/dilipmighty245/graph-framework-for-microservices/install-validator/pkg/k8s-utils"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	kubewrapper "github.com/vmware-tanzu/graph-framework-for-microservices/install-validator/pkg/k8s-utils"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 )

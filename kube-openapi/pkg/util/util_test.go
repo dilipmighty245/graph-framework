@@ -47,8 +47,8 @@ func TestGetCanonicalTypeName(t *testing.T) {
 		input    interface{}
 		expected string
 	}{
-		{TestType{}, "github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/util.TestType"},
-		{&TestType{}, "github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/util.TestType"},
+		{TestType{}, "github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/util.TestType"},
+		{&TestType{}, "github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/util.TestType"},
 	}
 	for _, test := range tests {
 		if got := GetCanonicalTypeName(test.input); got != test.expected {

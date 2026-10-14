@@ -3,10 +3,10 @@ package config
 import (
 	"net/http"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/datamodel/config/gns"
-	servicegroup "github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/datamodel/config/gns/service-group"
-	py "github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/datamodel/config/policy"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/datamodel/config/gns"
+	servicegroup "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/datamodel/config/gns/service-group"
+	py "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/datamodel/config/policy"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 var nonNexusValue = 1

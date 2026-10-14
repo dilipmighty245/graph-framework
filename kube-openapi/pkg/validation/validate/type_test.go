@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/strfmt"
 	"github.com/stretchr/testify/assert"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/strfmt"
 )
 
 type expectedJSONType struct {

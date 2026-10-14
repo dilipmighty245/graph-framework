@@ -1,8 +1,8 @@
 package policypkg
 
 import (
-	servicegroup "github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/datamodel/config/gns/service-group"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	servicegroup "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/datamodel/config/gns/service-group"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 type AccessControlPolicy struct {

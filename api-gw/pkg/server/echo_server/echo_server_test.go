@@ -15,8 +15,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 	"github.com/labstack/echo/v4"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
 
 	apinexusv1 "nexus/admin/api/build/apis/api.admin.nexus.com/v1"
 	confignexusv1 "nexus/admin/api/build/apis/config.admin.nexus.com/v1"

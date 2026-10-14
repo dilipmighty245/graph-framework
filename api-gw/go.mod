@@ -31,8 +31,8 @@ require (
 	github.com/levigross/grequests v0.0.0-20221222020224-9eee758d18d5
 	github.com/mwitkow/grpc-proxy v0.0.0-20230212185441-f345521cb9c9
 	github.com/pkg/errors v0.9.1
-	github.com/vmware-tanzu/graph-framework-for-microservices/common-library v0.0.0-20221020140923-7deb4d75cfcf
-	github.com/vmware-tanzu/graph-framework-for-microservices/nexus v0.0.0-20230908154608-60c8916a498f
+	github.com/dilipmighty245/graph-framework-for-microservices/common-library v0.0.0-20221020140923-7deb4d75cfcf
+	github.com/dilipmighty245/graph-framework-for-microservices/nexus v0.0.0-20230908154608-60c8916a498f
 	google.golang.org/grpc v1.58.2
 	google.golang.org/protobuf v1.31.0
 	k8s.io/api v0.28.2
@@ -121,3 +121,7 @@ require (
 )
 
 replace nexus/admin/api => ../api
+
+replace github.com/dilipmighty245/graph-framework-for-microservices/common-library => ../common-library
+
+replace github.com/dilipmighty245/graph-framework-for-microservices/nexus => ../nexus

@@ -11,11 +11,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/config"
 	"k8s.io/utils/strings/slices"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/util"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/util"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 
 	log "github.com/sirupsen/logrus"
 )

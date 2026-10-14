@@ -20,7 +20,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/internal/handler"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/internal/handler"
 )
 
 func TestCache(t *testing.T) {

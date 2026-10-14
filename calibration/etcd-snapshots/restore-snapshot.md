@@ -6,7 +6,7 @@ export NAMESPACE=<NAMESPACE>
 export SNAPSHOT_NAME=<SNAPSHOT_NAME>
 ```
 
-1. Take a etcd backup if dont't find required snapshots [here](https://gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/nexus-calibration/-/tree/master/etcd-snapshots)
+1. Take a etcd backup if dont't find required snapshots [here](https://github.com/dilipmighty245/graph-framework-for-microservices/calibration/-/tree/master/etcd-snapshots)
 ```shell
 kubectl port-forward svc/nexus-etcd 2379:2379 -n "$NAMESPACE" 
 ETCDCTL_API=3 etcdctl --endpoints http://localhost:2379 snapshot save "$SNAPSHOT_NAME"

@@ -1,5 +1,5 @@
 DOCKER_GO_PATH ?= /go
-DOCKER_BUILD_MOUNT_DIR ?= ${DOCKER_GO_PATH}/src/github.com/vmware-tanzu/graph-framework-for-microservices
+DOCKER_BUILD_MOUNT_DIR ?= ${DOCKER_GO_PATH}/src/github.com/dilipmighty245/graph-framework-for-microservices
 NAMESPACE ?= default
 CLI_DIR ?= cli
 HOST_KUBECONFIG ?= ${HOME}/.kube/config

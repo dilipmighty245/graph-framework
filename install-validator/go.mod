@@ -1,4 +1,4 @@
-module github.com/vmware-tanzu/graph-framework-for-microservices/install-validator
+module github.com/dilipmighty245/graph-framework-for-microservices/install-validator
 
 go 1.19
 
@@ -7,7 +7,7 @@ require (
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.20.2
 	github.com/sirupsen/logrus v1.8.1
-	github.com/vmware-tanzu/graph-framework-for-microservices/common-library v0.0.0-20221130051552-34fc418458a3
+	github.com/dilipmighty245/graph-framework-for-microservices/common-library v0.0.0-20221130051552-34fc418458a3
 	k8s.io/apiextensions-apiserver v0.25.4
 	k8s.io/apimachinery v0.25.4
 	k8s.io/client-go v0.25.4
@@ -76,4 +76,4 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 )
 
-replace github.com/vmware-tanzu/graph-framework-for-microservices/common-library => ../common-library
+replace github.com/dilipmighty245/graph-framework-for-microservices/common-library => ../common-library

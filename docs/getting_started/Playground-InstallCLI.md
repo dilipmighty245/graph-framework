@@ -9,7 +9,7 @@
 Let's start by installing Nexus CLI.
 
 ```
-curl -fsSL https://raw.githubusercontent.com/vmware-tanzu/graph-framework-for-microservices/main/cli/get-nexus-cli.sh -o get-nexus-cli.sh
+curl -fsSL https://raw.githubusercontent.com/dilipmighty245/graph-framework-for-microservices/main/cli/get-nexus-cli.sh -o get-nexus-cli.sh
 sudo bash get-nexus-cli.sh --no-prompt
 ```
 

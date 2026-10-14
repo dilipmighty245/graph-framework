@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/log"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/servicemesh/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/servicemesh/upgrade"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/servicemesh/version"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/utils"
 	"github.com/spf13/cobra"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/log"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/servicemesh/config"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/servicemesh/upgrade"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/servicemesh/version"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/utils"
 )
 
 func RootPreRun(cmd *cobra.Command, args []string) error {

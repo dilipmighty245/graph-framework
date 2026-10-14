@@ -11,8 +11,8 @@ import (
 
 	nexus_client "nexus/admin/api/build/nexus-client"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/common-library/pkg/nexus"
 	log "github.com/sirupsen/logrus"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/common-library/pkg/nexus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"

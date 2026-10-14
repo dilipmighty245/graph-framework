@@ -23,10 +23,10 @@ import (
 	"strings"
 	"testing"
 
+	openapi "github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/common"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 	"github.com/emicklei/go-restful"
 	"github.com/stretchr/testify/assert"
-	openapi "github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/common"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 )
 
 // setUp is a convenience function for setting up for (most) tests.
@@ -212,9 +212,9 @@ func getConfig(fullMethods bool) (*openapi.Config, *restful.Container) {
 		},
 		GetDefinitions: func(_ openapi.ReferenceCallback) map[string]openapi.OpenAPIDefinition {
 			return map[string]openapi.OpenAPIDefinition{
-				"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/builder.TestInput":             *TestInput{}.OpenAPIDefinition(),
-				"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/builder.TestOutput":            *TestOutput{}.OpenAPIDefinition(),
-				"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/builder.TestExtensionV2Schema": *TestExtensionV2Schema{}.OpenAPIDefinition(),
+				"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/builder.TestInput":             *TestInput{}.OpenAPIDefinition(),
+				"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/builder.TestOutput":            *TestOutput{}.OpenAPIDefinition(),
+				"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/builder.TestExtensionV2Schema": *TestExtensionV2Schema{}.OpenAPIDefinition(),
 			}
 		},
 		GetDefinitionName: func(name string) (string, spec.Extensions) {

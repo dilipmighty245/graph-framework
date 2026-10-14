@@ -66,17 +66,15 @@ datamode_build_local_template:
     fi ;\
 
 	docker run --pull=missing\
-		--volume $(realpath .):/go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/datamodel/ \
-		-v /go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/datamodel/build/ \
-		--volume $(realpath .)/build:/go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/generated/ \
-		--volume $(realpath ../../..)/compiler/pkg/generator/template:/go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/generator/template \
+		--volume $(realpath .):/go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/datamodel/ \
+		-v /go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/datamodel/build/ \
+		--volume $(realpath .)/build:/go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/generated/ \
+		--volume $(realpath ../../..)/compiler/pkg/generator/template:/go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/generator/template \
 		--volume ~/.ssh:/root/.ssh \
 		--volume ${HOME}/.cache/go-build:/root/.cache/go-build \
 		-e GOCACHE=/root/.cache/go-build \
 		-e CRD_MODULE_PATH=${CRD_MODULE_PATH} \
 		-e CONFIG_FILE=datamodel/nexus.yaml \
-		-e GOPRIVATE=*.eng.vmware.com \
-		-e GOINSECURE=*.eng.vmware.com \
 		-e FORCE=$(FORCE) \
 		${COMPILER_DOCKER_TAG} /bin/bash -c 'make generate_code && chown -R $(shell id -u):$(shell id -g) .;'; \
 
@@ -99,16 +97,14 @@ datamodel_build:
 
 	if [ -z $(CONTAINER_ID) ]; then \
 		docker run --pull=missing\
-			--volume $(realpath .):/go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/datamodel/ \
-			-v /go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/datamodel/build/ \
-			--volume $(realpath .)/build:/go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/generated/ \
+			--volume $(realpath .):/go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/datamodel/ \
+			-v /go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/datamodel/build/ \
+			--volume $(realpath .)/build:/go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/generated/ \
 			--volume ~/.ssh:/root/.ssh \
 			--volume ${HOME}/.cache/go-build:/root/.cache/go-build \
 			-e GOCACHE=/root/.cache/go-build \
 			-e CRD_MODULE_PATH=${CRD_MODULE_PATH} \
 			-e CONFIG_FILE=datamodel/nexus.yaml \
-			-e GOPRIVATE=*.eng.vmware.com \
-			-e GOINSECURE=*.eng.vmware.com \
 			-e FORCE=$(FORCE) \
 			${COMPILER_DOCKER_TAG} /bin/bash -c 'make generate_code && chown -R $(shell id -u):$(shell id -g) .;'; \
 	else \
@@ -118,9 +114,6 @@ datamodel_build:
 			-e GENERATED_OUTPUT_DIRECTORY=$(DATAMODEL_LOCAL_PATH)/build \
 			-e CONFIG_FILE=${DATAMODEL_LOCAL_PATH}/nexus.yaml \
 			-e CRD_MODULE_PATH=${CRD_MODULE_PATH} \
-			-e GOPRIVATE=*.eng.vmware.com \
-			-e GOINSECURE=*.eng.vmware.com \
-			-e CICD_TOKEN=${CICD_TOKEN} \
 			-e FORCE=${FORCE} \
 			--user root:root \
 			-e FORCE=$(FORCE) \

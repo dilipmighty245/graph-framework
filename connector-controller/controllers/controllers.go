@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/yaml"
 
-	nxv1 "golang-appnet.eng.vmware.com/nexus-sdk/api/build/apis/connect.admin.nexus.com/v1"
+	nxv1 "nexus/admin/api/build/apis/connect.admin.nexus.com/v1"
 )
 
 const (

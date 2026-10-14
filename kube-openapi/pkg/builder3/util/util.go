@@ -19,8 +19,8 @@ package util
 import (
 	"reflect"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/schemamutation"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/schemamutation"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 )
 
 // wrapRefs wraps OpenAPI V3 Schema refs that contain sibling elements.

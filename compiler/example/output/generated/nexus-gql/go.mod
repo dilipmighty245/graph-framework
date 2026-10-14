@@ -1,4 +1,4 @@
-module github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/output/generated/nexus-gql
+module github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/nexus-gql
 
 go 1.18
 
@@ -9,8 +9,8 @@ require (
 	github.com/rs/cors v1.11.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/vektah/gqlparser/v2 v2.5.17
-	github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen v0.0.0-00010101000000-000000000000
-	github.com/vmware-tanzu/graph-framework-for-microservices/nexus v0.0.0-20230226005144-24336fc988d5
+	github.com/dilipmighty245/graph-framework-for-microservices/gqlgen v0.0.0-00010101000000-000000000000
+	github.com/dilipmighty245/graph-framework-for-microservices/nexus v0.0.0-20230226005144-24336fc988d5
 	google.golang.org/grpc v1.59.0
 	k8s.io/client-go v0.26.3
 	nexustempmodule v0.0.0-00010101000000-000000000000
@@ -54,7 +54,6 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/urfave/cli/v2 v2.8.1 // indirect
-	github.com/vmware-tanzu/cartographer v0.3.0 // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	golang.org/x/mod v0.8.0 // indirect
 	golang.org/x/net v0.17.0 // indirect
@@ -83,8 +82,8 @@ require (
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )
 
-replace github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen => /go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/../gqlgen
+replace github.com/dilipmighty245/graph-framework-for-microservices/gqlgen => /go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/../gqlgen
 
-replace github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi => /go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/../kube-openapi
+replace github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi => /go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/../kube-openapi
 
-replace github.com/vmware-tanzu/graph-framework-for-microservices/nexus => /go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/../nexus
+replace github.com/dilipmighty245/graph-framework-for-microservices/nexus => /go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/../nexus

@@ -10,8 +10,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/config"
 	log "github.com/sirupsen/logrus"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/config"
 )
 
 // ParseDSLPkg walks recursively through given path and looks for structs types definitions to add them to a Package map

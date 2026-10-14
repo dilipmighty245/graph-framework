@@ -1,13 +1,13 @@
 package generator_test
 
 import (
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/config"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/generator"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/generator"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser"
 )
 
 var _ = Describe("Template renderers tests", func() {
@@ -71,7 +71,7 @@ var _ = Describe("Template renderers tests", func() {
 	})
 
 	It("should validate the import pkg and translate to graphql schema and resolver typeName", func() {
-		pkg := pkgs["github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/datamodel/config/gns"]
+		pkg := pkgs["github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/datamodel/config/gns"]
 		schemaTypeName, resolverTypeName := generator.ValidateImportPkg(pkg.Name, "servicegroup.SvcGroup", pkg.GetImportMap(), pkgs)
 
 		Expect(pkg.Name).To(Equal("gns"))

@@ -19,9 +19,9 @@ import (
 	"reflect"
 	"unicode/utf8"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/errors"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/strfmt"
 	"github.com/go-openapi/swag"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/errors"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/strfmt"
 )
 
 // Enum validates if the data is a member of the enum

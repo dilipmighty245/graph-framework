@@ -3,7 +3,7 @@ package edgedc
 import (
 	"powerschedulermodel/runtimedesiredconfig/sitedc/edgedc/jobmgmt"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus"
 )
 
 var EdgeDCRestAPISpec = nexus.RestAPISpec{

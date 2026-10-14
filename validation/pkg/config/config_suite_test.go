@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 	log "github.com/sirupsen/logrus"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/validation.git/pkg/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/validation/pkg/config"
 )
 
 func TestHandlers(t *testing.T) {

@@ -19,7 +19,7 @@ package plugin
 import (
 	"strings"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config"
 )
 
 // FilterPluginsByKey returns the set of plugins that match the provided key (may be not-fully qualified)

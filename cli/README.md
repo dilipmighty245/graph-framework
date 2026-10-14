@@ -48,9 +48,8 @@ tanzu plugin install builder
 <h1>3. Checkout Repo</h1>
 
 ```
-git clone git@gitlab.eng.vmware.com:nexus/cli.git
-cd cli
-git checkout nexus-cli-dev
+git clone https://github.com/dilipmighty245/graph-framework-for-microservices.git
+cd graph-framework-for-microservices/cli
 ```
 
 <h1>4. Make</h1>
@@ -184,7 +183,6 @@ Note:
 
 <h1>7. GNS</h1>
 <h2>Create GNS</h2>
-Example GNS YAML file : https://gitlab.eng.vmware.com/nsx-allspark_users/tsm-cli/-/blob/TSM-3661-decalartive-api/gns-test.yaml
 
 ```
 metadata:
@@ -227,7 +225,6 @@ Retrieve the external_dns_id from API Explorer
 <h3>Create GNS Public Service</h3>
 <h4>Create Health-Check-Id</h4>
 
-Example Yaml :  https://gitlab.eng.vmware.com/nsx-allspark_users/tsm-cli/-/blob/TSM-3661-decalartive-api/health-checks-test.yaml
 
 ```
 metadata:
@@ -250,7 +247,6 @@ tanzu servicemesh apply -f health-checks-test.yaml
 
 <h5>Create GNS Public Service</h6>
 
-Example Yaml File : https://gitlab.eng.vmware.com/nsx-allspark_users/tsm-cli/-/blob/TSM-3661-decalartive-api/public-service-test.yaml
 ```
 metadata:
   project: default
@@ -278,7 +274,6 @@ spec:
 tanzu servicemesh apply -f public-service-test.yaml
 ```
 <h6>Create Route to GNS Public Service</h6>
-Example Yaml file: https://gitlab.eng.vmware.com/nsx-allspark_users/tsm-cli/-/blob/TSM-3661-decalartive-api/route-test.yaml
 
 ```
 metadata:

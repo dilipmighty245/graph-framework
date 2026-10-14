@@ -20,10 +20,10 @@ import (
 	"testing"
 
 	// Spec loading
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/strfmt"   // OpenAPI format extensions
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/validate" // This package
 	"github.com/stretchr/testify/require"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/strfmt"   // OpenAPI format extensions
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/validate" // This package
 )
 
 func ExampleAgainstSchema() {

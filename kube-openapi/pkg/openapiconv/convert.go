@@ -19,9 +19,9 @@ package openapiconv
 import (
 	"strings"
 
-	builderutil "github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/builder3/util"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/spec3"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
+	builderutil "github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/builder3/util"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/spec3"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 	klog "k8s.io/klog/v2"
 )
 

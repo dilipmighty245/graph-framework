@@ -1,7 +1,7 @@
 package build
 
 import (
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 // BuildTestStruct struct is in build directory and should be ignored by parser

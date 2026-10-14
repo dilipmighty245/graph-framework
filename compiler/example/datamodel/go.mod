@@ -1,9 +1,11 @@
-module github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/datamodel
+module github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/datamodel
 
 go 1.16
 
 require (
-	github.com/vmware-tanzu/cartographer v0.3.0
-	github.com/vmware-tanzu/graph-framework-for-microservices/nexus v0.0.0-20230226005144-24336fc988d5
-	golang.org/x/net v0.7.0 // indirect
+	github.com/dilipmighty245/graph-framework-for-microservices/nexus v0.0.0-20230226005144-24336fc988d5
+	k8s.io/api v0.26.3
+	k8s.io/apimachinery v0.26.3
 )
+
+replace github.com/dilipmighty245/graph-framework-for-microservices/nexus => ../../../nexus

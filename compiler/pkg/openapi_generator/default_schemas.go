@@ -3,8 +3,8 @@ package openapi_generator
 import (
 	"fmt"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/common"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/common"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 )
 
 const (
@@ -350,7 +350,7 @@ func k8sAPIMachineryTypeName(name string) string {
 }
 
 func kavachTypeName(name string) string { //nolint:deadcode,unused
-	return fmt.Sprintf("github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/%v", name)
+	return fmt.Sprintf("github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/%v", name)
 }
 
 func envoyTypeName(name string) string {
@@ -358,7 +358,7 @@ func envoyTypeName(name string) string {
 }
 
 func nexusTypeName(name string) string {
-	return fmt.Sprintf("github.com/vmware-tanzu/graph-framework-for-microservices/nexus/%v", name)
+	return fmt.Sprintf("github.com/dilipmighty245/graph-framework-for-microservices/nexus/%v", name)
 }
 
 func schemaForOneOf(schemas ...common.OpenAPIDefinition) common.OpenAPIDefinition {

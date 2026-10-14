@@ -3,7 +3,7 @@ package desiredconfig
 import (
 	"trafficlight/desiredconfig/desiredconfiglight"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 type DesiredConfig struct {

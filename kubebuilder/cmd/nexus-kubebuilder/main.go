@@ -19,15 +19,15 @@ package main
 import (
 	"log"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/cli"
-	cfgv2 "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config/v2"
-	cfgv3 "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config/v3"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugin"
-	kustomizecommonv1 "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/common/kustomize/v1"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang"
-	declarativev1 "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/declarative/v1"
-	golangv2 "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/v2"
-	golangv3 "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/v3"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/cli"
+	cfgv2 "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config/v2"
+	cfgv3 "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config/v3"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugin"
+	kustomizecommonv1 "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/common/kustomize/v1"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang"
+	declarativev1 "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/declarative/v1"
+	golangv2 "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/v2"
+	golangv3 "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/v3"
 )
 
 func main() {

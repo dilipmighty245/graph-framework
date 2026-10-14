@@ -1,6 +1,6 @@
 package perftest
 
-import "github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+import "github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 
 var PerfTestRestAPISpec = nexus.RestAPISpec{
 	Uris: []nexus.RestURIs{

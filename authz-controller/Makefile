@@ -1,6 +1,6 @@
 DEBUG ?= FALSE
 
-GO_PROJECT_NAME ?= authz-controller.git
+GO_PROJECT_NAME ?= authz-controller
 BUCKET_NAME ?= nexus-template-downloads
 
 ECR_DOCKER_REGISTRY ?= 284299419820.dkr.ecr.us-west-2.amazonaws.com/nexus
@@ -11,17 +11,14 @@ TAG ?= $(shell git rev-parse --verify HEAD)
 BUILDER_NAME ?= ${IMAGE_NAME}-builder
 BUILDER_TAG := $(shell md5sum builder/Dockerfile | awk '{ print $1 }' | head -c 8)
 
-PKG_NAME ?= /go/src/gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/${GO_PROJECT_NAME}
+PKG_NAME ?= /go/src/github.com/dilipmighty245/graph-framework-for-microservices/${GO_PROJECT_NAME}
 
 ifeq ($(CONTAINER_ID),)
 define run_in_container
   docker run \
   --volume ~/.ssh:/root/.ssh \
-  --volume $(realpath .):/go/src/gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/authz-controller.git/ \
+  --volume $(realpath .):/go/src/github.com/dilipmighty245/graph-framework-for-microservices/authz-controller/ \
   --workdir ${PKG_NAME} \
-  --env GOPRIVATE="*.eng.vmware.com" \
-  --env GOINSECURE=*.eng.vmware.com \
-  --env CICD_TOKEN=${CICD_TOKEN} \
   "${BUILDER_NAME}:${BUILDER_TAG}" /bin/bash -c "make cred_setup && ${1}"
 endef
 else
@@ -29,9 +26,6 @@ define run_in_container
  docker run \
  --volumes-from ${CONTAINER_ID} \
  --workdir ${PKG_NAME} \
- --env CICD_TOKEN=${CICD_TOKEN} \
- --env GOPRIVATE=*.eng.vmware.com \
- --env GOINSECURE=*.eng.vmware.com \
  "${BUILDER_NAME}:${BUILDER_TAG}" /bin/bash -c "make cred_setup && ${1}"
 endef
 endif
@@ -128,13 +122,4 @@ publish_template: build_template
 	gsutil cp authz-controller-manifests.tar gs://${BUCKET_NAME}/${TAG}/
 
 cred_setup:
-	if [ -z ${CICD_TOKEN} ]	;then \
-		chmod -R 0600 ~/.ssh/* &&\
-        git config --global --add url."git@gitlab.eng.vmware.com:".insteadOf "https://gitlab.eng.vmware.com/" &&\
-        go mod tidy && go mod download ;\
-	else \
-        echo "https://gitlab-ci-token:${CICD_TOKEN}@gitlab.eng.vmware.com" >> ~/.git-credentials && \
-        git config --global credential.helper store && \
-        go mod tidy && go mod download ;\
-    fi
-
+	go mod download

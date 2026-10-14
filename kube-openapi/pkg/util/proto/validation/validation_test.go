@@ -24,9 +24,9 @@ import (
 	. "github.com/onsi/gomega"
 	"sigs.k8s.io/yaml"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/util/proto"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/util/proto/testing"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/util/proto/validation"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/util/proto"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/util/proto/testing"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/util/proto/validation"
 )
 
 var fakeSchema = testing.Fake{Path: filepath.Join("..", "testdata", "swagger.json")}

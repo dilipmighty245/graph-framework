@@ -23,8 +23,8 @@ import (
 
 	yaml "gopkg.in/yaml.v2"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/util/proto"
-	prototesting "github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/util/proto/testing"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/util/proto"
+	prototesting "github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/util/proto/testing"
 )
 
 func TestToSchema(t *testing.T) {

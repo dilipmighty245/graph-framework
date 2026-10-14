@@ -8,10 +8,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 
-	handler "gitlab.eng.vmware.com/nsx-allspark_users/m7/handler.git"
+	handler "connector/pkg/handler"
 
 	"connector/controllers"
 	"connector/pkg/config"
@@ -36,7 +35,7 @@ func Start(cache *controllers.GvrCache) {
 
 func StartControllers(conf *config.Config, cache *controllers.GvrCache, stopCh chan struct{}) {
 	log.Infoln("Starting Controllers...")
-	localAPI, localDynamicAPI, err := utils.SetUpAPIs()
+	_, localDynamicAPI, err := utils.SetUpAPIs()
 	if err != nil {
 		log.Fatalf("Error creating APIs: %v", err)
 		return
@@ -66,7 +65,6 @@ func StartControllers(conf *config.Config, cache *controllers.GvrCache, stopCh c
 			handler := handlers.NewRemoteHandler(gvr, localDynamicAPI, remoteDynamicClient, conf)
 			c := newController(
 				fmt.Sprintf("controller-%s", gvr),
-				localAPI,
 				informer,
 				handler,
 				conf)
@@ -81,7 +79,7 @@ func StartControllers(conf *config.Config, cache *controllers.GvrCache, stopCh c
 
 func StartReplicationConfigController(conf *config.Config, stopCh chan struct{}) {
 	log.Info("Starting ReplicationConfig Controller...")
-	localAPI, localDynamicAPI, err := utils.SetUpAPIs()
+	_, localDynamicAPI, err := utils.SetUpAPIs()
 	if err != nil {
 		log.Fatalf("Error creating APIs: %v", err)
 		return
@@ -92,27 +90,20 @@ func StartReplicationConfigController(conf *config.Config, stopCh chan struct{})
 	handler := handlers.NewReplicationConfigHandler(gvr, conf, localDynamicAPI)
 	c := newController(
 		fmt.Sprintf("controller-%s", utils.ReplicationConfigCRD),
-		localAPI,
 		informer,
 		handler,
 		conf)
 	go c.Run(stopCh)
 }
 
-func newController(name string, client kubernetes.Interface,
-	informer cache.SharedIndexInformer, handl handler.Handler,
+func newController(name string, informer cache.SharedIndexInformer, handl handler.Handler,
 	conf *config.Config) *handler.Controller {
-	return handler.NewParallelController(
+	return handler.NewController(
 		name,
-		client,
 		informer,
 		handl,
-		conf.Dispatcher.WorkerTTL,
 		conf.Dispatcher.MaxWorkerCount,
-		conf.Dispatcher.CloseRequestsQueueSize,
-		conf.Dispatcher.EventProcessedQueueSize,
-		conf.IgnoredNamespaces.MatchNames,
-		nil)
+		conf.IgnoredNamespaces.MatchNames)
 }
 
 func getInformer(gvr schema.GroupVersionResource) cache.SharedIndexInformer {

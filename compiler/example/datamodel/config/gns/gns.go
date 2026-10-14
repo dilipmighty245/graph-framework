@@ -3,13 +3,13 @@ package gns
 import (
 	"net/http"
 
-	cartv1 "github.com/vmware-tanzu/cartographer/pkg/apis/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
-	service_group "github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/datamodel/config/gns/service-group"
-	policypkg "github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/datamodel/config/policy"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
-	optional_parent_path_param "github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/datamodel/config/gns/optionalparentpathparam"
+	optional_parent_path_param "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/datamodel/config/gns/optionalparentpathparam"
+	service_group "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/datamodel/config/gns/service-group"
+	policypkg "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/datamodel/config/policy"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 var FooCustomMethodsResponses = nexus.HTTPMethodsResponses{
@@ -192,13 +192,13 @@ type Gns struct {
 	MapPointer       *map[string]string
 	SlicePointer     *[]string
 
-	WorkloadSpec  cartv1.WorkloadSpec  //external-field
-	DifferentSpec *cartv1.WorkloadSpec // external-field - pointer
+	WorkloadSpec  corev1.PodSpec  //external-field
+	DifferentSpec *corev1.PodSpec // external-field - pointer
 
-	ServiceSegmentRef        ServiceSegmentRef            `json:"serviceSegmentRef,omitempty"`
-	ServiceSegmentRefPointer *ServiceSegmentRef           `json:"serviceSegmentRefPointer,omitempty"`
-	ServiceSegmentRefs       []ServiceSegmentRef          `json:"serviceSegmentRefs,omitempty"`
-	ServiceSegmentRefMap     map[string]ServiceSegmentRef `json:"serviceSegmentRefMap,omitempty"`
+	ServiceSegmentRef                ServiceSegmentRef                                  `json:"serviceSegmentRef,omitempty"`
+	ServiceSegmentRefPointer         *ServiceSegmentRef                                 `json:"serviceSegmentRefPointer,omitempty"`
+	ServiceSegmentRefs               []ServiceSegmentRef                                `json:"serviceSegmentRefs,omitempty"`
+	ServiceSegmentRefMap             map[string]ServiceSegmentRef                       `json:"serviceSegmentRefMap,omitempty"`
 	TestOptionalParentPathParamChild optional_parent_path_param.OptionalParentPathParam `nexus:"children"`
 }
 

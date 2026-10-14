@@ -38,7 +38,7 @@ import (
 	userv1 "nexus/admin/api/build/apis/user.admin.nexus.com/v1"
 	nexus_client "nexus/admin/api/build/nexus-client"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 type TenantData struct {
