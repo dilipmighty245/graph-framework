@@ -8,14 +8,14 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	nxcontroller "gitlab.eng.vmware.com/nexus/controller/controllers"
-	nexusv1 "golang-appnet.eng.vmware.com/nexus-sdk/api/build/apis/connect.admin.nexus.com/v1"
-	nexus_client "golang-appnet.eng.vmware.com/nexus-sdk/api/build/nexus-client"
+	nxcontroller "github.com/dilipmighty245/graph-framework-for-microservices/connector-controller/controllers"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	testclient "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/testing"
+	nexusv1 "nexus/admin/api/build/apis/connect.admin.nexus.com/v1"
+	nexus_client "nexus/admin/api/build/nexus-client"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -76,7 +76,7 @@ var _ = Describe("Nexus Controller Tests", func() {
 		It("should create nexus connector deployment, service and config map", func() {
 			_, err := r.Reconcile(ctx, controllerruntime.Request{
 				NamespacedName: types.NamespacedName{
-					Name: endPoint.Name,
+					Name: endPoint.NexusEndpoint.Name,
 				},
 			})
 			Expect(err).NotTo(HaveOccurred())
@@ -84,12 +84,12 @@ var _ = Describe("Nexus Controller Tests", func() {
 			deploymentList, err := r.K8sClient.AppsV1().Deployments("default").List(ctx, metav1.ListOptions{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(deploymentList.Items).To(HaveLen(1))
-			Expect(deploymentList.Items[0].Name).To(Equal("nexus-connector-3c78861451658075b93f8d9adb897a5e7c21a601"))
+			Expect(deploymentList.Items[0].Name).To(Equal("nexus-connector-" + endPoint.NexusEndpoint.Name))
 
 			serviceList, err := r.K8sClient.CoreV1().Services("default").List(ctx, metav1.ListOptions{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(serviceList.Items).To(HaveLen(1))
-			Expect(serviceList.Items[0].Name).To(Equal("nexus-connector-3c78861451658075b93f8d9adb897a5e7c21a601"))
+			Expect(serviceList.Items[0].Name).To(Equal("nexus-connector-" + endPoint.NexusEndpoint.Name))
 
 			configMapList, err := r.K8sClient.CoreV1().ConfigMaps("default").List(ctx, metav1.ListOptions{})
 			Expect(err).NotTo(HaveOccurred())
@@ -102,7 +102,7 @@ var _ = Describe("Nexus Controller Tests", func() {
 			endPoint.Spec.Port = "8081"
 			_, err := r.Reconcile(ctx, controllerruntime.Request{
 				NamespacedName: types.NamespacedName{
-					Name: endPoint.Name,
+					Name: endPoint.NexusEndpoint.Name,
 				},
 			})
 			Expect(err).NotTo(HaveOccurred())
@@ -110,7 +110,7 @@ var _ = Describe("Nexus Controller Tests", func() {
 			deploymentList, err := r.K8sClient.AppsV1().Deployments("default").List(ctx, metav1.ListOptions{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(deploymentList.Items).To(HaveLen(1))
-			Expect(deploymentList.Items[0].Name).To(Equal("nexus-connector-3c78861451658075b93f8d9adb897a5e7c21a601"))
+			Expect(deploymentList.Items[0].Name).To(Equal("nexus-connector-" + endPoint.NexusEndpoint.Name))
 
 			env := getEnv(deploymentList)
 			Expect(env).To(Equal("8081"))
@@ -121,7 +121,7 @@ var _ = Describe("Nexus Controller Tests", func() {
 			endPoint.Spec.ServiceAccountName = "test-sa"
 			_, err := r.Reconcile(ctx, controllerruntime.Request{
 				NamespacedName: types.NamespacedName{
-					Name: endPoint.Name,
+					Name: endPoint.NexusEndpoint.Name,
 				},
 			})
 			Expect(err).NotTo(HaveOccurred())
@@ -130,7 +130,7 @@ var _ = Describe("Nexus Controller Tests", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(deploymentList.Items).To(HaveLen(1))
 			fmt.Println(deploymentList.Items[0].Name)
-			Expect(deploymentList.Items[0].Name).To(Equal("nexus-connector-3c78861451658075b93f8d9adb897a5e7c21a601"))
+			Expect(deploymentList.Items[0].Name).To(Equal("nexus-connector-" + endPoint.NexusEndpoint.Name))
 
 			for _, item := range deploymentList.Items {
 				Expect(item.Spec.Template.Spec.ServiceAccountName).To(Equal(endPoint.Spec.ServiceAccountName))
@@ -141,7 +141,7 @@ var _ = Describe("Nexus Controller Tests", func() {
 			endPoint.Spec.Port = ""
 			_, err := r.Reconcile(ctx, controllerruntime.Request{
 				NamespacedName: types.NamespacedName{
-					Name: endPoint.Name,
+					Name: endPoint.NexusEndpoint.Name,
 				},
 			})
 			Expect(err).To(HaveOccurred())
@@ -154,7 +154,7 @@ var _ = Describe("Nexus Controller Tests", func() {
 
 			_, err = r.Reconcile(ctx, controllerruntime.Request{
 				NamespacedName: types.NamespacedName{
-					Name: endPoint.Name,
+					Name: endPoint.NexusEndpoint.Name,
 				},
 			})
 			Expect(err).To(HaveOccurred())
@@ -176,7 +176,7 @@ var _ = Describe("Nexus Controller Tests", func() {
 
 			_, err = r.Reconcile(ctx, controllerruntime.Request{
 				NamespacedName: types.NamespacedName{
-					Name: endPoint.Name,
+					Name: endPoint.NexusEndpoint.Name,
 				},
 			})
 			Expect(err).NotTo(HaveOccurred())
@@ -184,7 +184,7 @@ var _ = Describe("Nexus Controller Tests", func() {
 			endPoint.Spec.Port = "8083"
 			_, err = r.Reconcile(ctx, controllerruntime.Request{
 				NamespacedName: types.NamespacedName{
-					Name: endPoint.Name,
+					Name: endPoint.NexusEndpoint.Name,
 				},
 			})
 			Expect(err).To(HaveOccurred())
@@ -205,7 +205,7 @@ var _ = Describe("Nexus Controller Tests", func() {
 
 			_, err = r.Reconcile(ctx, controllerruntime.Request{
 				NamespacedName: types.NamespacedName{
-					Name: endPoint.Name,
+					Name: endPoint.NexusEndpoint.Name,
 				},
 			})
 			Expect(err).NotTo(HaveOccurred())
@@ -213,7 +213,7 @@ var _ = Describe("Nexus Controller Tests", func() {
 			endPoint.Spec.Port = "8082"
 			_, err = r.Reconcile(ctx, controllerruntime.Request{
 				NamespacedName: types.NamespacedName{
-					Name: endPoint.Name,
+					Name: endPoint.NexusEndpoint.Name,
 				},
 			})
 			Expect(err).To(HaveOccurred())
@@ -234,7 +234,7 @@ var _ = Describe("Nexus Controller Tests", func() {
 
 			_, err = r.Reconcile(ctx, controllerruntime.Request{
 				NamespacedName: types.NamespacedName{
-					Name: endPoint.Name,
+					Name: endPoint.NexusEndpoint.Name,
 				},
 			})
 			Expect(err).NotTo(HaveOccurred())
@@ -242,7 +242,7 @@ var _ = Describe("Nexus Controller Tests", func() {
 			endPoint.Spec.Port = "8083"
 			_, err = r.Reconcile(ctx, controllerruntime.Request{
 				NamespacedName: types.NamespacedName{
-					Name: endPoint.Name,
+					Name: endPoint.NexusEndpoint.Name,
 				},
 			})
 			Expect(err).To(HaveOccurred())
@@ -270,7 +270,7 @@ var _ = Describe("Nexus Controller Tests", func() {
 
 			_, err := r.Reconcile(ctx, controllerruntime.Request{
 				NamespacedName: types.NamespacedName{
-					Name: endPoint.Name,
+					Name: endPoint.NexusEndpoint.Name,
 				},
 			})
 			Expect(err).NotTo(HaveOccurred())
@@ -294,7 +294,7 @@ var _ = Describe("Nexus Controller Tests", func() {
 
 			_, err = r.Reconcile(ctx, controllerruntime.Request{
 				NamespacedName: types.NamespacedName{
-					Name: endPoint.Name,
+					Name: endPoint.NexusEndpoint.Name,
 				},
 			})
 			Expect(err).To(HaveOccurred())

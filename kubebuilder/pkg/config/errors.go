@@ -19,7 +19,7 @@ package config
 import (
 	"fmt"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/model/resource"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/model/resource"
 )
 
 // UnsupportedVersionError is returned by New when a project configuration version is not supported.
@@ -51,7 +51,7 @@ type ResourceNotFoundError struct {
 
 // Error implements error interface
 func (e ResourceNotFoundError) Error() string {
-	return fmt.Sprintf("resource %v could not be found", e.GVK)
+	return fmt.Sprintf("resource {%s %s %s %s} could not be found", e.GVK.Group, e.GVK.Domain, e.GVK.Version, e.GVK.Kind)
 }
 
 // PluginKeyNotFoundError is returned by Config.DecodePluginConfig when the provided key cannot be found

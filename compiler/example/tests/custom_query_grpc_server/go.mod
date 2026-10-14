@@ -1,9 +1,9 @@
-module github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/tests/custom_query_grpc_server
+module github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/tests/custom_query_grpc_server
 
 go 1.19
 
 require (
-	github.com/vmware-tanzu/graph-framework-for-microservices/nexus v0.0.0-20230226005144-24336fc988d5
+	github.com/dilipmighty245/graph-framework-for-microservices/nexus v0.0.0-20230226005144-24336fc988d5
 	google.golang.org/grpc v1.43.0
 )
 
@@ -15,3 +15,5 @@ require (
 	google.golang.org/genproto v0.0.0-20200526211855-cb27e3aa2013 // indirect
 	google.golang.org/protobuf v1.27.1 // indirect
 )
+
+replace github.com/dilipmighty245/graph-framework-for-microservices/nexus => ../../../../nexus

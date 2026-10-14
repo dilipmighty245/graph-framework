@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/client"
 	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql"
 	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/graphql/handler"
+	"github.com/stretchr/testify/require"
 )
 
 type ckey string
@@ -93,9 +93,9 @@ func TestDirectives(t *testing.T) {
 			Length: func(ctx context.Context, obj interface{}, next graphql.Resolver, min int, max *int, message *string) (interface{}, error) {
 				e := func(msg string) error {
 					if message == nil {
-						return fmt.Errorf(msg)
+						return fmt.Errorf("%s", msg)
 					}
-					return fmt.Errorf(*message)
+					return fmt.Errorf("%s", *message)
 				}
 				res, err := next(ctx)
 				if err != nil {

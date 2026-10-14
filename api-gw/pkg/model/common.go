@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -16,7 +17,7 @@ import (
 	middlewarenexusv1 "nexus/admin/api/build/apis/domain.admin.nexus.com/v1"
 	tenantv1 "nexus/admin/api/build/apis/tenantconfig.admin.nexus.com/v1"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 // adding this global variables for CORS to support multiple domain and header configuration
@@ -111,12 +112,16 @@ type ConnectorObject struct {
 }
 
 func (v *ConnectorObject) GetVersion() (interface{}, error) {
+	if v.Protocol != "http" {
+		return nil, fmt.Errorf("version lookup is unsupported for protocol %q", v.Protocol)
+	}
 	var result interface{}
 	if v.Protocol == "http" {
 		resp, err := http.Get(v.Service)
 		if err != nil {
 			return nil, err
 		}
+		defer resp.Body.Close()
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			return nil, err

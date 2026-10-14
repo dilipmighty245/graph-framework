@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/log"
 	"github.com/spf13/cobra"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/log"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/common"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/servicemesh/prereq"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/utils"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/common"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/servicemesh/prereq"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/utils"
 )
 
 var prerequisites []prereq.Prerequiste = []prereq.Prerequiste{
@@ -60,7 +60,7 @@ func Build(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("datamodel %s build failed with error %v", DatamodelName, err)
 		} else {
-			fmt.Println("\u2713 Datamodel build successful\n")
+			fmt.Println("\u2713 Datamodel build successful")
 
 			err = updateNexusYaml()
 			if err != nil {

@@ -1,4 +1,4 @@
-FROM gcr.io/nsx-sm/nexus/golang:1.18 as builder
+FROM docker.io/library/golang:1.27.2-bookworm as builder
 
 WORKDIR /app
 COPY go.mod go.sum main.go /app/

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-declare -A repos=( ["nexusDatamodelTemplates"]="git@gitlab.eng.vmware.com:nsx-allspark_users/nexus-sdk/datamodel-templates.git" ["nexusAppTemplates"]="git@gitlab.eng.vmware.com:nsx-allspark_users/nexus-sdk/app-templates.git" ["nexusCompiler"]="git@gitlab.eng.vmware.com:nsx-allspark_users/nexus-sdk/compiler.git" )
+declare -A repos=( ["nexusDatamodelTemplates"]="https://github.com/dilipmighty245/graph-framework-for-microservices.git" ["nexusAppTemplates"]="https://github.com/dilipmighty245/graph-framework-for-microservices.git" ["nexusCompiler"]="https://github.com/dilipmighty245/graph-framework-for-microservices.git" )
 declare -A tags_repos
 
 get_latest_tag(){

@@ -1,4 +1,4 @@
-groupName: "tsm.tanzu.vmware.com"
+groupName: "nexus.com"
 ignoredDirs:
   - "ignored"
 ignoredParentPathParams:

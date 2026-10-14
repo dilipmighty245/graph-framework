@@ -2,7 +2,9 @@ package api
 
 import (
 	"fmt"
+	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/templates"
 	"regexp"
+	"sync"
 	"syscall"
 
 	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen"
@@ -13,7 +15,13 @@ import (
 	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin/resolvergen"
 )
 
+var generationMu sync.Mutex
+
 func Generate(cfg *config.Config, option ...Option) error {
+	generationMu.Lock()
+	defer generationMu.Unlock()
+	restoreNaming := templates.UseNexusNaming(cfg.Resolver.Nexus)
+	defer restoreNaming()
 	_ = syscall.Unlink(cfg.Exec.Filename)
 	if cfg.Model.IsDefined() {
 		_ = syscall.Unlink(cfg.Model.Filename)

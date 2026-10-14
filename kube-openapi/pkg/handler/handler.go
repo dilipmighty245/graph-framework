@@ -29,15 +29,15 @@ import (
 	"time"
 
 	"github.com/NYTimes/gziphandler"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/builder"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/common"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/common/restfuladapter"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/internal/handler"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 	"github.com/emicklei/go-restful"
 	"github.com/golang/protobuf/proto"
 	openapi_v2 "github.com/google/gnostic/openapiv2"
 	"github.com/munnerz/goautoneg"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/builder"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/common"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/common/restfuladapter"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/internal/handler"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 	"gopkg.in/yaml.v2"
 	klog "k8s.io/klog/v2"
 )
@@ -162,13 +162,13 @@ func jsonToYAMLValue(j interface{}) interface{} {
 		return ret
 	case float64:
 		// replicate the logic in https://github.com/go-yaml/yaml/blob/51d6538a90f86fe93ac480b35f37b2be17fef232/resolve.go#L151
-		if i64 := int64(j); j == float64(i64) {
+		if i64 := int64(j); j >= -0x1p63 && j < 0x1p63 && j == float64(i64) {
 			if i := int(i64); i64 == int64(i) {
 				return i
 			}
 			return i64
 		}
-		if ui64 := uint64(j); j == float64(ui64) {
+		if ui64 := uint64(j); j >= 0 && j < 0x1p64 && j == float64(ui64) {
 			return ui64
 		}
 		return j

@@ -18,9 +18,9 @@ import (
 	"math"
 	"testing"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/errors"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/strfmt"
 	"github.com/stretchr/testify/assert"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/errors"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/strfmt"
 )
 
 func TestValues_ValidateIntEnum(t *testing.T) {

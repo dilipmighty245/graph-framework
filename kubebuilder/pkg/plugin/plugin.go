@@ -17,7 +17,7 @@ limitations under the License.
 package plugin
 
 import (
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config"
 )
 
 // Plugin is an interface that defines the common base for all plugins.

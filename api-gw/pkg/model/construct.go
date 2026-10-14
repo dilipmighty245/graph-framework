@@ -3,7 +3,7 @@ package model
 import (
 	"sync"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -54,7 +54,6 @@ func ConstructDatamodel(eventType EventType, name string, unstructuredObj *unstr
 
 	spec := obj["spec"].(map[string]interface{})
 	if title, ok := spec["title"]; ok {
-		//FIXME: data race
 		datamodelName := name
 		DatamodelToDatamodelInfo[datamodelName] = DatamodelInfo{
 			Title: title.(string),
@@ -62,6 +61,23 @@ func ConstructDatamodel(eventType EventType, name string, unstructuredObj *unstr
 
 		DatamodelsChan <- datamodelName
 	}
+}
+
+func GetDatamodelInfo(name string) (DatamodelInfo, bool) {
+	DatamodelToDatamodelInfoMutex.Lock()
+	defer DatamodelToDatamodelInfoMutex.Unlock()
+	info, ok := DatamodelToDatamodelInfo[name]
+	return info, ok
+}
+
+func GetDatamodelInfos() map[string]DatamodelInfo {
+	DatamodelToDatamodelInfoMutex.Lock()
+	defer DatamodelToDatamodelInfoMutex.Unlock()
+	result := make(map[string]DatamodelInfo, len(DatamodelToDatamodelInfo))
+	for name, info := range DatamodelToDatamodelInfo {
+		result[name] = info
+	}
+	return result
 }
 
 func ConstructMapURIToCRDType(eventType EventType, crdType string, apiURIs []nexus.RestURIs) {

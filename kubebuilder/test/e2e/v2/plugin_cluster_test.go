@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugin/util"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugin/util"
 
 	//nolint:golint
 	//nolint:revive
@@ -34,7 +34,7 @@ import (
 	//nolint:revive
 	. "github.com/onsi/gomega"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/test/e2e/utils"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/test/e2e/utils"
 )
 
 var _ = Describe("kubebuilder", func() {

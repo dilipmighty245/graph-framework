@@ -15,12 +15,12 @@ import (
 	simplegql "github.com/machinebox/graphql"
 
 	"github.com/Khan/genqlient/graphql"
+	"github.com/dilipmighty245/graph-framework-for-microservices/calibration/graphqlcalls"
+	"github.com/dilipmighty245/graph-framework-for-microservices/calibration/rest"
 	"github.com/openzipkin/zipkin-go"
 	zipkinhttp "github.com/openzipkin/zipkin-go/middleware/http"
 	"github.com/openzipkin/zipkin-go/model"
 	reporterhttp "github.com/openzipkin/zipkin-go/reporter/http"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/nexus-calibration/graphqlcalls"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/nexus-calibration/rest"
 )
 
 type Worker struct {

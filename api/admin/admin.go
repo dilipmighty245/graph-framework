@@ -1,6 +1,6 @@
 package admin
 
-import "nexus/base/nexus"
+import "github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 
 // Upstream defines an address to proxy the request to
 type Upstream struct {

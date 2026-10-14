@@ -1,8 +1,8 @@
 package restfuladapter
 
 import (
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/common"
 	"github.com/emicklei/go-restful"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/common"
 )
 
 // AdaptWebServices adapts a slice of restful.WebService into the common interfaces.

@@ -25,10 +25,10 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/spf13/afero"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config/store"
-	cfgv2 "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config/v2"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/machinery"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config/store"
+	cfgv2 "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config/v2"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/machinery"
 )
 
 func TestConfigStoreYaml(t *testing.T) {
@@ -54,10 +54,10 @@ var _ = Describe("yamlStore", func() {
 		unversionedFile = `version:
 `
 		nonexistentVersionFile = `version: 1-alpha
-`  // v1-alpha never existed
+` // v1-alpha never existed
 		wrongFile = `version: "2"
 layout: ""
-`  // layout field does not exist in v2
+` // layout field does not exist in v2
 	)
 
 	var (

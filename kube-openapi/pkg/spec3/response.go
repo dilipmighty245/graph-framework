@@ -20,8 +20,8 @@ import (
 	"encoding/json"
 	"strconv"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 	"github.com/go-openapi/swag"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 )
 
 // Responses holds the list of possible responses as they are returned from executing this operation

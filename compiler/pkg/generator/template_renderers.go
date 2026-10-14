@@ -14,15 +14,15 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 	log "github.com/sirupsen/logrus"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 	"golang.org/x/tools/imports"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser/rest"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/util"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser/rest"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/util"
 )
 
 //go:embed template/doc.go.tmpl
@@ -73,6 +73,7 @@ func RenderCRDTemplate(baseGroupName, crdModulePath string,
 	httpCodes map[string]nexus.HTTPCodesResponse, nonNexusTypes *parser.NonNexusTypes,
 	fileset *token.FileSet, graphqlFiles map[string]string) error {
 	parentsMap := parser.CreateParentsMap(graph)
+	uriRegistry := make(map[string]string)
 
 	pkgNames := make([]string, len(pkgs))
 	clusterRoleRules := make(map[string][]string)
@@ -125,12 +126,15 @@ func RenderCRDTemplate(baseGroupName, crdModulePath string,
 		if err != nil {
 			return err
 		}
-		crdFiles, err := RenderCRDBaseTemplate(baseGroupName, pkg, parentsMap, httpMethods, httpCodes)
+		crdFiles, err := RenderCRDBaseTemplate(baseGroupName, pkg, parentsMap, httpMethods, httpCodes, uriRegistry)
 		if err != nil {
 			return err
 		}
 		for _, f := range crdFiles {
 			log.Debugf("Rendered crd base template for package %s: %s", pkg.Name, f.File)
+			if err = createFolder(crdFolder); err != nil {
+				return err
+			}
 			err = createFile(crdFolder, f.Name, f.File, false)
 			if err != nil {
 				return err
@@ -141,6 +145,9 @@ func RenderCRDTemplate(baseGroupName, crdModulePath string,
 
 	crFile, err := RenderClusterRoleTemplate(baseGroupName, clusterRoleRules)
 	if err != nil {
+		return err
+	}
+	if err = createFolder(outputDir + "/clusterroles"); err != nil {
 		return err
 	}
 	err = createFile(outputDir+"/clusterroles", "clusterrole.yaml", crFile, false)
@@ -209,6 +216,9 @@ func createFolder(name string) error {
 }
 
 func createFile(dirName string, fileName string, file *bytes.Buffer, formatFile bool) error {
+	if err := createFolder(dirName); err != nil {
+		return err
+	}
 	var err error
 	formatted := file.Bytes()
 	if formatFile {
@@ -421,6 +431,7 @@ func RenderClusterRoleTemplate(baseGroupName string, ruleMap map[string][]string
 	for key, val := range ruleMap {
 		vars.Rules = append(vars.Rules, Rule{ApiGroup: key, Resources: val})
 	}
+	sort.Slice(vars.Rules, func(i, j int) bool { return vars.Rules[i].ApiGroup < vars.Rules[j].ApiGroup })
 	crTemplate, err := readTemplateFile(clusterRoleTemplate)
 	if err != nil {
 		return nil, err
@@ -433,7 +444,7 @@ func RenderClusterRoleTemplate(baseGroupName string, ruleMap map[string][]string
 }
 
 func RenderCRDBaseTemplate(baseGroupName string, pkg parser.Package, parentsMap map[string]parser.NodeHelper,
-	httpMethods map[string]nexus.HTTPMethodsResponses, httpCodes map[string]nexus.HTTPCodesResponse) ([]CrdBaseFile, error) {
+	httpMethods map[string]nexus.HTTPMethodsResponses, httpCodes map[string]nexus.HTTPCodesResponse, registries ...map[string]string) ([]CrdBaseFile, error) {
 	var crds []CrdBaseFile
 
 	restAPISpecMap := rest.GetRestApiSpecs(pkg, httpMethods, httpCodes, parentsMap)
@@ -459,7 +470,7 @@ func RenderCRDBaseTemplate(baseGroupName string, pkg parser.Package, parentsMap 
 
 		if annotation, ok := parser.GetNexusRestAPIGenAnnotation(pkg, typeName); ok {
 			nexusAnnotation.NexusRestAPIGen = restAPISpecMap[annotation]
-			rest.ValidateRestApiSpec(restAPISpecMap[annotation], parentsMap, crdName)
+			rest.ValidateRestApiSpec(restAPISpecMap[annotation], parentsMap, crdName, registries...)
 		}
 		if annotation, ok := parser.GetNexusDescriptionAnnotation(pkg, typeName); ok {
 			nexusAnnotation.Description = annotation

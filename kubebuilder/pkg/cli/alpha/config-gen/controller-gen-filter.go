@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 
 	"sigs.k8s.io/controller-tools/pkg/crd"
 	"sigs.k8s.io/controller-tools/pkg/genall"
@@ -76,6 +77,31 @@ func (cgr ControllerGenFilter) Filter(input []*yaml.RNode) ([]*yaml.RNode, error
 	n, err := (&kio.ByteReader{Reader: &b.Buffer}).Read()
 	if err != nil {
 		return nil, errors.WrapPrefixf(err, "failed to parse controller-gen output")
+	}
+
+	// Report the generator dependency version, not the enclosing executable's
+	// build version (which varies between go test and go install).
+	version := "(unknown)"
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, dep := range info.Deps {
+			if dep.Path == "sigs.k8s.io/controller-tools" {
+				version = dep.Version
+				break
+			}
+		}
+	}
+	for _, node := range n {
+		if node.GetKind() != "CustomResourceDefinition" {
+			continue
+		}
+		annotations := node.GetAnnotations()
+		if annotations == nil {
+			annotations = map[string]string{}
+		}
+		annotations["controller-gen.kubebuilder.io/version"] = version
+		if err := node.SetAnnotations(annotations); err != nil {
+			return nil, err
+		}
 	}
 
 	// add inputs after generated resources

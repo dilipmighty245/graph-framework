@@ -37,7 +37,7 @@ func TestImportPathForDir(t *testing.T) {
 	assert.Equal(t, "github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/dos", ImportPathForDir(filepath.Join(wd, "..", "..", "dos")))
 
 	// out of module
-	assert.Equal(t, "", ImportPathForDir(filepath.Join(wd, "..", "..", "..")))
+	assert.Equal(t, "", ImportPathForDir(t.TempDir()))
 
 	if runtime.GOOS == "windows" {
 		assert.Equal(t, "", ImportPathForDir("C:/doesnotexist"))
@@ -50,7 +50,9 @@ func TestNameForDir(t *testing.T) {
 	wd, err := os.Getwd()
 	require.NoError(t, err)
 
-	assert.Equal(t, "tmp", NameForDir("/tmp"))
+	empty := filepath.Join(t.TempDir(), "withoutgo")
+	require.NoError(t, os.Mkdir(empty, 0755))
+	assert.Equal(t, "withoutgo", NameForDir(empty))
 	assert.Equal(t, "code", NameForDir(wd))
 	assert.Equal(t, "docs", NameForDir(wd+"/../../docs"))
 	assert.Equal(t, "main", NameForDir(wd+"/../.."))

@@ -3,7 +3,7 @@ package sitedc
 import (
 	"powerschedulermodel/runtimedesiredconfig/sitedc/edgedc"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus"
 )
 
 var SiteDCRestAPISpec = nexus.RestAPISpec{

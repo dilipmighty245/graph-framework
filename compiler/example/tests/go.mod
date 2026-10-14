@@ -1,13 +1,13 @@
-module github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/tests
+module github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/tests
 
 go 1.17
 
-replace github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/output/generated => ../output/generated
+replace github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated => ../output/generated
 
 require (
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.24.2
-	github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/output/generated v0.0.0-20220519084951-f419a2aaa2be
+	github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated v0.0.0-20220519084951-f419a2aaa2be
 	k8s.io/apimachinery v0.26.3
 )
 
@@ -47,8 +47,7 @@ require (
 	github.com/prometheus/procfs v0.8.0 // indirect
 	github.com/sirupsen/logrus v1.8.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/vmware-tanzu/cartographer v0.5.3 // indirect
-	github.com/vmware-tanzu/graph-framework-for-microservices/nexus v0.0.0-20230522142056-702d34df978e // indirect
+	github.com/dilipmighty245/graph-framework-for-microservices/nexus v0.0.0-20230522142056-702d34df978e // indirect
 	golang.org/x/net v0.7.0 // indirect
 	golang.org/x/oauth2 v0.0.0-20220608161450-d0670ef3b1eb // indirect
 	golang.org/x/sys v0.5.0 // indirect
@@ -74,3 +73,5 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )
+
+replace github.com/dilipmighty245/graph-framework-for-microservices/nexus => ../../../nexus

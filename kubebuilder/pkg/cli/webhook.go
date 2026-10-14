@@ -21,7 +21,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugin"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugin"
 )
 
 const webhookErrorMsg = "failed to create webhook"

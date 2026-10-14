@@ -27,6 +27,7 @@ func TestGenerator(t *testing.T) {
 }
 
 var _ = Describe("Generator", func() {
+	BeforeEach(func() { utils.OpenApiIgnoredParentPathParams = make(map[string]struct{}) })
 	It("will not generate openapi spec as expected if optional path params are not configured properly", func() {
 		run(CRDS_DIR, OPENAPI_SCHEMA_NAME, GENERATED_OPENAPI_SPEC_FILE)
 		expectedSpec, err := os.ReadFile(EXPECTED_OPENAPI_SPEC_FILE)

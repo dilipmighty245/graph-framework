@@ -5,7 +5,7 @@ import (
 	authentication "nexus/admin/api/authn"
 	domain "nexus/admin/api/domain"
 
-	"nexus/base/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 // ApiGateway holds all configuration relevant to a gateway in Nexus runtime.

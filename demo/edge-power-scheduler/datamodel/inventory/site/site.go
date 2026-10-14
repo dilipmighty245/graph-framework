@@ -3,7 +3,7 @@ package site
 import (
 	"powerschedulermodel/inventory/site/edge"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus"
 )
 
 var SiteRestAPISpec = nexus.RestAPISpec{

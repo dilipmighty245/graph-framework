@@ -27,9 +27,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/util/sets"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 	fuzz "github.com/google/gofuzz"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/util/sets"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 )
 
 func fuzzFuncs(f *fuzz.Fuzzer, refFunc func(ref *spec.Ref, c fuzz.Continue, visible bool)) {

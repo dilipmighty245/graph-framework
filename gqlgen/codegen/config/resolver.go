@@ -10,6 +10,7 @@ import (
 )
 
 type ResolverConfig struct {
+	Nexus            bool           `yaml:"nexus,omitempty"`
 	Filename         string         `yaml:"filename,omitempty"`
 	FilenameTemplate string         `yaml:"filename_template,omitempty"`
 	Package          string         `yaml:"package,omitempty"`

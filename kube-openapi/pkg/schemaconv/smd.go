@@ -23,7 +23,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/util/proto"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/util/proto"
 	"sigs.k8s.io/structured-merge-diff/v4/schema"
 )
 

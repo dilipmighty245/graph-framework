@@ -20,9 +20,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/spec3"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 	"github.com/google/go-cmp/cmp"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/spec3"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 )
 
 func TestRequestBodyJSONSerialization(t *testing.T) {

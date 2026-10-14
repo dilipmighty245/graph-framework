@@ -3,8 +3,8 @@ package upgrade
 import (
 	"fmt"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/servicemesh/version"
 	"github.com/spf13/cobra"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/servicemesh/version"
 )
 
 var (
@@ -26,7 +26,7 @@ func upgradeCli(cmd *cobra.Command, args []string) error {
 }
 
 func DoUpgradeCli(version string, cmd *cobra.Command) error {
-	const nexusInstallScriptUrl = "https://raw.githubusercontent.com/vmware-tanzu/graph-framework-for-microservices/main/cli/get-nexus-cli.sh"
+	const nexusInstallScriptUrl = "https://raw.githubusercontent.com/dilipmighty245/graph-framework-for-microservices/main/cli/get-nexus-cli.sh"
 	if version == "" {
 		version = "latest"
 	}

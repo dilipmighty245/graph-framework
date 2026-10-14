@@ -1,4 +1,4 @@
-module github.com/vmware-tanzu/graph-framework-for-microservices/common-library
+module github.com/dilipmighty245/graph-framework-for-microservices/common-library
 
 go 1.18
 

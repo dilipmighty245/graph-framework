@@ -21,7 +21,7 @@ import (
 	"path/filepath"
 	"text/template"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/machinery"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/machinery"
 )
 
 var _ machinery.Template = &Types{}

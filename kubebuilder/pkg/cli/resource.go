@@ -22,7 +22,7 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/model/resource"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/model/resource"
 )
 
 const (

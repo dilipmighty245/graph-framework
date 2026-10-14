@@ -21,8 +21,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/aunum/log"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/common"
 	"github.com/spf13/cobra"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/common"
 	apiErrs "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

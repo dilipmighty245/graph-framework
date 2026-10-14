@@ -21,17 +21,17 @@ import (
 
 	"github.com/spf13/afero"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/machinery"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/v2/scaffolds/internal/templates"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/v2/scaffolds/internal/templates/config/certmanager"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/v2/scaffolds/internal/templates/config/kdefault"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/v2/scaffolds/internal/templates/config/manager"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/v2/scaffolds/internal/templates/config/prometheus"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/v2/scaffolds/internal/templates/config/rbac"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/v2/scaffolds/internal/templates/config/webhook"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/v2/scaffolds/internal/templates/hack"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/machinery"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/v2/scaffolds/internal/templates"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/v2/scaffolds/internal/templates/config/certmanager"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/v2/scaffolds/internal/templates/config/kdefault"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/v2/scaffolds/internal/templates/config/manager"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/v2/scaffolds/internal/templates/config/prometheus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/v2/scaffolds/internal/templates/config/rbac"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/v2/scaffolds/internal/templates/config/webhook"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/v2/scaffolds/internal/templates/hack"
 )
 
 const (

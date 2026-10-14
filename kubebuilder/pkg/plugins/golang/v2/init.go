@@ -24,14 +24,14 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config"
-	cfgv2 "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config/v2"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/internal/validation"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/machinery"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugin"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugin/util"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/v2/scaffolds"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config"
+	cfgv2 "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config/v2"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/internal/validation"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/machinery"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugin"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugin/util"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/v2/scaffolds"
 )
 
 // Variables and function to check Go version requirements.

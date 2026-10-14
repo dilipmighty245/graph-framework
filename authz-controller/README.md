@@ -1,55 +1,19 @@
-# authz-controller
+# Nexus authorization controller
 
-Main responsibility of authz-controller is to monitor:
+This controller translates Nexus authorization resources into Kubernetes RBAC resources. It watches roles, bindings, users, and CRDs to maintain access rules for modeled resources.
 
-1. ResourceRole objects created in the cluster and creates the equivalent k8s ClusterRole.
-2. ResourceRoleBinding objects created in the cluster and creates the equivalent k8s ClusterRoleBinding.
-3. User objects created in the cluster and creates the certificate signed by ca and store it in UserCertificate CRD.
-4. CRD created in the cluster and verify if the CRD type of interest, simply add it to the role object.
+## Responsibilities
 
-## Sample Nexus RBAC Object
+ResourceRole and ResourceRoleBinding resources drive Kubernetes ClusterRole and ClusterRoleBinding creation. Instance role resources describe access at a more specific graph scope. User handling includes certificate creation and storage in user-certificate resources.
 
-```
-apiVersion: authorization.nexus.org/v1
-kind: ResourceRole
-metadata:
-  name: root-admin-role
-spec:
-  rules:
-  - Hierarchical: false
-    Resource:
-      group: apix.mazinger.com
-      kind: Root
-    Verbs:
-    - get
-    - list
-  - Hierarchical: true
-    Resource:
-      group: config.mazinger.com
-      kind: ApiCollaborationSpace
-    Verbs:
-    - get
-    - list
----
+Authorization rules depend on datamodel hierarchy and the generated authorization API. Review role expansion and bindings together when changing access behavior.
 
-apiVersion: authorization.nexus.org/v1
-kind: User
-metadata:
-  name: bob
----
+## Development
 
-apiVersion: authorization.nexus.org/v1
-kind: ResourceRoleBinding
-metadata:
-  name: root-admin-role-binding
-spec:
-  roleGvk:
-    group: authorization.nexus.org
-    kind:  ResourceRole
-    name:  11db4dfc940481cd1030e7aa1aaf6284b63be65b
-  usersGvk:
-    bob:
-      group: authorization.nexus.org
-      kind: User
-      name: "bob"
-```
+The entry point is `cmd/authz-controller`; reconciler implementations are under `controllers`. Tests are under `test` and use Kubernetes resources and certificate fixtures.
+
+Generate the [admin API](../api/README.md) before building. The authorization model lives in `api/authorization` and uses the `authorization.admin.nexus.com` resource group. Configuration owns roles, bindings, users and groups; runtime owns user certificates.
+
+Deployment configuration lives under `pkg/config/deployment` and the `authz` Helm chart. Configure API access, certificate material, image, and namespace for the target environment.
+
+See the [framework overview](../README.md) for the runtime context.

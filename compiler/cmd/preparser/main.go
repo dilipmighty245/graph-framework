@@ -3,10 +3,10 @@ package main
 import (
 	"flag"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/config"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/preparser"
 	log "github.com/sirupsen/logrus"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/preparser"
 )
 
 func main() {

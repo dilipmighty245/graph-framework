@@ -20,9 +20,9 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config"
-	cfgv3 "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config/v3"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/model/resource"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config"
+	cfgv3 "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config/v3"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/model/resource"
 )
 
 type templateBase struct {

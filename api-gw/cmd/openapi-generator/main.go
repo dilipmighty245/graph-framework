@@ -13,8 +13,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 	yamlv1 "github.com/ghodss/yaml"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
 
@@ -140,6 +140,9 @@ func run(dir, datamodelName, outputFilePath string) {
 	// If output file is specified, write the generated openapi spec to the file.
 	if outputFilePath != "" {
 		fmt.Println("Writing openapi spec for file ", outputFilePath)
+		if err := os.MkdirAll(filepath.Dir(outputFilePath), 0755); err != nil {
+			log.Fatalf("create output directory: %v", err)
+		}
 		err := os.WriteFile(outputFilePath, spec, 0644)
 		if err != nil {
 			log.Fatalf("write of openapi spec to file %s failed with error %v", outputFilePath, err)

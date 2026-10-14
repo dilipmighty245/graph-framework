@@ -17,7 +17,7 @@ limitations under the License.
 package validation
 
 import (
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/util/proto"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/util/proto"
 )
 
 func ValidateModel(obj interface{}, schema proto.Schema, name string) []error {

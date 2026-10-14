@@ -7,9 +7,9 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	kubewrapper "github.com/dilipmighty245/graph-framework-for-microservices/install-validator/pkg/k8s-utils"
+	mockkubernetes "github.com/dilipmighty245/graph-framework-for-microservices/install-validator/pkg/k8s-utils/mocks"
 	"github.com/golang/mock/gomock"
-	kubewrapper "github.com/vmware-tanzu/graph-framework-for-microservices/install-validator/pkg/k8s-utils"
-	mockkubernetes "github.com/vmware-tanzu/graph-framework-for-microservices/install-validator/pkg/k8s-utils/mocks"
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
 )
@@ -59,8 +59,8 @@ func TestApplyDir(t *testing.T) {
 	cc.EXPECT().ApplyCrd(rootOutdated).Return(nil).AnyTimes()
 
 	cc.EXPECT().GetCrd("my-crds.com.example").Return(&patt1).AnyTimes()
-	cc.EXPECT().GetCrd("roots.outdated.tsm.tanzu.vmware.com").Return(&patt1).AnyTimes()
-	cc.EXPECT().GetCrd("roots.root.tsm.tanzu.vmware.com").Return(&rootRoot).AnyTimes()
+	cc.EXPECT().GetCrd("roots.outdated.nexus.com").Return(&patt1).AnyTimes()
+	cc.EXPECT().GetCrd("roots.root.nexus.com").Return(&rootRoot).AnyTimes()
 
 	cc.EXPECT().ListResources(patt1).Return([]unstructured.Unstructured{{Object: map[string]interface{}{}}}, nil).AnyTimes()
 	cc.EXPECT().ListResources(rootRoot).Return([]unstructured.Unstructured{}, nil).AnyTimes()

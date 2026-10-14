@@ -3,16 +3,16 @@ package nexus_compiler_test
 import (
 	"context"
 	"fmt"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/helper"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/output/generated/helper"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	configv1 "github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/output/generated/apis/config.tsm.tanzu.vmware.com/v1"
-	gnsv1 "github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/output/generated/apis/gns.tsm.tanzu.vmware.com/v1"
-	rootv1 "github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/output/generated/apis/root.tsm.tanzu.vmware.com/v1"
-	sgv1 "github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/output/generated/apis/servicegroup.tsm.tanzu.vmware.com/v1"
-	nexus_client "github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/output/generated/nexus-client"
+	configv1 "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/apis/config.nexus.com/v1"
+	gnsv1 "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/apis/gns.nexus.com/v1"
+	rootv1 "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/apis/root.nexus.com/v1"
+	sgv1 "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/apis/servicegroup.nexus.com/v1"
+	nexus_client "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/nexus-client"
 )
 
 var _ = Describe("Nexus clients tests", func() {
@@ -34,7 +34,7 @@ var _ = Describe("Nexus clients tests", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(root.DisplayName()).To(Equal("default"))
 		// expect name to be hashed
-		Expect(root.GetName()).To(Equal("9d336ed798cf54e3ef224fb00017b75b1a15abff"))
+		Expect(root.GetName()).To(Equal("705ef618779b68ec9303ff3d78ddb5b9eaf88a2a"))
 	})
 
 	Context("Child objects", func() {
@@ -56,9 +56,9 @@ var _ = Describe("Nexus clients tests", func() {
 		It("should create child object", func() {
 			cfgName := "configObj"
 			expectedLabels := map[string]string{
-				"roots.root.tsm.tanzu.vmware.com": "default",
-				"nexus/display_name":              "configObj",
-				"nexus/is_name_hashed":            "true",
+				"roots.root.nexus.com": "default",
+				"nexus/display_name":   "configObj",
+				"nexus/is_name_hashed": "true",
 			}
 			cfgDef := &configv1.Config{
 				ObjectMeta: metav1.ObjectMeta{
@@ -88,9 +88,10 @@ var _ = Describe("Nexus clients tests", func() {
 			Expect(cfg.GetLabels()).To(BeEquivalentTo(expectedLabels))
 			Expect(cfg.Spec.MyStr0).To(Equal(&str))
 
-			// Another create should fail
-			_, err = root.AddConfig(context.TODO(), cfgDef)
-			Expect(err).To(HaveOccurred())
+			// Repeating a child create is idempotent and returns the existing object.
+			existing, err := root.AddConfig(context.TODO(), cfgDef)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(existing.GetName()).To(Equal(cfg.GetName()))
 		})
 
 		It("should delete child", func() {
@@ -646,12 +647,12 @@ var _ = Describe("Nexus clients tests", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(dns).NotTo(BeNil())
 			Expect(dns.DisplayName()).To(Equal("default"))
-			//Expect(dns.GetName()).To(Equal(helper.GetHashedName("dnses.gns.tsm.tanzu.vmware.com", dns.GetLabels(), "default")))
+			//Expect(dns.GetName()).To(Equal(helper.GetHashedName("dnses.gns.nexus.com", dns.GetLabels(), "default")))
 			dns, err = fakeClient.RootRoot().Config("foo").GetDNS(context.TODO())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(dns).NotTo(BeNil())
 			Expect(dns.DisplayName()).To(Equal("default"))
-			Expect(dns.GetName()).To(Equal(helper.GetHashedName("dnses.gns.tsm.tanzu.vmware.com", dns.GetLabels(), "default")))
+			Expect(dns.GetName()).To(Equal(helper.GetHashedName("dnses.gns.nexus.com", dns.GetLabels(), "default")))
 		})
 
 		It("should accept singleton object without 'default' as a name", func() {

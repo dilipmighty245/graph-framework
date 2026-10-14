@@ -1,117 +1,163 @@
-# Nexus; The Graph Framework for Microservices
+# Graph Framework for Microservices
 
-Nexus is a software stack and toolkit that accelerates cloud-native microservice development:
+Nexus is a framework for defining application state as a graph and generating the APIs and Go clients that work with it. It combines a Go-based datamodel language, a compiler, and runtime components built around Kubernetes resource APIs.
 
-* through a robust development, build and code generation toolkit, that simplifies the definition of "application state" (a.k.a data model)
-* by simplifying consumption and production of distributed application state through a plethora of widely used API formats and SDK
-* through a plug-and-play runtime for core platform functions
+Use it when several services need a shared model for configuration or state, including parent–child relationships, references between objects, API access, and change notifications. Applications implement the business logic that responds to that state.
 
-Applications built on Nexus are out-the-box ready to thrive in the ever challenging world of distributed systems and SaaS.
+## How it works
 
-Nexus represents the application's datamodel/state as a Graph, with emphasis on the event-driven propagation of data.
+1. **Define a datamodel.** Describe entities as Go structs, embed Nexus node types, and annotate relationships and API behavior.
+2. **Compile the model.** The compiler produces CustomResourceDefinitions (CRDs), Go resource types and clients, graph helpers, and GraphQL artifacts.
+3. **Install the model.** Apply the generated resources to a runtime backed by a Kubernetes API server and etcd.
+4. **Build services against the graph.** Use generated clients to manage objects and subscribe to changes. Expose application state through the gateway and configured GraphQL server.
 
-<br>
+```mermaid
+flowchart LR
+    Model[Go datamodel] --> Compiler[Nexus compiler]
+    Compiler --> CRDs[CRDs and schemas]
+    Compiler --> Clients[Go clients and graph helpers]
+    Compiler --> GraphQL[GraphQL artifacts]
+    CRDs --> API[Kubernetes API server]
+    API --> Store[etcd]
+    Clients --> API
+    Gateway[API gateway] --> API
+    GraphQL --> Server[GraphQL server]
+    Server --> API
+    App[Application services] --> Clients
+```
 
-## Nexus TL;DR
+The graph is represented through resources and relationship metadata. Its storage layer uses Kubernetes resources; it does not require a separate graph database.
 
-https://user-images.githubusercontent.com/49454273/236900473-216421d5-c9da-456c-8ebe-6e219aed2535.mp4
+## Defining a graph
 
-<br>
+A node embeds `nexus.Node` or `nexus.SingletonNode`. Fields tagged `nexus:"children"` describe collections of children; `nexus:"child"` describes a single child. Links reference other nodes.
 
-## [Intel Developement Setup (Pre-Requisite)](docs/getting_started/Setup.md)
-## [Playground Lite](docs/getting_started/Playground-Lite.md)
-## [Playground TL;DR](docs/getting_started/Playground-OnePager.md)
-## [Playground Nexus Scale / Edge Power Scheduler](docs/getting_started/Playground-Scale.md)
+This shortened example defines projects with services:
 
-<br>
+```go
+package model
 
-## What problem does Nexus solve ?
+import "github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 
-A plethora of tools and utilities have cropped up to address the challenge of writing and operating applications in distributed, cloud-native, SaaS environments.
-This is particularly true in the realm of [Kubernetes](https://collabnix.github.io/kubetools/).
+type Root struct {
+    nexus.SingletonNode
+    Projects Project `nexus:"children"`
+}
 
-Cloud native applications of today, need contracts, not tools. Contracts that will implement and provide guarantees around distributed system functions, state management, replication etc. Instead, applications are forced to solve the complex problems around distributed systems and platform first, before they can actually get to implementing their very cool business use case and value add. This is simply put - just nuts !
+type Project struct {
+    nexus.Node
+    Services Service `nexus:"children"`
+}
 
-Applications are desperate for a unified framework that provides:
+type Service struct {
+    nexus.Node
+    Image    string
+    Replicas int
+}
+```
 
-* API declaration, API endpoint management, versioning, packaging, rollout and more
-* a hierarchical datamodel that is declarative, consistent, custom built and configurable
-* API first design, with support for APIs beyond CRD: graphql, custom REST API/URL etc
-* an integrated RBAC that can be versioned, codified
-* a distributed runtime, with API Gateway, that will seamlessly stretch across product boundaries and cluster boundaries
-* toolchain to aid, fast-track application development
-* a programmatic library to provide a cloud native development paradigm
-* a single tool to hold all of the above together
+The compiler requires a rooted ownership hierarchy and validates model relationships. The generated client handles graph operations such as creating children, resolving links, and naming resources within their parent hierarchy.
 
-In essence, taking K8s as a example, what applications want is not K8s, not be limited by K8s, but rather to build on top of K8s.
+See the [DSL reference](compiler/DSL.md) for syntax and [compiler examples](compiler/example/datamodel) for larger models and API annotations.
 
-Graph Framework for Microservices addresses these challenges head-on through its integral software stack: Nexus
+## Components
 
-![GraphFrameworkForMicroservices](docs/images/GraphFrameworkForMicroservices.png)
-## Nexus
+| Directory | Responsibility |
+| --- | --- |
+| [compiler](compiler/README.md) | Parses datamodels and generates resource definitions, clients, and API artifacts. |
+| [nexus](nexus/README.md) | Defines the node markers and API declaration types used by datamodels. |
+| [api](api/README.md) | Defines the runtime's admin datamodel. |
+| [api-gw](api-gw/README.md) | Serves and routes APIs, tracks datamodels, and integrates authentication and Envoy configuration. |
+| [graphql-server](graphql-server/README.md) | Loads generated GraphQL server plugins for installed datamodels. |
+| [validation](validation/README.md) | Validates and mutates Nexus resource requests. |
+| [authz-controller](authz-controller/README.md) | Translates Nexus authorization resources into Kubernetes RBAC resources. |
+| [connector](connector/README.md) | Replicates configured resources between endpoints. |
+| [connector-controller](connector-controller/README.md) | Manages connector instances for endpoint resources. |
+| [cli](cli/README.md) | Provides datamodel, application, and runtime workflows. |
+| [install-validator](install-validator/README.md) | Checks CRD changes during installation and upgrades. |
+| [common-library](common-library/README.md) | Provides shared naming and schema comparison helpers. |
+| [nexus-runtime-manifests](nexus-runtime-manifests/README.md) | Packages runtime deployments and local environments. |
+| [app-templates](app-templates/README.md), [datamodel-templates](datamodel-templates/README.md) | Provide application and datamodel scaffolding. |
+| [calibration](calibration/README.md) | Generates workloads and collects performance data. |
 
-Nexus is the "core" software stack of the Graph Framework for Microservices.
+The repository also includes customized copies of `gqlgen`, `kube-openapi`, and `kubebuilder`. They support generation and scaffolding. Their local changes and fixtures are part of the build; replacing them with upstream releases requires compatibility checks.
 
-Nexus provides:
+## Exploring the source
 
-* [Simple & intuitive DSL](compiler/DSL.md) to specify datamodel.
-* [Compiler](compiler/README.md) that understands Nexus DSL and generates datamodel spec and libraries.
+Clone the complete repository so sibling modules referenced by local `replace` directives are available:
 
-![Nexus](docs/images/Nexus.png)
+```sh
+git clone https://github.com/dilipmighty245/graph-framework-for-microservices.git
+cd graph-framework-for-microservices
+```
 
-Given an application's intent as a declarative spec, Nexus provides the ability to consume the application's data / state through a plethora of commonly used interfaces and API.
+Start with the [compiler](compiler/README.md), inspect its [example datamodel](compiler/example/datamodel), and then read the [CLI guide](cli/README.md) and [runtime packaging guide](nexus-runtime-manifests/README.md).
 
-### What Nexus Is
+Each component has its own `go.mod`. Run Go commands from the component directory. The root module does not aggregate the repository, so root-level `go test ./...` does not validate the framework.
 
-#### During development
-* It is a code and artifact generation toolkit. Given a single source of truth for application configuration / state, Nexus generates artifacts relevant to the application.
-* It is a convenience library and SDK that can be imported and invoked in code to work the the desired configuation / state.
+Go build containers use the [official Docker Hub Go image](https://hub.docker.com/_/golang).
+Framework image tags are local by default. Set `DOCKER_REGISTRY` explicitly when
+downloading or publishing your own framework images.
 
-   NOTE: SDK is only available in Golang, at this point in time.
+For example, to check the shared library:
 
-#### During deployment
+```sh
+cd common-library
+go test ./...
+```
 
-* Can be deployed as a binary, container, pods etc. The deployment / release scheme is driven by the applicatoin needs.
+## Build and runtime prerequisites
 
-#### During runtime
-* Provides an API Gateway / Server that serves API artifacts that were generated using Nexus toolkit
+Go is required for development. Container workflows also use Docker and Make; deployment workflows use Kubernetes tooling such as `kubectl`, Helm, or Kind. Generation requires additional tools described in the compiler guide.
 
-* Provides Kubernetes Resource Modelling and Kubernetes API for the configuration/state defined using Nexus toolkit.
+Toolchain versions currently differ between modules and container builders. Compiler and SDK modules declare Go 1.22, while several build images still use older versions. Go 1.27.2 is a proposed migration target, not a completed repository-wide compatibility guarantee. Select and validate a toolchain for the component you are building.
 
-* Provides eventing pipeline that allows application's to subscribe and be notified of events relating to configuration/state.
+Generate the admin API before building services that import `api/build`. A fresh checkout does not contain those generated packages. Some installation scripts and image defaults remain tied to specific registries and must be configured for your environment.
 
-* Takes care of backup and restore of configuration/state managed by Nexus.
+## Running checks
 
-* Can provide authentication function if configured appropriately.
+From the repository root:
 
-### What Nexus Is Not
+```sh
+make test.framework          # Complete source suites across framework modules
+make test.framework.gateway  # Gateway and controllers after admin API generation
+make test.framework.all      # Source suites, fresh generation, and Kind E2E
+make test.framework.builders # Public Go builders, generation, and live subscription tests
+make test.framework.stability # Repeat all checks three times
+```
 
-#### During development
+For generated-model, resource lifecycle, gateway, and GraphQL checks in a temporary
+Kind cluster:
 
-* It is not a framework to structure the application code layout / organization.
+```sh
+make test.framework.e2e
+```
 
-* It does not implement business logic.
+See the [testing guide](docs/testing.md) for prerequisites, coverage, component
+selection, optional compiler images, and logs.
 
-* It does not dictate the design and/or architecture of your application.
+Use `make clean.preview` to inspect local cleanup, then `make clean` to remove
+framework clusters, runtime containers and volumes, local framework image tags,
+and generated build/test artifacts. Supply `CLUSTER_NAME=name` for a cluster
+without a repository runtime directory. `make clean.all` also deletes every
+local Docker-backed Kind cluster. See the [cleanup details](docs/testing.md#cleanup).
 
-* It does not dictate the API formats that can be supported. Applications can directly expose other or alternate API endpoints as dicated by its design and business needs.
+## Development status
 
-* It does not restrict your application to be written for a specific platform.
+Run the source suites and disposable Kind checks before submitting framework changes. Services that import `api/build` need generated admin APIs; the E2E runner generates these in an isolated snapshot. Gateway controller tests use Kubernetes envtest assets or an explicitly configured disposable cluster.
 
-* It does not dictate packaging. Applications chose the packaging scheme per its business needs. For example, applications decide whether their artifacts should be released as binaries, containers, pods, virtual machines etc.
+Generated code should be rebuilt from its datamodel and templates. Keep fixtures that tests compare against, and review regeneration diffs before committing them. GraphQL plugins and their host must use compatible toolchains, dependencies, and build settings.
 
-* It does not dictate nor provide any CI/CD functions.
+## Examples and reference material
 
-* It does not provide any security / vulnerability scanning capabilities / functions.
+- [DSL syntax and annotations](compiler/DSL.md)
+- [Compiler datamodel examples](compiler/example/datamodel)
+- [Traffic lights demonstration](demo/traffic-lights/README.md)
+- [Edge power scheduler demonstration](demo/edge-power-scheduler/README.md)
+- [Existing workflow guides](docs/getting_started)
 
-#### During deployment
+The workflow guides contain historical deployment examples; check their image names, prerequisites, and commands against the current source before using them.
 
-* It does not dictate or restrict the platforms on which the application can deployed and run. For example, it does not dictate nor need the application to be run only on Kubernetes.
+## License
 
-* It does not dictate how the application artifacts are released to production / customer.
-
-#### During runtime
-
-* It does not run or enforce business logic. The business logic is the responsibility of the application code.
-
-* Does not provide automatic SSL cert management capabilities.
+This project is distributed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for attribution and [contribution requirements](CONTRIBUTING.md) before contributing.

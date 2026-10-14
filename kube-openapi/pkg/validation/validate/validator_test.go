@@ -19,8 +19,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 	"github.com/stretchr/testify/assert"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 )
 
 func TestNumberValidator_EdgeCases(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/log"
 	"github.com/spf13/cobra"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/log"
 	"gopkg.in/resty.v1"
 )
 

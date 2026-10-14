@@ -10,13 +10,13 @@ resources:
   kind: CustomResourceDefinition
   version: v1
 - controller: true
-  datamodelImport: gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/api.git
+  datamodelImport: github.com/dilipmighty245/graph-framework-for-microservices/api
   domain: api-gw.com
   group: authentication.admin.nexus.com
   kind: OidcConfig
   version: v1
 - controller: true
-  datamodelImport: golang-appnet.eng.vmware.com/nexus-sdk/api
+  datamodelImport: nexus/admin/api
   domain: api-gw.com
   group: route.admin.nexus.com
   kind: Route

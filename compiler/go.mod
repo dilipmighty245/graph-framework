@@ -1,20 +1,21 @@
-module github.com/vmware-tanzu/graph-framework-for-microservices/compiler
+module github.com/dilipmighty245/graph-framework-for-microservices/compiler
 
-go 1.19
+go 1.22.0
 
 require (
+	github.com/dilipmighty245/graph-framework-for-microservices/common-library v0.0.0-20221129104902-06818e531062
+	github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi v0.0.0-20220603123335-7416bd4754d3
+	github.com/dilipmighty245/graph-framework-for-microservices/nexus v0.0.0-00010101000000-000000000000
 	github.com/fatih/structtag v1.2.0
 	github.com/ghodss/yaml v1.0.0
 	github.com/gogo/protobuf v1.3.2
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.23.0
 	github.com/sirupsen/logrus v1.8.1
-	github.com/vmware-tanzu/graph-framework-for-microservices/common-library v0.0.0-20221129104902-06818e531062
-	github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi v0.0.0-20220603123335-7416bd4754d3
-	github.com/vmware-tanzu/graph-framework-for-microservices/nexus v0.0.0-00010101000000-000000000000
 	golang.org/x/mod v0.8.0
 	golang.org/x/text v0.13.0
 	golang.org/x/tools v0.6.0
+	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/apiextensions-apiserver v0.26.3
 	k8s.io/gengo v0.0.0-20220902162205-c0856e24416d
 	k8s.io/utils v0.0.0-20221107191617-1a15be271d1d
@@ -61,7 +62,6 @@ require (
 	gopkg.in/check.v1 v1.0.0-20200902074654-038fdea0a05b // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/apimachinery v0.26.3 // indirect
 	k8s.io/klog/v2 v2.80.1 // indirect
@@ -69,10 +69,10 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 )
 
-replace github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi => ../kube-openapi
+replace github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi => ../kube-openapi
 
-replace github.com/vmware-tanzu/graph-framework-for-microservices/gqlgen => ../gqlgen
+replace github.com/dilipmighty245/graph-framework-for-microservices/gqlgen => ../gqlgen
 
-replace github.com/vmware-tanzu/graph-framework-for-microservices/nexus => ../nexus
+replace github.com/dilipmighty245/graph-framework-for-microservices/nexus => ../nexus
 
-replace github.com/vmware-tanzu/graph-framework-for-microservices/common-library => ../common-library
+replace github.com/dilipmighty245/graph-framework-for-microservices/common-library => ../common-library

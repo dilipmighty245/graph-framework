@@ -21,13 +21,13 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config"
-	cfgv2 "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config/v2"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/machinery"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/model/resource"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugin"
-	goPlugin "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/v2/scaffolds"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config"
+	cfgv2 "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config/v2"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/machinery"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/model/resource"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugin"
+	goPlugin "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/v2/scaffolds"
 )
 
 var _ plugin.CreateWebhookSubcommand = &createWebhookSubcommand{}

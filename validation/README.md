@@ -1,68 +1,26 @@
-# nexus-validation
+# Nexus validation webhook
 
- nexus-validation main responsibilities are:
-- name mangling
-- k8s validation/mutation webhook for nexus CRDs
+The validation service handles admission requests for Nexus resources. It implements resource naming and validation or mutation behavior associated with generated datamodels.
 
-# Development
-## Guidelines
+## Role in the runtime
 
-Any and every code change MUST follow code style guidelines and pass following checks:
+The generated client, resource metadata, and admission layer must agree on hierarchy and naming. Changes to these conventions should be checked together with the compiler and shared naming helpers.
 
-- Unit Test cases are mandatory for any and every code change.
+Source is organized under `pkg/config`, `pkg/validate`, and `cmd/nexus-validation`. Deployment manifests and Helm templates configure the webhook service, certificates, and runtime connection.
 
-- `make test-fmt` - makes sure code formatting matches standard golang formatting
+## Development
 
-- `make lint` and `make vet` - static code analysis looking for possible programming errors, bugs, stylistic errors, and suspicious constructs
+From this directory:
 
-- `make race-unit-test` - executes unit tests with race flag to look for possible race conditions
+```sh
+go test ./...
+go build ./cmd/nexus-validation
+```
 
-## Build & deploy
-### Build in containerized sandbox and deploy kind cluster (Recommended)
+The module depends on the sibling `common-library` through a local replacement. Keep both directories available. Inspect `Makefile` before using its container and test targets; some targets force Linux execution and need an appropriate host or container.
 
-To run build in a fixed/sandboxed environment:
+## Deployment
 
-1. Download the build sandbox: `make docker.builder`
-2. Create kind cluster: `make create_kind_cluster`
-3. Build & deploy nexus-validation: `make kind_deploy`
+Review `values.yaml`, `templates`, and `manifests` for image, certificate, namespace, and service configuration. Webhook availability and certificate trust must be established before sending admission traffic to it.
 
-### Build in custom/local environment
-
-To build nexus-validation on custom/local environment: `make build`
-
-## Test
-### Run tests in containerized sandbox (Recommended)
-
-To run tests in a fixed/sandboxed environment:
-
-1. Download the test sandbox: `make docker.builder`
-
-2. Test nexus-validation: `make test_in_container`
-
-### Run tests in custom/local environment
-
-To test nexus-validation on custom/local environment:
-
-1. Download the required tools: `make tools`
-
-2. Run tests: `make test`
-
-# Packaging
-
-nexus-validation is packaged and published a Docker container images.
-
-Packaging is achieved by the following two steps:
-## Creating a base image
-
-Create base image: `make docker.base`
-
-The base image contains all the requirements needed for the Mesh7 nexus-validation to
-run. Also, it can be extended with some handy debug tools like `tcpdump`. To
-activate this just set `DEBUG=TRUE` in your environment.
-## Mesh7 nexus-validation image
-
-To build nexus-validation docker image: `make docker`
-
-# Publishing
-
-nexus-validation docker image can be published by invoking: `make publish`
+See the [framework overview](../README.md) for the resource lifecycle.

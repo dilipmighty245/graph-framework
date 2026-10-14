@@ -24,12 +24,12 @@ import (
 
 	restful "github.com/emicklei/go-restful"
 
-	builderutil "github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/builder3/util"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/common"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/common/restfuladapter"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/spec3"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/util"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
+	builderutil "github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/builder3/util"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/common"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/common/restfuladapter"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/spec3"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/util"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 )
 
 const (

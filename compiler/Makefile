@@ -7,7 +7,7 @@ GO_PROJECT_NAME ?= compiler
 GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 DOCKER_BUILDER_PLATFORM ?= linux/${GOARCH}
-PKG_NAME?=/go/src/github.com/vmware-tanzu/graph-framework-for-microservices/${GO_PROJECT_NAME}
+PKG_NAME?=/go/src/github.com/dilipmighty245/graph-framework-for-microservices/${GO_PROJECT_NAME}
 
 
 IMAGE_NAME ?= nexus/compiler
@@ -45,7 +45,7 @@ endif
 ifeq ($(CONTAINER_ID),)
 define run_in_container
   docker run \
-  --volume $(realpath .)/..:/go/src/github.com/vmware-tanzu/graph-framework-for-microservices/ \
+  --volume $(realpath .)/..:/go/src/github.com/dilipmighty245/graph-framework-for-microservices/ \
   --volume ~/.ssh:/root/.ssh \
   --network=host \
   --workdir ${PKG_NAME} \
@@ -57,7 +57,6 @@ define run_in_container
  docker run \
  --volumes-from ${CONTAINER_ID} \
  --workdir ${PKG_NAME} \
- --env CICD_TOKEN=${CICD_TOKEN} \
  --env PKG_NAME=${PKG_NAME} \
  "${BUILDER_DOCKER_TAG}" /bin/bash -c "${1}"
 endef
@@ -98,13 +97,12 @@ docker.publish:
 
 .PHONY: tools
 tools:
-	go install github.com/onsi/ginkgo/ginkgo@v1.16.0
-	go install github.com/onsi/gomega/...@v1.18.0
-	go install golang.org/x/tools/cmd/goimports@latest
-	go install github.com/mikefarah/yq/v4@latest
+	go install github.com/onsi/ginkgo/ginkgo@v1.16.5
+	go install golang.org/x/tools/cmd/goimports@v0.51.0
+	go install github.com/mikefarah/yq/v4@v4.52.4
 	go install ../kube-openapi/cmd/nexus-openapi-gen
 	cd ../gqlgen && go install && cd -
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$$(go env GOPATH)"/bin v1.49.0
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 
 .PHONY: build_openapigen_in_container
 build_openapigen_in_container:
@@ -174,6 +172,7 @@ preparser:
 	rm -rf _tsm_temp
 	@echo "Copying Datamodel to temp directory"
 	cp -R ${DATAMODEL_PATH} _tsm_temp
+	mkdir -p ${DATAMODEL_PATH}/build
 	cp -R _generated_base_structure/* ${DATAMODEL_PATH}/build
 	@echo "Nexus Compiler: Running Preparser"
 	go run cmd/preparser/main.go -config-file ${CONFIG_FILE} -dsl _tsm_temp -output _generated -modpath ${PREPARSER_MODPATH}
@@ -219,6 +218,7 @@ generate_code:
 	go run cmd/generate-openapischema/generate-openapischema.go -yamls-path _generated/crds -existing-CRDs-Path ${GENERATED_OUTPUT_DIRECTORY}/crds -force ${FORCE}
 	git checkout -- pkg/openapi_generator/openapi/openapi_generated.go
 	rm -rf ${GENERATED_OUTPUT_DIRECTORY}/{client,apis,crds,common,nexus-client,helper,nexus-gql,tsm-nexus-gql,model}
+	mkdir -p ${GENERATED_OUTPUT_DIRECTORY}
 	cp -r _generated/{client,apis,crds,common,clusterroles,nexus-client,helper,nexus-gql,tsm-nexus-gql,model} ${GENERATED_OUTPUT_DIRECTORY}
 	@echo "Sorting imports"
 	if [ -a _generated/model/model.go ]; then \
@@ -242,8 +242,10 @@ generate_code:
 	find . -name "*.bak" -type f -delete
 	@echo "Nexus Compiler: Moving files to output directory"
 	mkdir -p ${GENERATED_OUTPUT_DIRECTORY}/install-validator
-	cp -r ${GOPATH}/src/github.com/vmware-tanzu/graph-framework-for-microservices/install-validator/install.so ${GENERATED_OUTPUT_DIRECTORY}/install-validator/install.so || echo "Could not find install.so file, skipping"
+	cp -r ${GOPATH}/src/github.com/dilipmighty245/graph-framework-for-microservices/install-validator/install.so ${GENERATED_OUTPUT_DIRECTORY}/install-validator/install.so || echo "Could not find install.so file, skipping"
+	mkdir -p ${GENERATED_OUTPUT_DIRECTORY}
 	cp -r _generated/{client,apis,crds,common,clusterroles,nexus-client,helper,nexus-gql,tsm-nexus-gql,model} ${GENERATED_OUTPUT_DIRECTORY}
+	bash scripts/finalize_graphql_module.sh "${GENERATED_OUTPUT_DIRECTORY}" "${CRD_MODULE_PATH}"
 	@echo "Nexus Compiler: Compiler code generation completed"
 
 .PHONY: test_generate_code_in_container
@@ -252,7 +254,7 @@ test_generate_code_in_container: docker.builder.image.exists init_submodules
 	cd ../gqlgen && go install && cd - && \
 	make generate_code DATAMODEL_PATH=example/datamodel \
 	CONFIG_FILE=example/nexus-sdk.yaml \
-	CRD_MODULE_PATH="github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/output/generated/" \
+	CRD_MODULE_PATH="github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/" \
 	LOG_LEVEL=trace \
 	GENERATED_OUTPUT_DIRECTORY=example/output/generated && \
 	cd example/output/generated && [ ! -f model/model.go ] || mv model/model.go model/model.tmp && \
@@ -266,7 +268,7 @@ test_generate_code_in_container: docker.builder.image.exists init_submodules
 
 .PHONY: generate_example
 generate_example:
-	$(MAKE) generate_code DATAMODEL_PATH=example/datamodel CONFIG_FILE=example/nexus-sdk.yaml CRD_MODULE_PATH="github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/output/generated/" GENERATED_OUTPUT_DIRECTORY=example/output/generated
+	$(MAKE) generate_code DATAMODEL_PATH=example/datamodel CONFIG_FILE=example/nexus-sdk.yaml CRD_MODULE_PATH="github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/" GENERATED_OUTPUT_DIRECTORY=example/output/generated
 
 .PHONY: show-image-name
 show-image-name:
@@ -297,22 +299,4 @@ render_templates:
 
 .PHONY: test_render_templates
 test_render_templates: render_templates
-	@if [ -n "$$(git ls-files --modified --exclude-standard)" ]; then\
-    	echo "The following changes should be committed:";\
-    	git status;\
-    	git diff;\
-    	return 1;\
-    fi
-
-.PHONY: docker.gitlab_credentials
-docker.gitlab_credentials:
-	echo "Updating gitlab settings";
-	@if test -z $$CICD_TOKEN; then\
-		echo "Using ssh authentication" && \
-		git config --global --add url."git@gitlab.eng.vmware.com:".insteadOf "https://gitlab.eng.vmware.com/"; \
-	else \
-		echo "Using https authentication" && \
-		git config --global credential.helper store && \
-			echo -e  "https://gitlab-ci-token:${CICD_TOKEN}@gitlab.eng.vmware.com/" >> ~/.git-credentials && \
-			git config --global url."https://gitlab.eng.vmware.com/".insteadOf "git@gitlab.eng.vmware.com:"; \
-	fi
+	go test -mod=readonly -count=1 ./pkg/generator

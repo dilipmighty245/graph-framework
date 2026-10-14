@@ -20,7 +20,7 @@ import (
 	"reflect"
 	"sort"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/util/proto"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/util/proto"
 )
 
 type validationItem interface {

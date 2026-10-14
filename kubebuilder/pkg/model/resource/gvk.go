@@ -21,7 +21,7 @@ import (
 	"regexp"
 	"strings"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/internal/validation"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/internal/validation"
 )
 
 const (

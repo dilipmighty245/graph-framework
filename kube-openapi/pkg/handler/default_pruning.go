@@ -16,7 +16,7 @@ limitations under the License.
 
 package handler
 
-import "github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
+import "github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 
 // PruneDefaults remove all the defaults recursively from all the
 // schemas in the definitions, and does not modify the definitions in

@@ -15,10 +15,10 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/config"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser"
 	log "github.com/sirupsen/logrus"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser"
 	"golang.org/x/tools/imports"
 )
 
@@ -28,6 +28,9 @@ func Parse(startPath string) map[string][]*parser.Package {
 	packages := map[string][]*parser.Package{}
 	modulePath := parser.GetModulePath(startPath)
 	err := filepath.Walk(startPath, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
 		if info.IsDir() {
 			if info.Name() == "build" {
 				log.Infof("Ignoring build directory...")

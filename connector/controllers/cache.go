@@ -3,12 +3,14 @@ package controllers
 import (
 	"sync"
 
+	handler "connector/pkg/handler"
 	log "github.com/sirupsen/logrus"
-	handler "gitlab.eng.vmware.com/nsx-allspark_users/m7/handler.git"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-/* GvrCache stores controller info for a resource type.
+/*
+	GvrCache stores controller info for a resource type.
+
 The resource type could be CRD Types, Deployments, Services, Pods or any K8s resources.
 
 Eg: GvrCache map entries will look like:

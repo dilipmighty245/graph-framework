@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/common"
 	"github.com/ghodss/yaml"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/common"
 	extensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
 
@@ -210,6 +210,7 @@ func (g *Generator) getDefinition(pkg string) *definition {
 //   - x-kubernetes-int-or-string - required for properties which use anyOf with
 //     integer or string values
 func (g *Generator) addKubernetesExtensionsFlags(schema *extensionsv1.JSONSchemaProps) {
+	normalizeUniqueList(schema)
 	if len(schema.Properties) == 0 && schema.AdditionalProperties == nil && schema.Type == "object" {
 		t := true
 		schema.XPreserveUnknownFields = &t

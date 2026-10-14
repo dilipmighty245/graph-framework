@@ -20,13 +20,13 @@ import (
 	"errors"
 	"fmt"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/machinery"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/model/resource"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugin"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugin/util"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/declarative/v1/scaffolds"
-	goPluginV2 "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/v2"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/machinery"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/model/resource"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugin"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugin/util"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/declarative/v1/scaffolds"
+	goPluginV2 "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/v2"
 )
 
 const (

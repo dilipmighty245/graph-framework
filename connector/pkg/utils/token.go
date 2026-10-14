@@ -20,6 +20,8 @@ const TokenFileName = "token"
 type TokenRefresher struct {
 	TokenCh                               chan token.Token
 	RefreshDuration, RetryRefreshDuration time.Duration
+	// FetchToken allows callers to supply a credential provider; nil uses AWS IAM.
+	FetchToken func(*string) (token.Token, error)
 }
 
 func NewTokenRefresher() TokenRefresher {
@@ -61,31 +63,38 @@ func NewClientset(cluster *eks.Cluster) (dynamic.Interface, error) {
 }
 
 func RefreshToken(ctx context.Context, t TokenRefresher, name *string) {
+	defer close(t.TokenCh)
+	fetch := t.FetchToken
+	if fetch == nil {
+		fetch = getToken
+	}
+	delay := t.RefreshDuration
 	for {
-		time.Sleep(t.RefreshDuration)
-		for {
-			select {
-			case <-ctx.Done():
-				log.Warnf("Stopping refreshing of token")
-				close(t.TokenCh)
-				return
-			default:
-				token, err := getToken(name)
-				if err != nil {
-					log.Errorf("Refresh failed with an error: %v, retrying in %v", err, t.RetryRefreshDuration)
-					time.Sleep(t.RetryRefreshDuration)
-					continue
-				}
-				t.TokenCh <- token
-			}
-			break
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
 		}
-		log.Infof("Access token refreshed successfully, refreshing again in %s", t.RefreshDuration)
+		next, err := fetch(name)
+		if err != nil {
+			log.Errorf("Refresh failed with an error: %v, retrying in %v", err, t.RetryRefreshDuration)
+			delay = t.RetryRefreshDuration
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case t.TokenCh <- next:
+		}
+		delay = t.RefreshDuration
+		log.Infof("Access token refreshed successfully, refreshing again in %s", delay)
 	}
 }
 
 func writeAccessTokenToFile(token string) error {
-	f, err := os.OpenFile(TokenFileName, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0755)
+	f, err := os.OpenFile(TokenFileName, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return fmt.Errorf("opening file %q for write failed with error: %v", TokenFileName, err)
 	}

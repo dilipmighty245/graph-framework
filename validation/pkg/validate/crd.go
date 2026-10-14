@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/common-library/pkg/nexus"
 	log "github.com/sirupsen/logrus"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/common-library.git/pkg/nexus"
 	admissionv1 "k8s.io/api/admission/v1"
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

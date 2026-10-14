@@ -178,7 +178,7 @@ func (c *wsConnection) init() bool {
 		if c.InitFunc != nil {
 			ctx, err := c.InitFunc(c.ctx, c.initPayload)
 			if err != nil {
-				c.sendConnectionError(err.Error())
+				c.sendConnectionError("%s", err)
 				c.close(websocket.CloseNormalClosure, "terminated")
 				return false
 			}
@@ -305,7 +305,7 @@ func (c *wsConnection) closeOnCancel(ctx context.Context) {
 	<-ctx.Done()
 
 	if r := closeReasonForContext(ctx); r != "" {
-		c.sendConnectionError(r)
+		c.sendConnectionError("%s", r)
 	}
 	c.close(websocket.CloseNormalClosure, "terminated")
 }

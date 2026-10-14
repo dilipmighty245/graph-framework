@@ -21,7 +21,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/machinery"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/machinery"
 )
 
 // DefaultBoilerplatePath is the default path to the boilerplate file

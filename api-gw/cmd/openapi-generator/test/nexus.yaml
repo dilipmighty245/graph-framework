@@ -1,5 +1,5 @@
 groupName: "infra-host.com"
-dockerRepo: "amr-registry-pre.caas.intel.com"
+dockerRepo: ""
 ignoredDirs:
   - "test"
 ignoredParentPathParams:

@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"authz-controller/pkg/utils"
-	auth_nexus_org "golang-appnet.eng.vmware.com/nexus-sdk/api/build/apis/authorization.nexus.org/v1"
+	auth_nexus_org "nexus/admin/api/build/apis/authorization.admin.nexus.com/v1"
 )
 
 const (
@@ -183,8 +183,8 @@ func constructClusterRole(objectMeta metav1.ObjectMeta, rules []rbacv1.PolicyRul
 }
 
 // constructSubjectsAndUser
-//1. construct the k8s role binding from nexus role binding that points to the nexus role being created already.
-//2. construct the k8s object user identities.
+// 1. construct the k8s role binding from nexus role binding that points to the nexus role being created already.
+// 2. construct the k8s object user identities.
 func constructSubjectsAndUser(roleGvk *auth_nexus_org.Link, usersGvk, groupGvk map[string]auth_nexus_org.Link) (rbacv1.RoleRef, []rbacv1.Subject) {
 	roleRef := rbacv1.RoleRef{}
 	if roleGvk != nil {

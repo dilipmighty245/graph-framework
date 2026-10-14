@@ -949,7 +949,7 @@ func TestCustomDef(t *testing.T) {
 	callErr, funcErr, assert, callBuffer, funcBuffer := testOpenAPITypeWriter(t, `
 package foo
 
-import openapi "github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/common"
+import openapi "github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/common"
 
 type Blah struct {
 }
@@ -980,7 +980,7 @@ func TestCustomDefV3(t *testing.T) {
 	callErr, funcErr, assert, callBuffer, funcBuffer := testOpenAPITypeWriter(t, `
 package foo
 
-import openapi "github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/common"
+import openapi "github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/common"
 
 type Blah struct {
 }
@@ -1011,7 +1011,7 @@ func TestCustomDefV2AndV3(t *testing.T) {
 	callErr, funcErr, assert, callBuffer, funcBuffer := testOpenAPITypeWriter(t, `
 package foo
 
-import openapi "github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/common"
+import openapi "github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/common"
 
 type Blah struct {
 }
@@ -1087,7 +1087,7 @@ func TestCustomDefsV3(t *testing.T) {
 	callErr, funcErr, assert, callBuffer, funcBuffer := testOpenAPITypeWriter(t, `
 package foo
 
-import openapi "github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/common"
+import openapi "github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/common"
 
 // Blah is a custom type
 type Blah struct {

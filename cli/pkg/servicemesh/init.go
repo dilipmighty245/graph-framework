@@ -3,17 +3,17 @@ package servicemesh
 import (
 	"fmt"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/log"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/servicemesh/app"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/servicemesh/apply"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/servicemesh/config"
+	servicemesh_datamodel "github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/servicemesh/datamodel"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/servicemesh/debug"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/servicemesh/login"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/servicemesh/operator"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/servicemesh/runtime"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/servicemesh/version"
 	"github.com/spf13/cobra"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/log"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/servicemesh/app"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/servicemesh/apply"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/servicemesh/config"
-	servicemesh_datamodel "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/servicemesh/datamodel"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/servicemesh/debug"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/servicemesh/login"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/servicemesh/operator"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/servicemesh/runtime"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/servicemesh/version"
 )
 
 var GetCmd = &cobra.Command{

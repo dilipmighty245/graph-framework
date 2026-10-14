@@ -435,7 +435,11 @@ func wordWalkerFunc(private bool, nameRunes *[]rune) func(*wordInfo) {
 		case !info.HasCommonInitial && (strings.ToUpper(word) == word || strings.ToLower(word) == word):
 			// FOO or foo → Foo
 			// FOo → FOo
-			word = UcFirst(word)
+			if len(commonInitialisms) == 0 {
+				word = UcFirst(word)
+			} else {
+				word = UcFirst(strings.ToLower(word))
+			}
 		}
 
 		*nameRunes = append(*nameRunes, []rune(word)...)
@@ -576,7 +580,29 @@ func sanitizeKeywords(name string) string {
 // commonInitialisms is a set of common initialisms.
 // Only add entries that are highly unlikely to be non-initialisms.
 // For instance, "ID" is fine (Freudian code is rare), but "AND" is not.
-var commonInitialisms = map[string]bool{}
+var commonInitialisms = standardInitialisms
+
+var standardInitialisms = map[string]bool{
+	"ACL": true, "API": true, "ASCII": true, "CPU": true, "CSS": true,
+	"DNS": true, "EOF": true, "GUID": true, "HTML": true, "HTTP": true,
+	"HTTPS": true, "ID": true, "IP": true, "JSON": true, "QPS": true,
+	"RAM": true, "RPC": true, "SLA": true, "SMTP": true, "SQL": true,
+	"SSH": true, "TCP": true, "TLS": true, "TTL": true, "UDP": true,
+	"UI": true, "UID": true, "UUID": true, "URI": true, "URL": true,
+	"UTF8": true, "VM": true, "XML": true, "XSRF": true, "XSS": true,
+}
+
+// UseNexusNaming preserves the compiler's schema names (Id rather than ID).
+// Generation is serialized by api.Generate because rendering also uses globals.
+func UseNexusNaming(enabled bool) func() {
+	previous := commonInitialisms
+	if enabled {
+		commonInitialisms = map[string]bool{}
+	} else {
+		commonInitialisms = standardInitialisms
+	}
+	return func() { commonInitialisms = previous }
+}
 
 func rawQuote(s string) string {
 	return "`" + strings.ReplaceAll(s, "`", "`+\"`\"+`") + "`"

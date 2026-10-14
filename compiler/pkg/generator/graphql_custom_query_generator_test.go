@@ -4,8 +4,8 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/generator"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/generator"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser"
 )
 
 var _ = Describe("Graphql Custom query generator tests", func() {
@@ -18,7 +18,7 @@ var _ = Describe("Graphql Custom query generator tests", func() {
 		pkgs = parser.ParseDSLPkg(exampleDSLPath)
 		graphqlQueries := parser.ParseGraphqlQuerySpecs(pkgs)
 		graph, _, _ := parser.ParseDSLNodes(exampleDSLPath, baseGroupName, pkgs, graphqlQueries)
-		root, ok := graph["roots.root.tsm.tanzu.vmware.com"]
+		root, ok := graph["roots.root.nexus.com"]
 		Expect(ok).To(BeTrue())
 		config, ok := root.SingleChildren["Config"]
 		Expect(ok).To(BeTrue())

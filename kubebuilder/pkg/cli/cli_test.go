@@ -28,13 +28,13 @@ import (
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config"
-	cfgv2 "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config/v2"
-	cfgv3 "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config/v3"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/machinery"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/model/stage"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugin"
-	goPluginV3 "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/v3"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config"
+	cfgv2 "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config/v2"
+	cfgv3 "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config/v3"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/machinery"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/model/stage"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugin"
+	goPluginV3 "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/v3"
 )
 
 func makeMockPluginsFor(projectVersion config.Version, pluginKeys ...string) []plugin.Plugin {

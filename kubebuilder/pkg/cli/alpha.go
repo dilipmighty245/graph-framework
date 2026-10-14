@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"strings"
 
+	configgen "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/cli/alpha/config-gen"
 	"github.com/spf13/cobra"
-	configgen "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/cli/alpha/config-gen"
 )
 
 const (

@@ -20,12 +20,12 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/machinery"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/model/resource"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/golang/declarative/v1/scaffolds/internal/templates"
 	"github.com/spf13/afero"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/machinery"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/model/resource"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/golang/declarative/v1/scaffolds/internal/templates"
 )
 
 const (

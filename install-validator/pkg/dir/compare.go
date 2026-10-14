@@ -9,8 +9,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	nexuscompare "github.com/vmware-tanzu/graph-framework-for-microservices/common-library/pkg/nexus-compare"
-	kubewrapper "github.com/vmware-tanzu/graph-framework-for-microservices/install-validator/pkg/k8s-utils"
+	nexuscompare "github.com/dilipmighty245/graph-framework-for-microservices/common-library/pkg/nexus-compare"
+	kubewrapper "github.com/dilipmighty245/graph-framework-for-microservices/install-validator/pkg/k8s-utils"
 	"sigs.k8s.io/yaml"
 )
 

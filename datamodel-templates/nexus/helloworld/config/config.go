@@ -1,7 +1,7 @@
 package config
 
 import (
-	"golang-appnet.eng.vmware.com/nexus-sdk/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 type Config struct {

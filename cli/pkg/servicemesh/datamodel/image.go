@@ -3,9 +3,9 @@ package datamodel
 import (
 	"fmt"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/servicemesh/prereq"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/utils"
 	"github.com/spf13/cobra"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/servicemesh/prereq"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/utils"
 )
 
 func InstallRemote(cmd *cobra.Command, args []string) error {

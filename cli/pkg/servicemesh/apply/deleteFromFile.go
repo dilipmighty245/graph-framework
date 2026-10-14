@@ -7,10 +7,10 @@ import (
 	"io/ioutil"
 	"strings"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/log"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/servicemesh/auth"
+	"github.com/dilipmighty245/graph-framework-for-microservices/cli/pkg/utils"
 	"github.com/spf13/cobra"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/log"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/servicemesh/auth"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/cli.git/pkg/utils"
 	"gopkg.in/resty.v1"
 	yaml "gopkg.in/yaml.v2"
 )

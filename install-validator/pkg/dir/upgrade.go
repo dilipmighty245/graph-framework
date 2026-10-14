@@ -7,7 +7,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	kubewrapper "github.com/vmware-tanzu/graph-framework-for-microservices/install-validator/pkg/k8s-utils"
+	kubewrapper "github.com/dilipmighty245/graph-framework-for-microservices/install-validator/pkg/k8s-utils"
 )
 
 // ApplyDir checks if there are any incompatible crds and data for them. Applies them based on force flag.

@@ -188,7 +188,8 @@ func main() {
 	echo_server.InitEcho(stopCh, conf, k8sClientSet, nexusClientSet)
 
 	if conf.BackendService != "" {
-		echo_server.WatchForOpenApiSpecChanges(stopCh, declarative.OpenApiSpecDir, declarative.OpenApiSpecFile)
+		stopWatcher := echo_server.WatchForOpenApiSpecChanges(stopCh, declarative.OpenApiSpecDir, declarative.OpenApiSpecFile)
+		defer stopWatcher()
 	}
 
 	if conf.EnableNexusRuntime {

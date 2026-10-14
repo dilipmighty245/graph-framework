@@ -13,7 +13,6 @@ CLUSTER ?= ""
 DATAMODEL ?= ""
 DATAMODEL_GROUP ?= ""
 NEXUS_BIN ?= $(shell which nexus)
-CICD_TOKEN ?= ""
 CRD_GROUP ?= ""
 CRD_KIND ?= ""
 CRD_VERSION ?= ""
@@ -51,7 +50,7 @@ endif
 
 install-nexus-kubebuilder:
 	if [ "$(origin NEXUS_KUBEBUILDER)" = "file" ]; then \
-		test -s ${PROJECT_DIR}/bin/nexus-kubebuilder || { mkdir -p ${PROJECT_DIR}/bin; cd ${PROJECT_DIR}/bin; GOBIN=${PROJECT_DIR}/bin go install gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/cmd/nexus-kubebuilder@master ; };\
+		test -s ${PROJECT_DIR}/bin/nexus-kubebuilder || { mkdir -p ${PROJECT_DIR}/bin; cd ${PROJECT_DIR}/bin; GOBIN=${PROJECT_DIR}/bin go install github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/cmd/nexus-kubebuilder@latest ; };\
 	fi
 
 ifeq ($(CONTAINER_ID),)
@@ -64,8 +63,6 @@ docker run \
 --env GIT_HEAD=${GIT_HEAD} \
 --env GIT_TAG=${GIT_TAG} \
 --env APP_NAME=${APP_NAME} \
---env GOINSECURE=*.eng.vmware.com \
---env GOPRIVATE=*.eng.vmware.com \
 "${BUILDER_NAME}:${BUILDER_TAG}" /bin/bash -c "make cred_setup && ${1}"
 endef
 else
@@ -73,12 +70,9 @@ define run_in_container
 docker run \
 --volumes-from ${CONTAINER_ID} \
 --workdir ${PKG_NAME} \
---env CICD_TOKEN=${CICD_TOKEN} \
 --env GIT_HEAD=${GIT_HEAD} \
 --env GIT_TAG=${GIT_TAG} \
 --env APP_NAME=${APP_NAME} \
---env GOINSECURE=*.eng.vmware.com \
---env GOPRIVATE=*.eng.vmware.com \
 "${BUILDER_NAME}:${BUILDER_TAG}" /bin/bash -c "make cred_setup && ${1}"
 endef
 endif
@@ -159,18 +153,10 @@ docker.builder:
 	fi
 
 cred_setup:
-	if [ -z ${CICD_TOKEN} ]	;then \
-        git config --global --add url."git@gitlab.eng.vmware.com:".insteadOf "https://gitlab.eng.vmware.com/" &&\
-        go mod tidy && go mod download ;\
-	else \
-        echo "https://gitlab-ci-token:${CICD_TOKEN}@gitlab.eng.vmware.com" >> ~/.git-credentials && \
-        git config --global credential.helper store && \
-        go mod tidy && go mod download ;\
-    fi
-
+	go mod download
 
 build_app: go_get lint ## Build manager binary.
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -ldflags "-s -w -X gitlab.eng.vmware.com/nsx-allspark_users/lib-go/allspark/health.Sha=$(GIT_HEAD) -X gitlab.eng.vmware.com/nsx-allspark_users/lib-go/allspark/health.Tag=$(GIT_TAG)" -o bin/$(APP_NAME) main.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -ldflags "-s -w" -o bin/$(APP_NAME) main.go
 
 docker:
 	docker build -t ${IMAGE_REGISTRY}:${IMAGE_TAG} . -f Dockerfile

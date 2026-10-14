@@ -44,7 +44,7 @@ As it is a Go struct, it can hold fields of all valid Go types.
 
 In a datamodel, _not all Go structs are Nexus nodes, but all Nexus nodes are Go structs._
 
-A Go struct can be declared as a node in the graph by including `nexus.Node` (defined [here](https://github.com/vmware-tanzu/graph-framework-for-microservices/blob/main/nexus/nexus/nexus.go)) as an embedded field in the struct.
+A Go struct can be declared as a node in the graph by including `nexus.Node` (defined [here](https://github.com/dilipmighty245/graph-framework-for-microservices/blob/main/nexus/nexus/nexus.go)) as an embedded field in the struct.
 
 <details><summary>Example</summary>
 
@@ -52,7 +52,7 @@ A Go struct can be declared as a node in the graph by including `nexus.Node` (de
 package role
 
 import (
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 // FullName is NOT a graph node.
@@ -87,7 +87,7 @@ Singleton Nodes are special Nexus nodes that can have only one object instance i
 
 While there is no limit on the number of objects of a nexus node at runtime, a singleton nexus node can only have a single object instance in the graph at any time.
 
-A Go struct can be declared as a singleton Nexus node in the graph by including `nexus.SingletonNode` (defined [here](https://github.com/vmware-tanzu/graph-framework-for-microservices/blob/main/nexus/nexus/nexus.go)) as an embedded field in the nexus node Go struct.
+A Go struct can be declared as a singleton Nexus node in the graph by including `nexus.SingletonNode` (defined [here](https://github.com/dilipmighty245/graph-framework-for-microservices/blob/main/nexus/nexus/nexus.go)) as an embedded field in the nexus node Go struct.
 
 <details><summary>Example</summary>
 
@@ -95,7 +95,7 @@ A Go struct can be declared as a singleton Nexus node in the graph by including 
 package role
 
 import (
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 type SingleLeader struct {
@@ -153,7 +153,7 @@ Child relationship annotation can be expressed in one of the following formats:
 package role
 
 import (
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 // FullName is NOT a graph node.
@@ -228,7 +228,7 @@ Link relationship annotation can be expressed in one of the following formats:
 package role
 
 import (
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 // FullName is NOT a graph node.
@@ -489,7 +489,7 @@ For field which should be validated you can add the following comment above a fi
 package role
 
 import (
-  "github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+  "github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 type Leader struct {
@@ -590,7 +590,7 @@ Nexus DSL provides the syntax to access a Nexus node through one or more REST AP
 
 The syntax for declaration of REST API for a Nexus node has 2 parts in Nexus DSL:
 
-1. Create an instance of type [nexus.RestAPISpec](https://github.com/vmware-tanzu/graph-framework-for-microservices/blob/main/nexus/nexus/nexus.go) that defines one or most REST APIs.
+1. Create an instance of type [nexus.RestAPISpec](https://github.com/dilipmighty245/graph-framework-for-microservices/blob/main/nexus/nexus/nexus.go) that defines one or most REST APIs.
 
 2. Associate the `nexus.RestAPISpec` instance with a Nexus node.
 
@@ -618,7 +618,7 @@ The keyword `nexus-rest-api-gen` is an instruction in Nexus DSL to the Nexus Com
 package role
 
 import (
-  "github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+  "github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 var LeaderRestAPISpec = nexus.RestAPISpec{
@@ -661,7 +661,7 @@ The above example, defined a variable LeaderRestAPISpec of type nexus.RestAPISpe
 Custom GraphQl query spec is a way of extending GraphQl server with queries to external GRPC servers. 
 
 To add custom queries you need to use `nexus.GraphQLQuerySpec` struct imported from
-[nexus](https://github.com/vmware-tanzu/graph-framework-for-microservices/blob/main/nexus/nexus/nexus.go) package.
+[nexus](https://github.com/dilipmighty245/graph-framework-for-microservices/blob/main/nexus/nexus/nexus.go) package.
 
 This is a collection  of `nexus.GraphQLQuery` structs. A GraphQLQuery specifies a custom query available via GraphQL API.
 Each GraphQLQuery is self contained unit of the exposed custom query.
@@ -677,13 +677,13 @@ type GraphQLQuery struct {
 ```
 
 Currently there are two API types supported:
-- NexusGraphQL Query, [proto file](https://github.com/vmware-tanzu/graph-framework-for-microservices/blob/main/nexus/proto/graphql/query.proto)
+- NexusGraphQL Query, [proto file](https://github.com/dilipmighty245/graph-framework-for-microservices/blob/main/nexus/proto/graphql/query.proto)
   specifies Query requests and responses which server should implement
-- GetMetrics, [proto_file](https://github.com/vmware-tanzu/graph-framework-for-microservices/blob/main/nexus/proto/query-manager/server.proto)
+- GetMetrics, [proto_file](https://github.com/dilipmighty245/graph-framework-for-microservices/blob/main/nexus/proto/query-manager/server.proto)
   specifies expected requests and responses.
 
 In NexusGraphQL Query you can provide any arguments, they will be translated into a `UserProvidedArgs` map. In GetMetrics arguments can be a
-subset of well-known [MetricsArg](https://github.com/vmware-tanzu/graph-framework-for-microservices/blob/main/nexus/generated/query-manager/server.pb.go#L23)
+subset of well-known [MetricsArg](https://github.com/dilipmighty245/graph-framework-for-microservices/blob/main/nexus/generated/query-manager/server.pb.go#L23)
 arguments (`Metric`, `StartTime`, `EndTime`, `TimeInterval`) or additional custom arguments which will be translated into a `UserProvidedArgs` map.
 
 GraphQlQuerySpec can be attached to a Nexus Node using comment above a Node.
@@ -694,7 +694,7 @@ GraphQlQuerySpec can be attached to a Nexus Node using comment above a Node.
 package role
 
 import (
-  "github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+  "github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 // nexus-graphql-query:MyCustomQueries
@@ -767,7 +767,7 @@ The below example associates status of type "LeaderStatus" with Nexus node "Lead
 package role
 
 import (
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 type Leader struct {

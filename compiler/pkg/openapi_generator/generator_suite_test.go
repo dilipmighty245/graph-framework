@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/common"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/common"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 )
 
 func TestGenerator(t *testing.T) {

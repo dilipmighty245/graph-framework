@@ -1,55 +1,29 @@
-# Playground Lite
+# Development setup
 
-[[Exit]](../../README.md)  
+Clone the repository using its public HTTPS URL:
 
-Welcome to the Nexus Setup.
-
-This document will walk you through the setup needed to get your developer env ready to work with Nexus, when working behind Intel VPN and/or Intel Proxy.
-
-
-## Package Management Settings
-
-### setup the apt repository to use proxy (Add/update the apt conf file)
-```
-> sudo vi /etc/apt/apt.conf
-Acquire::http::Proxy "http://proxy-dmz.intel.com:911";
-Acquire::https::Proxy "http://proxy-dmz.intel.com:912";
+```sh
+git clone https://github.com/dilipmighty245/graph-framework-for-microservices.git
+cd graph-framework-for-microservices
+export NEXUS_REPO_DIR="$PWD"
 ```
 
-### add the following lines to your shell startup script (.bashrc or .zshrc)
-```
-export http_proxy=http://proxy-dmz.intel.com:911
-export https_proxy=http://proxy-dmz.intel.com:912
-export ftp_proxy=http://proxy-dmz.intel.com:911
-export socks_proxy=http://proxy-dmz.intel.com:1080
-export no_proxy=intel.com,.intel.com,localhost,127.0.0.1,10.0.0.0/8,192.168.0.0/16,172.16.0.0/12
+Install Go 1.27, Git, Make, and Python 3 for source development. Race tests also
+need a platform C toolchain. For generated-model and service tests, install
+Docker, Kind, kubectl, jq, yq v4, and goimports and start Docker.
+
+Run the source checks from the repository root:
+
+```sh
+make test.framework
 ```
 
-### Install the proxy connect package 
-```
-> sudo apt install connect-proxy
+Run the repeated framework checks, including generation and disposable Kind
+clusters, with:
+
+```sh
+make test.framework.stability
 ```
 
-### Update your ssh to use proxy when pulling images from github, add the following to ~/.ssh/config
-```
-Host github.com
-     ProxyCommand connect -a none -S proxy-dmz.intel.com:1080 %h %p
-```
-
-### Update the docker daemon to use the proxy for pulling docker images (add to /etc/docker/daemon.json)
-```
-{
- "proxies": {
-     "http-proxy": "http://proxy-dmz.intel.com:911",
-     "https-proxy": "http://proxy-dmz.intel.com:912",
-     "no-proxy": "*.test.example.com,.example.org,intel.com,.intel.com,localhost,127.0.0.1,10.0.0.0/8,192.168.0.0/16,172.16.0.0/12"
- }
-}
-```
-
-### Restart the docker daemon for the changes to take effect
-```
-> sudo systemctl restart docker.service
-```
-
-[[Exit]](../../README.md) 
+See [testing](../testing.md) for tool prerequisites, coverage, and logs, and the
+[framework overview](../../README.md) for its architecture and components.

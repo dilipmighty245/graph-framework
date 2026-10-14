@@ -8,9 +8,9 @@ import (
 
 	"golang.org/x/tools/go/packages"
 
-	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/templates"
 	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/internal/code"
+	"github.com/vektah/gqlparser/v2/ast"
 )
 
 var ErrTypeNotFound = errors.New("unable to find type")
@@ -89,7 +89,7 @@ var (
 func (b *Binder) DefaultUserObject(name string) (types.Type, error) {
 	models := b.cfg.Models[name].Model
 	if len(models) == 0 {
-		return nil, fmt.Errorf(name + " not found in typemap")
+		return nil, fmt.Errorf("%s not found in typemap", name)
 	}
 
 	if models[0] == "map[string]interface{}" {

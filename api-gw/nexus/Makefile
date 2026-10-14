@@ -93,43 +93,11 @@ datamodel_apply: check-file start-portforward
 
 .PHONY: datamodel_build
 datamodel_build:
-	@echo "CRD and API Generated Output Directory: ${OUTPUT_DIR}"
-	@echo "OPENAPISpec Generated Output Directory: ${BUILD_DIR}/${DATAMODEL}/policymodel/crds/controller"
-	mkdir -p ${BUILD_DIR}/${DATAMODEL}
-	@@test -s ${BUILD_DIR}/${DATAMODEL}/policymodel || git clone git@gitlab.eng.vmware.com:nsx-allspark_users/m7/policymodel.git -b nexus-sdk-dev --single-branch --depth 1 ${BUILD_DIR}/${DATAMODEL}/policymodel
-	@if [ "$(UNAME)" = "Darwin" ]; then\
-		cp bin/nexus-sdk-darwin-x64 bin/nexus-sdk; \
-	fi
-	@if [ "$(UNAME)" = "Linux" ]; then \
-		cp bin/nexus-sdk-linux-x64 bin/nexus-sdk;\
-	fi
-	@@test -s bin/nexus-sdk || { echo "Please use mac/linux system for building datamodel"; exit 1; }
-	echo "starting to build datamodel crds and api for openapispec generation."
-	@@bin/nexus-sdk -config-file ${DATAMODEL}/nexus-sdk.yaml -crd-output ${OUTPUT_DIR}  -dsl ${DATAMODEL} || { echo "Failure in generating crds and apis" ; exit 1;}
-	@@mkdir -p ${BUILD_DIR}/${DATAMODEL}/policymodel/pkg/apis
-	@@mkdir -p ${BUILD_DIR}/${DATAMODEL}/policymodel/crds/controller
-	echo "Copying files to policymodel for openapispec generation"
-	@@cp -rf ${OUTPUT_DIR}/*/*.yaml ${BUILD_DIR}/${DATAMODEL}/policymodel/crds/controller/
-	@@cp -rf ${OUTPUT_DIR}/api_names.sh ${BUILD_DIR}/${DATAMODEL}/policymodel/scripts
-	@@cp -rf ${OUTPUT_DIR}/* ${BUILD_DIR}/${DATAMODEL}/policymodel/pkg/apis
-	cd	${BUILD_DIR}/${DATAMODEL}/policymodel && make generate_code_in_container || { echo "Failure in generation of openapispec."; exit 1; }
-	@@rm -rf ${OUTPUT_DIR};
-
+	$(MAKE) -C $(dir $(abspath $(lastword $(MAKEFILE_LIST))))../../api datamodel_build
 
 .PHONY: app_init
 app_init:
-	if [[ -z ${APP_DIR} ]]; then \
-		echo "could not initialize app please provide app directory using APP_DIR variable"; \
-		exit 1 ; \
-	fi
-	cd ${APP_DIR} && \
-		echo "Intializing go mod" && \
-		test -s go.mod || go mod init && \
-		test -s main.go || { echo "Populating sample main.go"; git archive --remote=ssh://git@gitlab.eng.vmware.com/nsx-allspark_users/m7/policymodel.git nexus-sdk-dev sample-main.go.template | tar -x ; mv sample-main.go.template main.go; } && \
-		if [ -n ${DATAMODEL} ]; then\
-			go mod edit -replace gitlab.eng.vmware.com/nsx-allspark_users/m7/policymodel.git=${DATAMODEL_DIR}/build/${DATAMODEL}/policymodel && \
-			go mod edit -replace gitlab.eng.vmware.com/nsx-allspark_users/m7/policymodel.git/pkg/k8sclients/1.22=${DATAMODEL_DIR}/build/${DATAMODEL}/policymodel/pkg/k8sclients/1.22 ; \
-		fi
+	nexus app init
 
 .PHONY: app_run
 app_run: kill-portforward start-portforward

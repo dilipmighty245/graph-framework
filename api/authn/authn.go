@@ -1,7 +1,7 @@
 package authentication
 
 import (
-	"nexus/base/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 // IDPConfig contains the properties of an OIDC app

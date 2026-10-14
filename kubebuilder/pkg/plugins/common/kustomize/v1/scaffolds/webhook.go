@@ -19,13 +19,13 @@ package scaffolds
 import (
 	"fmt"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/config"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/machinery"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/model/resource"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/common/kustomize/v1/scaffolds/internal/templates/config/certmanager"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/common/kustomize/v1/scaffolds/internal/templates/config/kdefault"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins/common/kustomize/v1/scaffolds/internal/templates/config/webhook"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/machinery"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/model/resource"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/common/kustomize/v1/scaffolds/internal/templates/config/certmanager"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/common/kustomize/v1/scaffolds/internal/templates/config/kdefault"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins/common/kustomize/v1/scaffolds/internal/templates/config/webhook"
 )
 
 var _ plugins.Scaffolder = &webhookScaffolder{}

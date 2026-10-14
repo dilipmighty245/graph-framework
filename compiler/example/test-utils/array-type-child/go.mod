@@ -1,5 +1,5 @@
-module github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/test-utils/array-type-child
+module github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/test-utils/array-type-child
 
 go 1.18
 
-require github.com/vmware-tanzu/graph-framework-for-microservices/nexus v0.0.0-20221212164212-819bb2b13a73
+require github.com/dilipmighty245/graph-framework-for-microservices/nexus v0.0.0-20221212164212-819bb2b13a73

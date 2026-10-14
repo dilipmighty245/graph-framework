@@ -15,7 +15,7 @@
 package validate
 
 import (
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/errors"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/errors"
 )
 
 // Error messages related to schema validation and returned as results.

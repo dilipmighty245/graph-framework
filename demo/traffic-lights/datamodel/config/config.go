@@ -5,7 +5,7 @@ import (
 	"trafficlight/config/group"
 	"trafficlight/config/perftest"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 var ConfigRestAPISpec = nexus.RestAPISpec{

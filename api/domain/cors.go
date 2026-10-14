@@ -1,7 +1,7 @@
 package domain
 
 import (
-	"nexus/base/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 // CORSConfig contains the properties of an CORS Domain configuration

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/util"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/util"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 

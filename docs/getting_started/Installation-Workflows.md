@@ -42,7 +42,7 @@ Nexus runtime components now run on the configured K8s namespace.
 #### Step 1. Clone the Nexus Repo
 
 ```
-git clone git@github.com:intel-innersource/applications.development.nexus.core.git 
+git clone https://github.com/dilipmighty245/graph-framework-for-microservices.git
 ```
 
 #### Step 2. Build runtime artifacts from source code
@@ -100,8 +100,8 @@ DATAMODEL_DOCKER_REGISTRY=<docker-registry-domain-name> TAG=<release-tag> make d
 #### Step 1. Clone the Nexus Repo
 
 ```
-git clone git@github.com:intel-innersource/applications.development.nexus.core.git 
-cd applications.development.nexus.core.git 
+git clone https://github.com/dilipmighty245/graph-framework-for-microservices.git
+cd graph-framework-for-microservices
 ```
 
 #### Step 2: Build compiler builder

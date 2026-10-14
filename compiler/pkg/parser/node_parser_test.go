@@ -9,9 +9,9 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	generator "github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/generator"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser/rest"
+	generator "github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/generator"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser/rest"
 )
 
 var _ = Describe("Node parser tests", func() {
@@ -24,7 +24,7 @@ var _ = Describe("Node parser tests", func() {
 
 	BeforeEach(func() {
 		graph, _, _ = parser.ParseDSLNodes(exampleDSLPath, baseGroupName, nil, nil)
-		root, ok = graph["roots.root.tsm.tanzu.vmware.com"]
+		root, ok = graph["roots.root.nexus.com"]
 		Expect(ok).To(BeTrue())
 	})
 
@@ -40,6 +40,7 @@ var _ = Describe("Node parser tests", func() {
 			"FooTypeABC",
 			"Gns",
 			"IgnoreChild",
+			"OptionalParentPathParam",
 			"Root",
 			"SvcGroup",
 			"SvcGroupLinkInfo",
@@ -50,7 +51,7 @@ var _ = Describe("Node parser tests", func() {
 			nodes = append(nodes, node.Name)
 		})
 		sort.Strings(nodes)
-		Expect(nodes).To(HaveLen(14))
+		Expect(nodes).To(HaveLen(15))
 		Expect(nodes).To(Equal(expectedNodes))
 	})
 
@@ -123,7 +124,7 @@ var _ = Describe("Node parser tests", func() {
 		}
 
 		pkgs := parser.ParseDSLPkg("../../example/test-utils/nexus-rest-api-gen-wrong-name")
-		pkg, ok := pkgs["github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/test-utils/nexus-rest-api-gen-wrong-name"]
+		pkg, ok := pkgs["github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/test-utils/nexus-rest-api-gen-wrong-name"]
 		Expect(ok).To(BeTrue())
 		graphqlQueries := parser.ParseGraphqlQuerySpecs(pkgs)
 		graph, _, _ := parser.ParseDSLNodes("../../example/test-utils/nexus-rest-api-gen-wrong-name", baseGroupName, pkgs, graphqlQueries)
@@ -148,7 +149,7 @@ var _ = Describe("Node parser tests", func() {
 
 	It("should be able to get graphql info from a field", func() {
 		graph, _, _ = parser.ParseDSLNodes(exampleDSLPath, baseGroupName, nil, nil)
-		config, ok := graph["roots.root.tsm.tanzu.vmware.com"].SingleChildren["Config"]
+		config, ok := graph["roots.root.nexus.com"].SingleChildren["Config"]
 		Expect(ok).To(BeTrue())
 
 		if val, ok := config.TypeSpec.Type.(*ast.StructType); ok {

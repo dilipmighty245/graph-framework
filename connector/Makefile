@@ -1,6 +1,6 @@
 DEBUG ?= FALSE
 
-GO_PROJECT_NAME ?= connector.git
+GO_PROJECT_NAME ?= connector
 BUCKET_NAME ?= nexus-template-downloads
 CHART_NAME ?= "nexus-connector"
 HELM_REGISTRY ?= oci://284299419820.dkr.ecr.us-west-2.amazonaws.com/nexus
@@ -18,16 +18,14 @@ PUBLIC_HARBOR_REPO ?= public-harbor-vmware
 BUILDER_NAME ?= ${IMAGE_NAME}-builder
 BUILDER_TAG := $(shell md5sum builder/Dockerfile | awk '{ print $1 }' | head -c 8)
 
-PKG_NAME ?= /go/src/gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/${GO_PROJECT_NAME}
+PKG_NAME ?= /go/src/github.com/dilipmighty245/graph-framework-for-microservices/${GO_PROJECT_NAME}
 
 ifeq ($(CONTAINER_ID),)
 define run_in_container
   docker run \
   --volume ~/.ssh:/root/.ssh \
-  --volume $(realpath .):/go/src/gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/connector.git/ \
+  --volume $(realpath .):/go/src/github.com/dilipmighty245/graph-framework-for-microservices/connector/ \
   --workdir ${PKG_NAME} \
-  --env GOPRIVATE="*.eng.vmware.com" \
-  --env CICD_TOKEN=${CICD_TOKEN} \
   "${BUILDER_NAME}:${BUILDER_TAG}" /bin/bash -c "make cred_setup && ${1}"
 endef
 else
@@ -35,8 +33,6 @@ define run_in_container
  docker run \
  --volumes-from ${CONTAINER_ID} \
  --workdir ${PKG_NAME} \
- --env CICD_TOKEN=${CICD_TOKEN} \
- --env GOPRIVATE=*.eng.vmware.com \
  "${BUILDER_NAME}:${BUILDER_TAG}" /bin/bash -c "make cred_setup && ${1}"
 endef
 endif
@@ -52,7 +48,7 @@ docker.builder:
 .PHONY: build
 build:
 	cd cmd/connector && \
-		CGO_ENABLED=0 GOOS=linux go build -ldflags "-X google.golang.org/protobuf/reflect/protoregistry.conflictPolicy=warn" .
+		CGO_ENABLED=0 GOOS=linux go build .
 
 .PHONY: build_in_container
 build_in_container: ${BUILDER_NAME}\:${BUILDER_TAG}.image.exists
@@ -67,7 +63,7 @@ tools:
 
 .PHONY: unit-test
 unit-test:
-	set -o pipefail && CGO_ENABLED=0 go test -ldflags "-X google.golang.org/protobuf/reflect/protoregistry.conflictPolicy=warn" -v -tags=unit -p=1 -count=1 -vet=off ./...
+	set -o pipefail && CGO_ENABLED=0 go test -v -tags=unit -p=1 -count=1 ./...
 
 .PHONY: race-unit-test
 race-unit-test:
@@ -116,18 +112,10 @@ publish_template: build_template
 	gsutil cp connector-manifests.tar gs://${BUCKET_NAME}/${TAG}/
 
 cred_setup:
-	if [ -z ${CICD_TOKEN} ]	;then \
-		chmod -R 0600 ~/.ssh/* &&\
-        git config --global --add url."git@gitlab.eng.vmware.com:".insteadOf "https://gitlab.eng.vmware.com/" &&\
-        go mod tidy && go mod download ;\
-	else \
-        echo "https://gitlab-ci-token:${CICD_TOKEN}@gitlab.eng.vmware.com" >> ~/.git-credentials && \
-        git config --global credential.helper store && \
-        go mod tidy && go mod download ;\
-    fi
+	go mod download
 
 coverage:
-	go test -ldflags "-X google.golang.org/protobuf/reflect/protoregistry.conflictPolicy=warn" -json -coverprofile=coverage.out -coverpkg=./... ./... | tee report.json ;
+	go test -json -coverprofile=coverage.out -coverpkg=./... ./... | tee report.json ;
 
 
 submodule:

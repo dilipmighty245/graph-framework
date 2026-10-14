@@ -5,11 +5,11 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser/rest"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser/rest"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
 )
 
 var _ = Describe("Rest tests", func() {
@@ -25,11 +25,12 @@ var _ = Describe("Rest tests", func() {
 
 	BeforeEach(func() {
 		pkgs = parser.ParseDSLPkg(exampleDSLPath)
-		pkg, ok = pkgs["github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/datamodel/config/gns"]
+		pkg, ok = pkgs["github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/datamodel/config/gns"]
 		graphqlQueries := parser.ParseGraphqlQuerySpecs(pkgs)
 		graph, _, _ := parser.ParseDSLNodes(exampleDSLPath, baseGroupName, pkgs, graphqlQueries)
 		parentsMap = parser.CreateParentsMap(graph)
 		Expect(ok).To(BeTrue())
+		methods, codes = rest.ParseResponses(pkgs)
 	})
 
 	It("should parse responses", func() {
@@ -98,7 +99,7 @@ var _ = Describe("Rest tests", func() {
 				},
 			},
 		}
-		rest.ValidateRestApiSpec(restApiSpec, parentsMap, "dnses.gns.tsm.tanzu.vmware.com")
+		rest.ValidateRestApiSpec(restApiSpec, parentsMap, "dnses.gns.nexus.com")
 		Expect(fail).To(BeFalse())
 	})
 
@@ -121,7 +122,7 @@ var _ = Describe("Rest tests", func() {
 				},
 			},
 		}
-		rest.ValidateRestApiSpec(restApiSpec, parentsMap, "dnses.gns.tsm.tanzu.vmware.com")
+		rest.ValidateRestApiSpec(restApiSpec, parentsMap, "dnses.gns.nexus.com")
 		Expect(fail).To(BeTrue())
 	})
 
@@ -137,11 +138,12 @@ var _ = Describe("Rest tests", func() {
 		g, _, _ := parser.ParseDSLNodes("../../../example/test-utils/duplicated-uris-datamodel", baseGroupName, pkgs, nil)
 		parents := parser.CreateParentsMap(g)
 
+		registry := make(map[string]string)
 		for _, p := range pkgs {
 			restAPISpecMap := rest.GetRestApiSpecs(p, methods, codes, parents)
 
 			for _, apiSpec := range restAPISpecMap {
-				rest.ValidateRestApiSpec(apiSpec, parents, "...")
+				rest.ValidateRestApiSpec(apiSpec, parents, "...", registry)
 			}
 		}
 

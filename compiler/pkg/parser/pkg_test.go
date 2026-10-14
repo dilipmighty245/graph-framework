@@ -7,10 +7,10 @@ import (
 	. "github.com/onsi/gomega"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/config"
+	generator "github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/generator"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/parser"
 	"github.com/fatih/structtag"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/config"
-	generator "github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/generator"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/parser"
 )
 
 var _ = Describe("Pkg tests", func() {
@@ -26,9 +26,9 @@ var _ = Describe("Pkg tests", func() {
 		Expect(err).To(Not(HaveOccurred()))
 
 		pkgs = parser.ParseDSLPkg(exampleDSLPath)
-		pkg, ok = pkgs["github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/datamodel"]
+		pkg, ok = pkgs["github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/datamodel"]
 		Expect(ok).To(BeTrue())
-		gnsPkg, ok = pkgs["github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/datamodel/config/gns"]
+		gnsPkg, ok = pkgs["github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/datamodel/config/gns"]
 		Expect(ok).To(BeTrue())
 	})
 
@@ -37,8 +37,8 @@ var _ = Describe("Pkg tests", func() {
 		imports := generator.GenerateImports(&pkg, aliasNameMap)
 
 		expectedImports := []string{
-			"configtsmtanzuvmwarecomv1 \"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/output/generated/apis/config.tsm.tanzu.vmware.com/v1\"",
-			" \"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus\""}
+			"confignexuscomv1 \"github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/apis/config.nexus.com/v1\"",
+			" \"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus\""}
 
 		Expect(imports).To(Equal(expectedImports))
 	})
@@ -74,7 +74,7 @@ var _ = Describe("Pkg tests", func() {
 
 	It("should get imports for gns", func() {
 		imports := gnsPkg.GetImportStrings()
-		Expect(imports).To(HaveLen(6))
+		Expect(imports).To(HaveLen(7))
 	})
 
 	It("should get all nodes for gns", func() {
@@ -96,7 +96,7 @@ var _ = Describe("Pkg tests", func() {
 	It("should get link fields for gns", func() {
 		nodes := gnsPkg.GetNexusNodes()
 		linkFields := parser.GetChildFields(nodes[1])
-		Expect(linkFields).To(HaveLen(5))
+		Expect(linkFields).To(HaveLen(6))
 	})
 
 	It("should get spec fields for gns", func() {
@@ -157,9 +157,9 @@ var _ = Describe("Pkg tests", func() {
 			case "SlicePointer":
 				Expect(parser.GetFieldType(f)).To(Equal("*[]string"))
 			case "WorkloadSpec":
-				Expect(parser.GetFieldType(f)).To(Equal("cartv1.WorkloadSpec"))
+				Expect(parser.GetFieldType(f)).To(Equal("corev1.PodSpec"))
 			case "DifferentSpec":
-				Expect(parser.GetFieldType(f)).To(Equal("*cartv1.WorkloadSpec"))
+				Expect(parser.GetFieldType(f)).To(Equal("*corev1.PodSpec"))
 			}
 		}
 	})

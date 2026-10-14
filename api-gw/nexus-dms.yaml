@@ -1,3 +1,3 @@
 gateway:
-  location: github.com/vmware-tanzu/graph-framework-for-microservices/api
+  location: github.com/dilipmighty245/graph-framework-for-microservices/api
   isDefault: true

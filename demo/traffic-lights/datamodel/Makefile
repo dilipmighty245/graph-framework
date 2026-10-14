@@ -4,7 +4,9 @@ CONTAINER_ID ?= ""
 DATAMODEL_LOCAL_PATH ?= $(realpath .)
 BUCKET ?= nexus-template-downloads
 COMPILER_TAG ?= latest
-COMPILER_DOCKER_REPO ?= amr-registry-pre.caas.intel.com
+COMPILER_DOCKER_REPO ?=
+COMPILER_IMAGE_PREFIX = $(if $(strip $(COMPILER_DOCKER_REPO)),$(patsubst %/,%,$(COMPILER_DOCKER_REPO))/)
+COMPILER_DOCKER_TAG = ${COMPILER_IMAGE_PREFIX}nexus/compiler/${GOARCH}:${COMPILER_TAG}
 VERSION ?= $(shell git rev-parse --verify HEAD 2>/dev/null)
 DATAMODEL_DOCKER_REPO ?= $(shell cat nexus.yaml | grep dockerRepo | awk '{print $$2}' | tr -d '"')
 DATAMODEL_REPO_NAME ?= $(shell cat nexus.yaml | grep groupName | awk '{print $$2}' | tr -d '"')
@@ -67,18 +69,16 @@ datamodel_build:
 
 	if [ -z $(CONTAINER_ID) ]; then \
 		docker run --pull=missing\
-			--volume $(realpath .):/go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/datamodel/ \
-			-v /go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/datamodel/build/ \
-			--volume $(realpath .)/build:/go/src/github.com/vmware-tanzu/graph-framework-for-microservices/compiler/generated/ \
+			--volume $(realpath .):/go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/datamodel/ \
+			-v /go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/datamodel/build/ \
+			--volume $(realpath .)/build:/go/src/github.com/dilipmighty245/graph-framework-for-microservices/compiler/generated/ \
 			--volume ~/.ssh:/root/.ssh \
 			--volume ${HOME}/.cache/go-build:/root/.cache/go-build \
 			-e GOCACHE=/root/.cache/go-build \
 			-e CRD_MODULE_PATH=${CRD_MODULE_PATH} \
 			-e CONFIG_FILE=datamodel/nexus.yaml \
-			-e GOPRIVATE=*.eng.vmware.com \
-			-e GOINSECURE=*.eng.vmware.com \
 			-e FORCE=$(FORCE) \
-			${COMPILER_DOCKER_REPO}/nexus/compiler/${GOARCH}:$(COMPILER_TAG) /bin/bash -c 'make generate_code && chown -R $(shell id -u):$(shell id -g) .;'; \
+			${COMPILER_DOCKER_TAG} /bin/bash -c 'make generate_code && chown -R $(shell id -u):$(shell id -g) .;'; \
 	else \
 		docker run --pull=missing\
 			--volumes-from=$(CONTAINER_ID) \
@@ -86,13 +86,10 @@ datamodel_build:
 			-e GENERATED_OUTPUT_DIRECTORY=$(DATAMODEL_LOCAL_PATH)/build \
 			-e CONFIG_FILE=${DATAMODEL_LOCAL_PATH}/nexus.yaml \
 			-e CRD_MODULE_PATH=${CRD_MODULE_PATH} \
-			-e GOPRIVATE=*.eng.vmware.com \
-			-e GOINSECURE=*.eng.vmware.com \
-			-e CICD_TOKEN=${CICD_TOKEN} \
 			-e FORCE=${FORCE} \
 			--user root:root \
 			-e FORCE=$(FORCE) \
-			${COMPILER_DOCKER_REPO}/nexus/compiler/${GOARCH}:$(COMPILER_TAG); \
+			${COMPILER_DOCKER_TAG}; \
 	fi
 
 docker_build:

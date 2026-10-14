@@ -22,11 +22,11 @@ import (
 	"log"
 	"os"
 
+	builderv3 "github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/builder3"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/test/integration/pkg/generated"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/test/integration/testutil"
 	"github.com/getkin/kin-openapi/openapi3"
-	builderv3 "github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/builder3"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/test/integration/pkg/generated"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/test/integration/testutil"
 )
 
 // TODO: Change this to output the generated swagger to stdout.

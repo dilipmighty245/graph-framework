@@ -41,6 +41,9 @@ compiler/cmd/nexus-openapi-gen
 compiler/cmd/gqlgen
 compiler/compiler.tar
 compiler/_generated
+/compiler/example/output/
+/compiler/example/datamodel/build/
+/compiler/example/test-utils/output-group-name-with-hyphen-datamodel/
 
 ### GoLand ###
 compiler/.idea
@@ -73,3 +76,14 @@ nexus-runtime-manifests/k8s/ca*
 
 # playgound app directory
 sock-shop-saas-app/*
+
+# Locally built executables
+__pycache__/
+*.pyc
+/authz-controller/cmd/authz-controller/authz-controller
+/calibration/bin/calib
+/compiler/example/datamodel/build/nexus-gql/server
+/connector-controller/nexus
+/datamodel-templates/nexus/bin/nexus-sdk
+/datamodel-templates/nexus/bin/nexus-sdk-darwin-x64
+/datamodel-templates/nexus/bin/nexus-sdk-linux-x64

@@ -26,7 +26,7 @@ import (
 	"k8s.io/gengo/types"
 	"k8s.io/klog/v2"
 
-	generatorargs "github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/cmd/nexus-openapi-gen/args"
+	generatorargs "github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/cmd/nexus-openapi-gen/args"
 )
 
 type identityNamer struct{}

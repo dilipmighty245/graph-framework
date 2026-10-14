@@ -27,7 +27,7 @@ import (
 
 	"encoding/json"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/spec3"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/spec3"
 )
 
 var returnedOpenAPI = []byte(`{

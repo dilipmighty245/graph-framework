@@ -19,8 +19,8 @@ package spec3
 import (
 	"encoding/json"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 	"github.com/go-openapi/swag"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
 )
 
 // SecurityRequirementProps describes the required security schemes to execute an operation, more at https://swagger.io/specification/#security-requirement-object

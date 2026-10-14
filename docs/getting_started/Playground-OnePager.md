@@ -8,7 +8,7 @@ The goal is to get you going with Nexus in the shortest possible time.
 
 ## 1. Clone Nexus Repo
 ```
-git clone git@github.com:intel-innersource/applications.development.nexus.core.git
+git clone https://github.com/dilipmighty245/graph-framework-for-microservices.git
 cd applications.development.framework.nexus/
 export NEXUS_REPO_DIR=${PWD}
 ```
@@ -65,7 +65,7 @@ Copy & paste the below code snippet to file root.go in the datamodel directory
 package root
 
 import (
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 type SockShop struct {

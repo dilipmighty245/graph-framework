@@ -1,6 +1,6 @@
 DEBUG ?= FALSE
 
-GO_PROJECT_NAME ?= validation.git
+GO_PROJECT_NAME ?= validation
 
 DOCKER_REGISTRY ?= gcr.io/nsx-sm/nexus
 IMAGE_NAME ?= nexus-validation
@@ -9,12 +9,12 @@ TAG ?= $(shell git rev-parse --verify HEAD)
 BUILDER_NAME ?= ${IMAGE_NAME}-builder
 BUILDER_TAG := $(shell md5sum builder/Dockerfile | awk '{ print $1 }' | head -c 8)
 
-PKG_NAME ?= /go/src/gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/${GO_PROJECT_NAME}
+PKG_NAME ?= /go/src/github.com/dilipmighty245/graph-framework-for-microservices/${GO_PROJECT_NAME}
 
 ifeq ($(CONTAINER_ID),)
 define run_in_container
   docker run \
-  --volume $(realpath .):/go/src/gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/validation.git/ \
+  --volume $(realpath .):/go/src/github.com/dilipmighty245/graph-framework-for-microservices/validation/ \
   --workdir ${PKG_NAME} \
   "${BUILDER_NAME}:${BUILDER_TAG}" ${1}
 endef

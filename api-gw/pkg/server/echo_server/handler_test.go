@@ -33,7 +33,7 @@ import (
 	"api-gw/pkg/model"
 	"api-gw/pkg/utils"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 var _ = Describe("Echo server tests", func() {
@@ -56,34 +56,11 @@ var _ = Describe("Echo server tests", func() {
 			}
 		}
 		client.NexusClient = nexus_client.NewFakeClient()
-		_, err := client.NexusClient.Api().CreateNexusByName(context.TODO(), &apinexusv1.Nexus{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "default",
-			},
-		})
+		root, err := client.NexusClient.AddApiNexus(context.Background(), &apinexusv1.Nexus{ObjectMeta: metav1.ObjectMeta{Name: "default"}})
 		Expect(err).NotTo(HaveOccurred())
-
-		_, err = common.GetConfigNode(client.NexusClient, "default")
-		Expect(err).NotTo(BeNil())
-
-		_, err = client.NexusClient.Config().CreateConfigByName(context.TODO(), &confignexusv1.Config{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "943ea6107388dc0d02a4c4d861295cd2ce24d551",
-				Labels: map[string]string{
-					common.DISPLAY_NAME: "default",
-				},
-			},
-		})
+		_, err = root.AddConfig(context.Background(), &confignexusv1.Config{ObjectMeta: metav1.ObjectMeta{Name: "default"}})
 		Expect(err).NotTo(HaveOccurred())
-
-		_, err = client.NexusClient.Runtime().CreateRuntimeByName(context.TODO(), &runtimenexusv1.Runtime{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "e817339e4e7bf29fa47ca62dd272b44282d271b8",
-				Labels: map[string]string{
-					common.DISPLAY_NAME: "default",
-				},
-			},
-		})
+		_, err = root.AddRuntime(context.Background(), &runtimenexusv1.Runtime{ObjectMeta: metav1.ObjectMeta{Name: "default"}})
 		Expect(err).NotTo(HaveOccurred())
 
 		config.Cfg = &config.Config{
@@ -144,10 +121,11 @@ var _ = Describe("Echo server tests", func() {
 			"email": "test@email.com"
 		}`
 		usercreatereq := httptest.NewRequest(http.MethodPost, "/v0/users/", strings.NewReader(userJson))
+		usercreatereq.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 		usercreaterec := httptest.NewRecorder()
 		c = e.Echo.NewContext(usercreatereq, usercreaterec)
 		h = e.CreateUserHandler(c)
-		Expect(usercreaterec.Code).To(Equal(201))
+		Expect(usercreaterec.Code).To(Equal(201), usercreaterec.Body.String())
 
 		usergetafreq := httptest.NewRequest(http.MethodGet, "/v0/users/", nil)
 		usergetafrec := httptest.NewRecorder()
@@ -1002,10 +980,10 @@ var _ = Describe("Echo server tests", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(rec.Code).To(Equal(200))
 
-			Eventually(func() bool {
-				return rec.Body.String() == "[{\"group\":\"management.vmware.org/v1\","+
-					"\"kind\":\"Mgr\",\"name\":\"default\"},{\"group\":\"management.vmware.org/v1\",\"kind\":\"Mgr\",\"name\":\"foo\"}]\n"
-			}, 5).Should(BeTrue())
+			Expect(rec.Body.String()).To(MatchJSON(`[
+ {"group":"management.vmware.org/v1","kind":"Mgr","name":"default"},
+ {"group":"management.vmware.org/v1","kind":"Mgr","name":"foo"}
+ ]`))
 
 			By("deleting the EngManagers object, should fail to find the object on GET")
 			err = deleteHandler(engCtx)
@@ -1015,7 +993,7 @@ var _ = Describe("Echo server tests", func() {
 			// should throw empty list when not exists in DB
 			err = getHandler(nc)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(rec.Body.String()).To(Equal("[{},{}]\n"))
+			Expect(rec.Body.String()).To(Equal("[]\n"))
 		})
 
 		It("should fail to determine object when invalid gvk", func() {
@@ -1588,7 +1566,6 @@ func expectedEngManagersRestURIs() []nexus.RestURIs {
 			Uri: "/root/{orgchart.Root}/leader/{management.Leader}/status",
 			Methods: map[nexus.HTTPMethod]nexus.HTTPCodesResponse{
 				http.MethodGet: nexus.DefaultHTTPGETResponses,
-				http.MethodPut: nexus.DefaultHTTPPUTResponses,
 			},
 		},
 		{
@@ -1606,7 +1583,6 @@ func expectedHRRestURIs() []nexus.RestURIs {
 			Uri: "/root/{orgchart.Root}/leader/{management.Leader}/status",
 			Methods: map[nexus.HTTPMethod]nexus.HTTPCodesResponse{
 				http.MethodGet: nexus.DefaultHTTPGETResponses,
-				http.MethodPut: nexus.DefaultHTTPPUTResponses,
 			},
 		},
 		{
@@ -1752,7 +1728,7 @@ func getLeaderChildrenJson(key, val string) string {
 	if len(key) > 0 {
 		additionalKey = fmt.Sprintf(`,"%s": "%s"`, key, val)
 	}
-	return fmt.Sprintf(`{
+	return `{
           "designation": "NexusLead",
           "employeeID": 1,
           "engManagersGvk": {
@@ -1772,5 +1748,5 @@ func getLeaderChildrenJson(key, val string) string {
             "kind": "HumanResources",
             "name": "71d2f43510c62c8a4cc08ed4fffa58839d722608"
         } ` + additionalKey + `
-	}`)
+	}`
 }

@@ -4,9 +4,9 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
+	"github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/strfmt"
 	"github.com/stretchr/testify/assert"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/spec"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/strfmt"
 )
 
 // valueValidator for string formats

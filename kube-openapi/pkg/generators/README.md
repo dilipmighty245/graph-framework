@@ -19,7 +19,7 @@ OpenAPI definition by implementing a function named "OpenAPIDefinition" with
 the following signature:
 
 ```go
-	import openapi "github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/common"
+	import openapi "github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/common"
 
 	// ...
 

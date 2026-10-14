@@ -1,8 +1,8 @@
 package root
 
 import (
-	global "github.com/vmware-tanzu/graph-framework-for-microservices/compiler/example/test-utils/global-package/project"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	global "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/test-utils/global-package/project"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 type Root struct {

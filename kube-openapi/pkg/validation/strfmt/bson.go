@@ -15,7 +15,7 @@
 package strfmt
 
 import (
-	bsonprim "github.com/vmware-tanzu/graph-framework-for-microservices/kube-openapi/pkg/validation/strfmt/bson"
+	bsonprim "github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi/pkg/validation/strfmt/bson"
 )
 
 func init() {

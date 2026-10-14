@@ -11,11 +11,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/config"
 	"k8s.io/utils/strings/slices"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/compiler/pkg/util"
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/compiler/pkg/util"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -34,6 +34,9 @@ func ParseDSLNodes(startPath string, baseGroupName string, packages Packages,
 	}
 	fileset := token.NewFileSet()
 	err := filepath.Walk(startPath, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
 		if info.IsDir() {
 			if info.Name() == "build" {
 				log.Infof("Ignoring build directory...")
@@ -349,76 +352,42 @@ func processNode(node *Node, nodes map[string]Node, baseGroupName string) {
 	}
 }
 
-func findFieldKeyForNode(f *ast.Field, node *Node, nodes map[string]Node, baseGroupName string) (key string) {
-	fieldTypeStr := GetFieldType(f)
-	fieldType := strings.Split(fieldTypeStr, ".")
-	if len(fieldType) == 1 {
-		key = util.GetCrdName(fieldType[0], util.RemoveSpecialChars(node.PkgName), baseGroupName)
-		return
-	} else if len(fieldType) == 2 {
-		for _, importSpec := range node.Imports {
-			importPath, err := strconv.Unquote(importSpec.Path.Value)
-			if err != nil {
-				log.Fatalf("Failed to parse imports: %v", err)
-			}
-			importPathSplit := strings.Split(importPath, ".")
-			packageDir := importPathSplit[len(importPathSplit)-1]
-			// If import is not named then we can build key without looping through nodes
-			if importSpec.Name == nil && packageDir == fieldType[1] {
-				key = util.GetCrdName(fieldType[1], util.RemoveSpecialChars(fieldType[0]), baseGroupName)
-				return
-			} else {
-				for _, n := range nodes {
-					if n.FullName == importPath && n.Name == fieldType[1] {
-						key = n.CrdName
-						return
-					}
-				}
-			}
-		}
+func findFieldKeyForNode(f *ast.Field, node *Node, nodes map[string]Node, baseGroupName string) string {
+	if found := findNodeDefForField(f, node, nodes); found != nil {
+		return found.CrdName
 	}
-	return
+	return ""
 }
 
 func findNodeDefForField(f *ast.Field, baseNode *Node, allNodes map[string]Node) *Node {
-	fieldTypeStr := GetFieldType(f)
-	fieldType := strings.Split(fieldTypeStr, ".")
-	var importPathOfNode string
-	var nodeName string
-	if len(fieldType) == 1 {
-		importPathOfNode = baseNode.FullName
-		nodeName = fieldTypeStr
-	} else if len(fieldType) == 2 {
-		nodeName = fieldType[1]
-		importPathOfNode = findMatchingImport(nodeName, baseNode.Imports, allNodes)
-	}
-	for _, n := range allNodes {
-		if n.FullName == importPathOfNode && n.Name == nodeName {
-			return &n
+	parts := strings.Split(GetFieldType(f), ".")
+	if len(parts) == 1 {
+		for _, n := range allNodes {
+			if n.FullName == baseNode.FullName && n.Name == parts[0] {
+				return &n
+			}
 		}
+		return nil
 	}
-	return nil
-}
-
-func findMatchingImport(nodeName string, imports []*ast.ImportSpec, allNodes map[string]Node) string {
-	for _, importSpec := range imports {
-		importPath, err := strconv.Unquote(importSpec.Path.Value)
+	if len(parts) != 2 {
+		return nil
+	}
+	for _, spec := range baseNode.Imports {
+		importPath, err := strconv.Unquote(spec.Path.Value)
 		if err != nil {
 			log.Fatalf("Failed to parse imports: %v", err)
 		}
-		importPathSplit := strings.Split(importPath, ".")
-		packageDir := importPathSplit[len(importPathSplit)-1]
-		if importSpec.Name == nil && packageDir == nodeName {
-			return importPath
-		} else {
-			for _, n := range allNodes {
-				if n.FullName == importPath && n.Name == nodeName {
-					return importPath
-				}
+		for _, n := range allNodes {
+			qualifier := n.PkgName
+			if spec.Name != nil {
+				qualifier = spec.Name.Name
+			}
+			if qualifier == parts[0] && n.FullName == importPath && n.Name == parts[1] {
+				return &n
 			}
 		}
 	}
-	return ""
+	return nil
 }
 
 func checkIfReserved(name string) {

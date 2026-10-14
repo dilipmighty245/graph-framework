@@ -11,8 +11,8 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/validation.git/pkg/config"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/validation.git/pkg/validate"
+	"github.com/dilipmighty245/graph-framework-for-microservices/validation/pkg/config"
+	"github.com/dilipmighty245/graph-framework-for-microservices/validation/pkg/validate"
 )
 
 var client kubernetes.Interface

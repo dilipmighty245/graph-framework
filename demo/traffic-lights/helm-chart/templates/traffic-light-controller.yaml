@@ -34,7 +34,7 @@ spec:
       containers:
       - name: light-controller 
 {{- if ne .Values.imageRegistry "" }}
-        image: "{{.Values.imageRegistry}}/traffic-light:{{ .Values.imageTag }}"
+        image: "{{ if .Values.imageRegistry }}{{ trimSuffix "/" .Values.imageRegistry }}/{{ end }}traffic-light:{{ .Values.imageTag }}"
 {{- else }}
         image: "traffic-light:{{ .Values.imageTag }}"
 {{- end }}

@@ -71,6 +71,10 @@ then
 fi
 
 # Setup up directory related variables.
+if [ -z "${NEXUS_KUBECTL_IMAGE:-}" ]; then
+    echo "Set NEXUS_KUBECTL_IMAGE to an available kubectl image before starting this legacy proxy workflow."
+    exit 1
+fi
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 CLUSTER_DIR=${SCRIPT_DIR}/"."${cluster_name}
 
@@ -101,7 +105,7 @@ rm ${TMP_KUBECONFIG_FILE}
 chmod 666 ${KUBECONFIG_FILE}
 
 MOUNTED_KUBECONFIG=/etc/config/kubeconfig
-docker run -d --name=k8s-proxy-$cluster_name --rm --network kind -p $kubctl_proxy_port:$kubctl_proxy_port --pull=missing --mount type=bind,source=${KUBECONFIG_FILE},target=${MOUNTED_KUBECONFIG},readonly -e KUBECONFIG=${MOUNTED_KUBECONFIG}  amr-registry-pre.caas.intel.com/nexus/nexus-etcd-kubectl:latest /usr/local/bin/kubectl proxy -p $kubctl_proxy_port --disable-filter=true --v=1
+docker run -d --name=k8s-proxy-$cluster_name --rm --network kind -p $kubctl_proxy_port:$kubctl_proxy_port --pull=missing --mount type=bind,source=${KUBECONFIG_FILE},target=${MOUNTED_KUBECONFIG},readonly -e KUBECONFIG=${MOUNTED_KUBECONFIG} "$NEXUS_KUBECTL_IMAGE" /usr/local/bin/kubectl proxy -p $kubctl_proxy_port --disable-filter=true --v=1
 
 exit 0
 

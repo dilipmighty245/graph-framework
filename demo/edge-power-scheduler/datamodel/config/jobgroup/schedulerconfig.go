@@ -1,7 +1,7 @@
 package jobgroup
 
 import (
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus"
 )
 
 var JOBSchedulerAPI = nexus.RestAPISpec{

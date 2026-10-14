@@ -16,7 +16,7 @@ limitations under the License.
 
 package golang
 
-import "gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/kubebuilder.git/pkg/plugins"
+import "github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder/pkg/plugins"
 
 // DefaultNameQualifier is the suffix appended to all kubebuilder plugin names for Golang operators.
 const DefaultNameQualifier = "go." + plugins.DefaultNameQualifier

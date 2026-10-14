@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/dilipmighty245/graph-framework-for-microservices/calibration/graphqlcalls"
+	"github.com/dilipmighty245/graph-framework-for-microservices/calibration/rest"
+	"github.com/dilipmighty245/graph-framework-for-microservices/calibration/traceparser"
+	"github.com/dilipmighty245/graph-framework-for-microservices/calibration/workmanager"
 	"github.com/gorilla/mux"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/nexus-calibration/graphqlcalls"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/nexus-calibration/rest"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/nexus-calibration/traceparser"
-	"gitlab.eng.vmware.com/nsx-allspark_users/nexus-sdk/nexus-calibration/workmanager"
 )
 
 var testMap map[string]*workmanager.Worker

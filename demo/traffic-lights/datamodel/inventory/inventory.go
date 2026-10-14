@@ -3,7 +3,7 @@ package inventory
 import (
 	"trafficlight/inventory/light"
 
-	"github.com/vmware-tanzu/graph-framework-for-microservices/nexus/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 type Inventory struct {

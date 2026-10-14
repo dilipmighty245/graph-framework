@@ -33,7 +33,7 @@ func (h POST) Do(w http.ResponseWriter, r *http.Request, exec graphql.GraphExecu
 	start := graphql.Now()
 	if err := jsonDecode(r.Body, &params); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		writeJsonErrorf(w, "json body could not be decoded: "+err.Error())
+		writeJsonErrorf(w, "json body could not be decoded: %s", err)
 		return
 	}
 
