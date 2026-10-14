@@ -88,9 +88,10 @@ var _ = Describe("Nexus clients tests", func() {
 			Expect(cfg.GetLabels()).To(BeEquivalentTo(expectedLabels))
 			Expect(cfg.Spec.MyStr0).To(Equal(&str))
 
-			// Another create should fail
-			_, err = root.AddConfig(context.TODO(), cfgDef)
-			Expect(err).To(HaveOccurred())
+			// Repeating a child create is idempotent and returns the existing object.
+			existing, err := root.AddConfig(context.TODO(), cfgDef)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(existing.GetName()).To(Equal(cfg.GetName()))
 		})
 
 		It("should delete child", func() {

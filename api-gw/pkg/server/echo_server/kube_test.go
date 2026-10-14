@@ -165,7 +165,7 @@ var _ = Describe("Kube tests", func() {
 		err := echo_server.KubePostHandler(nc)
 		Expect(err).To(BeNil())
 		expectedResponse := "{\"apiVersion\":\"root.vmware.org/v1\",\"kind\":\"Root\",\"metadata\":{\"labels\":{\"nexus/display_name\":\"root\",\"nexus/is_name_hashed\":\"true\"},\"name\":\"de3f9fe476b35572145d6b4031712249619efdae\"},\"spec\":{}}\n"
-		Expect(rec.Body.String()).To(Equal(expectedResponse))
+		Expect(rec.Body.String()).To(MatchJSON(expectedResponse))
 	})
 
 	It("should create gns object using kubePost handler", func() {
@@ -212,7 +212,7 @@ var _ = Describe("Kube tests", func() {
 		err := echo_server.KubePostHandler(nc)
 		Expect(err).To(BeNil())
 		expectedResponse := "{\"apiVersion\":\"gns.vmware.org/v1\",\"kind\":\"GlobalNamespace\",\"metadata\":{\"labels\":{\"nexus/display_name\":\"test\",\"nexus/is_name_hashed\":\"true\",\"roots.root.vmware.org\":\"root\"},\"name\":\"2587591c2e1023ff9498b1b70ac5cbcb84504352\"},\"spec\":{\"foo\":\"bar\"}}\n"
-		Expect(rec.Body.String()).To(Equal(expectedResponse))
+		Expect(rec.Body.String()).To(MatchJSON(expectedResponse))
 	})
 
 	It("should get gns object using kubeGet handler", func() {
@@ -239,7 +239,7 @@ var _ = Describe("Kube tests", func() {
 		err := echo_server.KubeGetHandler(nc)
 		Expect(err).To(BeNil())
 		expectedResponse := "{\"apiVersion\":\"gns.vmware.org/v1\",\"items\":[{\"apiVersion\":\"gns.vmware.org/v1\",\"kind\":\"GlobalNamespace\",\"metadata\":{\"labels\":{\"nexus/display_name\":\"test\",\"nexus/is_name_hashed\":\"true\",\"roots.root.vmware.org\":\"root\"},\"name\":\"2587591c2e1023ff9498b1b70ac5cbcb84504352\"},\"spec\":{\"foo\":\"bar\"}}],\"kind\":\"GlobalNamespaceList\",\"metadata\":{\"continue\":\"\",\"resourceVersion\":\"\"}}\n"
-		Expect(rec.Body.String()).To(Equal(expectedResponse))
+		Expect(rec.Body.String()).To(MatchJSON(expectedResponse))
 	})
 
 	It("should update gns object using kubePost handler", func() {
@@ -286,7 +286,7 @@ var _ = Describe("Kube tests", func() {
 		err := echo_server.KubePostHandler(nc)
 		Expect(err).To(BeNil())
 		expectedResponse := "{\"apiVersion\":\"gns.vmware.org/v1\",\"kind\":\"GlobalNamespace\",\"metadata\":{\"labels\":{\"nexus/display_name\":\"test\",\"nexus/is_name_hashed\":\"true\",\"roots.root.vmware.org\":\"root\"},\"name\":\"2587591c2e1023ff9498b1b70ac5cbcb84504352\"},\"spec\":{\"foo\":\"bar2\"}}\n"
-		Expect(rec.Body.String()).To(Equal(expectedResponse))
+		Expect(rec.Body.String()).To(MatchJSON(expectedResponse))
 	})
 
 	It("should not remove child/link Gvks while update by kubePost handler", func() {
@@ -361,7 +361,7 @@ var _ = Describe("Kube tests", func() {
 		err = echo_server.KubePostHandler(nc)
 		Expect(err).To(BeNil())
 		expectedResponse := "{\"apiVersion\":\"orgchart.vmware.org/v1\",\"kind\":\"Foo\",\"metadata\":{\"labels\":{\"nexus/display_name\":\"test\",\"nexus/is_name_hashed\":\"true\",\"roots.root.vmware.org\":\"root\"},\"name\":\"bb2cbdf1b03e754cea2c9da8e9134c050bc0d547\"},\"spec\":{\"childGvk\":\"value_one\",\"foo\":\"bar2\",\"linkGvk\":\"value_two\",\"name\":\"bob\"}}\n"
-		Expect(rec.Body.String()).To(Equal(expectedResponse))
+		Expect(rec.Body.String()).To(MatchJSON(expectedResponse))
 
 		// If the newspec has empty spec, updateResource should remove the existing spec fields while retaining the Gvk fields.
 		gnsJson = `{
@@ -389,7 +389,7 @@ var _ = Describe("Kube tests", func() {
 		err = echo_server.KubePostHandler(nc)
 		Expect(err).To(BeNil())
 		expectedResponse = "{\"apiVersion\":\"orgchart.vmware.org/v1\",\"kind\":\"Foo\",\"metadata\":{\"labels\":{\"nexus/display_name\":\"test\",\"nexus/is_name_hashed\":\"true\",\"roots.root.vmware.org\":\"root\"},\"name\":\"bb2cbdf1b03e754cea2c9da8e9134c050bc0d547\"},\"spec\":{\"childGvk\":\"value_one\",\"linkGvk\":\"value_two\"}}\n"
-		Expect(rec.Body.String()).To(Equal(expectedResponse))
+		Expect(rec.Body.String()).To(MatchJSON(expectedResponse))
 	})
 
 	It("should get gns object using kubeGetByName handler", func() {
@@ -419,7 +419,7 @@ var _ = Describe("Kube tests", func() {
 		err := echo_server.KubeGetByNameHandler(nc)
 		Expect(err).To(BeNil())
 		expectedResponse := "{\"apiVersion\":\"gns.vmware.org/v1\",\"kind\":\"GlobalNamespace\",\"metadata\":{\"labels\":{\"nexus/display_name\":\"test\",\"nexus/is_name_hashed\":\"true\",\"roots.root.vmware.org\":\"root\"},\"name\":\"2587591c2e1023ff9498b1b70ac5cbcb84504352\"},\"spec\":{\"foo\":\"bar2\"}}\n"
-		Expect(rec.Body.String()).To(Equal(expectedResponse))
+		Expect(rec.Body.String()).To(MatchJSON(expectedResponse))
 	})
 
 	It("should fail kubeGetByName handler by using object with non-existent name", func() {
@@ -449,7 +449,7 @@ var _ = Describe("Kube tests", func() {
 		err := echo_server.KubeGetByNameHandler(nc)
 		Expect(err).To(BeNil())
 		expectedResponse := "{\"metadata\":{},\"status\":\"Failure\",\"message\":\"globalnamespaces.gns.vmware.org \\\"non-existent-id\\\" not found\",\"reason\":\"NotFound\",\"details\":{\"name\":\"non-existent-id\",\"group\":\"gns.vmware.org\",\"kind\":\"globalnamespaces\"},\"code\":404}\n"
-		Expect(rec.Body.String()).To(Equal(expectedResponse))
+		Expect(rec.Body.String()).To(MatchJSON(expectedResponse))
 	})
 
 	It("should delete gns object using kubeDelete handler with kubectl user agent", func() {
@@ -480,7 +480,7 @@ var _ = Describe("Kube tests", func() {
 		err := echo_server.KubeDeleteHandler(nc)
 		Expect(err).To(BeNil())
 		expectedResponse := "{\"apiVersion\":\"v1\",\"details\":{\"group\":\"gns.vmware.org\",\"kind\":\"globalnamespaces\",\"name\":\"2587591c2e1023ff9498b1b70ac5cbcb84504352\"},\"kind\":\"Status\",\"metadata\":{},\"status\":\"Success\"}\n"
-		Expect(rec.Body.String()).To(Equal(expectedResponse))
+		Expect(rec.Body.String()).To(MatchJSON(expectedResponse))
 	})
 
 	Context("test delete method with label selector", func() {
@@ -528,7 +528,7 @@ var _ = Describe("Kube tests", func() {
 			err := echo_server.KubePostHandler(nc)
 			Expect(err).To(BeNil())
 			expectedResponse := "{\"apiVersion\":\"gns.vmware.org/v1\",\"kind\":\"GlobalNamespace\",\"metadata\":{\"labels\":{\"nexus/display_name\":\"test\",\"nexus/is_name_hashed\":\"true\",\"roots.root.vmware.org\":\"root\"},\"name\":\"2587591c2e1023ff9498b1b70ac5cbcb84504352\"},\"spec\":{\"foo\":\"bar\"}}\n"
-			Expect(rec.Body.String()).To(Equal(expectedResponse))
+			Expect(rec.Body.String()).To(MatchJSON(expectedResponse))
 		})
 
 		It("should delete gns object using kubeDelete handler", func() {
@@ -558,7 +558,7 @@ var _ = Describe("Kube tests", func() {
 			err := echo_server.KubeDeleteHandler(nc)
 			Expect(err).To(BeNil())
 			expectedResponse := "{\"apiVersion\":\"v1\",\"details\":{\"group\":\"gns.vmware.org\",\"kind\":\"globalnamespaces\",\"name\":\"test\"},\"kind\":\"Status\",\"metadata\":{},\"status\":\"Success\"}\n"
-			Expect(rec.Body.String()).To(Equal(expectedResponse))
+			Expect(rec.Body.String()).To(MatchJSON(expectedResponse))
 		})
 
 		It("should delete root object using kubeDeleteHandler", func() {
@@ -588,8 +588,8 @@ var _ = Describe("Kube tests", func() {
 			err := echo_server.KubeDeleteHandler(nc)
 			Expect(err).To(BeNil())
 			expectedResponse := "{\"apiVersion\":\"v1\",\"details\":{\"group\":\"root.vmware.org\",\"kind\":\"roots\",\"name\":\"root\"},\"kind\":\"Status\",\"metadata\":{},\"status\":\"Success\"}\n"
-			log.Debugf(rec.Body.String())
-			Expect(rec.Body.String()).To(Equal(expectedResponse))
+			log.Debug(rec.Body.String())
+			Expect(rec.Body.String()).To(MatchJSON(expectedResponse))
 		})
 	})
 
@@ -621,7 +621,7 @@ var _ = Describe("Kube tests", func() {
 		err := echo_server.KubeDeleteHandler(nc)
 		Expect(err).To(BeNil())
 		expectedResponse := "{\"metadata\":{},\"status\":\"Failure\",\"message\":\"globalnamespaces.gns.vmware.org \\\"non-existent-id\\\" not found\",\"reason\":\"NotFound\",\"details\":{\"name\":\"non-existent-id\",\"group\":\"gns.vmware.org\",\"kind\":\"globalnamespaces\"},\"code\":404}\n"
-		Expect(rec.Body.String()).To(Equal(expectedResponse))
+		Expect(rec.Body.String()).To(MatchJSON(expectedResponse))
 	})
 
 	It("should test updateProxyResponse method when custom not found page cfg is not set", func() {

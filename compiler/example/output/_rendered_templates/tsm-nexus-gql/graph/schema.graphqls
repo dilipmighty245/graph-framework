@@ -85,7 +85,7 @@ type Gns_Gns @nexus(group:"gns.tsm.tanzu.vmware.com",version:"v1",kind:"Gns",res
     otherDescription: String
     mapPointer: String
     slicePointer: String
-    workloadSpec: String @jsonencoded(gofile:"model.go", name:"WorkloadSpec")
+    workloadSpec: String @jsonencoded(gofile:"model.go", name:"PodSpec")
     differentSpec: String
     serviceSegmentRef: String @jsonencoded(gofile:"model.go", name:"ServiceSegmentRef", goname:"nexus_gns.ServiceSegmentRef")
     serviceSegmentRefPointer: String

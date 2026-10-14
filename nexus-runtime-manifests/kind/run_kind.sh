@@ -101,7 +101,7 @@ rm ${TMP_KUBECONFIG_FILE}
 chmod 666 ${KUBECONFIG_FILE}
 
 MOUNTED_KUBECONFIG=/etc/config/kubeconfig
-docker run -d --name=k8s-proxy-$cluster_name --rm --network kind -p $kubctl_proxy_port:$kubctl_proxy_port --pull=missing --mount type=bind,source=${KUBECONFIG_FILE},target=${MOUNTED_KUBECONFIG},readonly -e KUBECONFIG=${MOUNTED_KUBECONFIG}  amr-registry-pre.caas.intel.com/nexus/nexus-etcd-kubectl:latest /usr/local/bin/kubectl proxy -p $kubctl_proxy_port --disable-filter=true --v=1
+docker run -d --name=k8s-proxy-$cluster_name --rm --network kind -p $kubctl_proxy_port:$kubctl_proxy_port --pull=missing --mount type=bind,source=${KUBECONFIG_FILE},target=${MOUNTED_KUBECONFIG},readonly -e KUBECONFIG=${MOUNTED_KUBECONFIG}  ghcr.io/dilipmighty245/nexus/nexus-etcd-kubectl:latest /usr/local/bin/kubectl proxy -p $kubctl_proxy_port --disable-filter=true --v=1
 
 exit 0
 

@@ -22,3 +22,7 @@ go mod edit -require google.golang.org/grpc@v1.51.0
 go mod edit -require k8s.io/utils@v0.0.0-20221128185143-99ec85e7a448
 go mod edit -require sigs.k8s.io/controller-runtime@v0.14.1
 go mod edit -require k8s.io/api@v0.26.0
+
+# Match the generator API and avoid resolving new server modules at @latest.
+go mod edit -require github.com/vektah/gqlparser/v2@v2.5.0
+go mod edit -require github.com/sirupsen/logrus@v1.9.3

@@ -51,7 +51,7 @@ type ResourceNotFoundError struct {
 
 // Error implements error interface
 func (e ResourceNotFoundError) Error() string {
-	return fmt.Sprintf("resource %v could not be found", e.GVK)
+	return fmt.Sprintf("resource {%s %s %s %s} could not be found", e.GVK.Group, e.GVK.Domain, e.GVK.Version, e.GVK.Kind)
 }
 
 // PluginKeyNotFoundError is returned by Config.DecodePluginConfig when the provided key cannot be found

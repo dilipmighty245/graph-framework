@@ -561,53 +561,29 @@
      ],
      "properties": {
       "Field": {
-       "type": "string",
-       "default": "bar"
+       "type": "string"
       },
       "List": {
        "type": "array",
-       "default": [
-        "foo",
-        "bar"
-       ],
        "items": {
-        "type": "string",
-        "default": ""
+        "type": "string"
        }
       },
       "Map": {
        "type": "object",
-       "default": {
-        "foo": "bar"
-       },
        "additionalProperties": {
-        "type": "string",
-        "default": ""
+        "type": "string"
        }
       },
       "OtherField": {
        "type": "integer",
-       "format": "int32",
-       "default": 0
+       "format": "int32"
       },
       "OtherSub": {
-       "default": {},
-       "allOf": [
-        {
-         "$ref": "#/components/schemas/defaults.SubStruct"
-        }
-       ]
+       "$ref": "#/components/schemas/defaults.SubStruct"
       },
       "Sub": {
-       "default": {
-        "i": 5,
-        "s": "foo"
-       },
-       "allOf": [
-        {
-         "$ref": "#/components/schemas/defaults.SubStruct"
-        }
-       ]
+       "$ref": "#/components/schemas/defaults.SubStruct"
       }
      }
     },
@@ -619,12 +595,10 @@
      "properties": {
       "I": {
        "type": "integer",
-       "format": "int32",
-       "default": 1
+       "format": "int32"
       },
       "S": {
-       "type": "string",
-       "default": ""
+       "type": "string"
       }
      }
     },
@@ -636,12 +610,10 @@
      ],
      "properties": {
       "Violation": {
-       "type": "boolean",
-       "default": false
+       "type": "boolean"
       },
       "ViolationBehind": {
-       "type": "boolean",
-       "default": false
+       "type": "boolean"
       }
      }
     },
@@ -653,12 +625,10 @@
      ],
      "properties": {
       "Violation": {
-       "type": "boolean",
-       "default": false
+       "type": "boolean"
       },
       "ViolationBehind": {
-       "type": "boolean",
-       "default": false
+       "type": "boolean"
       }
      }
     },
@@ -671,12 +641,10 @@
      "properties": {
       "First": {
        "type": "integer",
-       "format": "int32",
-       "default": 0
+       "format": "int32"
       },
       "Second": {
-       "type": "string",
-       "default": ""
+       "type": "string"
       }
      }
     },
@@ -689,12 +657,10 @@
      "properties": {
       "Code": {
        "type": "integer",
-       "format": "int32",
-       "default": 0
+       "format": "int32"
       },
       "Message": {
-       "type": "string",
-       "default": ""
+       "type": "string"
       }
      }
     },
@@ -707,12 +673,10 @@
      "properties": {
       "First": {
        "type": "integer",
-       "format": "int32",
-       "default": 0
+       "format": "int32"
       },
       "Second": {
-       "type": "string",
-       "default": ""
+       "type": "string"
       }
      }
     },
@@ -725,8 +689,7 @@
       "Field": {
        "type": "array",
        "items": {
-        "type": "string",
-        "default": ""
+        "type": "string"
        },
        "x-kubernetes-list-type": "atomic"
       }
@@ -741,17 +704,14 @@
      "properties": {
       "Port": {
        "type": "integer",
-       "format": "int32",
-       "default": 0
+       "format": "int32"
       },
       "Protocol": {
-       "type": "string",
-       "default": ""
+       "type": "string"
       },
       "a": {
        "type": "integer",
-       "format": "int32",
-       "default": 0
+       "format": "int32"
       },
       "b": {
        "type": "integer",
@@ -759,8 +719,7 @@
       },
       "c": {
        "type": "integer",
-       "format": "int32",
-       "default": 0
+       "format": "int32"
       }
      }
     },
@@ -773,12 +732,7 @@
       "Field": {
        "type": "array",
        "items": {
-        "default": {},
-        "allOf": [
-         {
-          "$ref": "#/components/schemas/listtype.Item"
-         }
-        ]
+        "$ref": "#/components/schemas/listtype.Item"
        },
        "x-kubernetes-list-map-keys": [
         "port"
@@ -796,8 +750,7 @@
       "Field": {
        "type": "array",
        "items": {
-        "type": "string",
-        "default": ""
+        "type": "string"
        },
        "x-kubernetes-list-type": "set"
       }
@@ -812,8 +765,7 @@
       "KeyValue": {
        "type": "object",
        "additionalProperties": {
-        "type": "string",
-        "default": ""
+        "type": "string"
        },
        "x-kubernetes-map-type": "atomic"
       }
@@ -828,8 +780,7 @@
       "KeyValue": {
        "type": "object",
        "additionalProperties": {
-        "type": "string",
-        "default": ""
+        "type": "string"
        },
        "x-kubernetes-map-type": "granular"
       }
@@ -843,7 +794,6 @@
      ],
      "properties": {
       "Field": {
-       "default": {},
        "allOf": [
         {
          "$ref": "#/components/schemas/structtype.ContainedStruct"
@@ -853,8 +803,7 @@
       },
       "OtherField": {
        "type": "integer",
-       "format": "int32",
-       "default": 0
+       "format": "int32"
       }
      }
     },
@@ -869,8 +818,7 @@
      "properties": {
       "Field": {
        "type": "integer",
-       "format": "int32",
-       "default": 0
+       "format": "int32"
       }
      },
      "x-kubernetes-map-type": "atomic"
@@ -883,7 +831,6 @@
      ],
      "properties": {
       "Field": {
-       "default": {},
        "allOf": [
         {
          "$ref": "#/components/schemas/structtype.ContainedStruct"
@@ -893,8 +840,7 @@
       },
       "OtherField": {
        "type": "integer",
-       "format": "int32",
-       "default": 0
+       "format": "int32"
       }
      }
     },
@@ -930,16 +876,13 @@
        "format": "int32"
       },
       "name": {
-       "type": "string",
-       "default": ""
+       "type": "string"
       },
       "type": {
-       "type": "string",
-       "default": ""
+       "type": "string"
       },
       "unionType": {
-       "type": "string",
-       "default": ""
+       "type": "string"
       }
      },
      "x-kubernetes-unions": [
@@ -980,12 +923,10 @@
        "format": "int32"
       },
       "name": {
-       "type": "string",
-       "default": ""
+       "type": "string"
       },
       "unionType": {
-       "type": "string",
-       "default": ""
+       "type": "string"
       }
      },
      "x-kubernetes-unions": [

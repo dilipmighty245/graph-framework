@@ -60,7 +60,7 @@ func (c *Root) CRDName() string {
 
 func (c *Root) DisplayName() string {
 	if c.GetLabels() != nil {
-		return c.GetLabels()[common.DISPLAY_NAME_LABEL]
+		return c.GetLabels()[common.DisplayNameLabel]
 	}
 	return ""
 }

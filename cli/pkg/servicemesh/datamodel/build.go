@@ -60,7 +60,7 @@ func Build(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("datamodel %s build failed with error %v", DatamodelName, err)
 		} else {
-			fmt.Println("\u2713 Datamodel build successful\n")
+			fmt.Println("\u2713 Datamodel build successful")
 
 			err = updateNexusYaml()
 			if err != nil {

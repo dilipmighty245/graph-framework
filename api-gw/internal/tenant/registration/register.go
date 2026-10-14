@@ -96,7 +96,7 @@ func InitTenantRuntimeCache() error {
 	}
 	for _, tenantruntime := range tenantruntimes {
 		tenantName := tenantruntime.Labels[common.DISPLAY_NAME]
-		log.Debugf(fmt.Sprintf("Tenant name %s", tenantName))
+		log.Debugf("Tenant name %s", tenantName)
 		found, err := common.CheckTenantIfExists(client.NexusClient, tenantName)
 		if err != nil {
 			return fmt.Errorf("Could not get tenant config for tenant %s due to %s", tenantName, err)

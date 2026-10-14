@@ -68,15 +68,12 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	Expect(os.Setenv("TEST_ASSET_KUBE_APISERVER", "../test/bin/kube-apiserver")).To(Succeed())
-	Expect(os.Setenv("TEST_ASSET_ETCD", "../test/bin/etcd")).To(Succeed())
-	Expect(os.Setenv("TEST_ASSET_KUBECTL", "../test/bin/kubectl")).To(Succeed())
 
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 	ctx, cancel = context.WithCancel(context.TODO())
 
 	var err error
-	testEnv = &envtest.Environment{}
+	testEnv = &envtest.Environment{BinaryAssetsDirectory: os.Getenv("KUBEBUILDER_ASSETS")}
 	cfg, err = testEnv.Start()
 	Expect(err).NotTo(HaveOccurred())
 

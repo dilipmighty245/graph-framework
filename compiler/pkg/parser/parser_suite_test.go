@@ -27,6 +27,7 @@ func init() {
 	conf := &config.Config{
 		GroupName:     baseGroupName,
 		CrdModulePath: crdModulePath,
+		IgnoredDirs:   []string{"ignored"},
 	}
 	config.ConfigInstance = conf
 }

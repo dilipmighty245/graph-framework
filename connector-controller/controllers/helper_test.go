@@ -12,13 +12,13 @@ import (
 
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
+	coreV1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	apinxv1 "nexus/admin/api/build/apis/api.admin.nexus.com/v1"
 	confignxv1 "nexus/admin/api/build/apis/config.admin.nexus.com/v1"
 	nxv1 "nexus/admin/api/build/apis/connect.admin.nexus.com/v1"
 	nexus_client "nexus/admin/api/build/nexus-client"
-	coreV1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 )
 
 type SingletonNodes struct {
@@ -30,30 +30,30 @@ type SingletonNodes struct {
 func initDatamodel(ctx context.Context, client *nexus_client.Clientset) *SingletonNodes {
 	nexusapi, err := client.AddApiNexus(ctx, &apinxv1.Nexus{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "nexus",
+			Name: "default",
 		},
 		Spec: apinxv1.NexusSpec{},
 	})
 	Expect(err).NotTo(HaveOccurred())
-	Expect(nexusapi.DisplayName()).To(Equal("nexus"))
+	Expect(nexusapi.DisplayName()).To(Equal("default"))
 
 	config, err := nexusapi.AddConfig(ctx, &confignxv1.Config{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "config",
+			Name: "default",
 		},
 		Spec: confignxv1.ConfigSpec{},
 	})
 	Expect(err).NotTo(HaveOccurred())
-	Expect(config.DisplayName()).To(Equal("config"))
+	Expect(config.DisplayName()).To(Equal("default"))
 
 	connect, err := config.AddConnect(ctx, &nxv1.Connect{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "connect",
+			Name: "default",
 		},
 		Spec: nxv1.ConnectSpec{},
 	})
 	Expect(err).NotTo(HaveOccurred())
-	Expect(connect.DisplayName()).To(Equal("connect"))
+	Expect(connect.DisplayName()).To(Equal("default"))
 	return &SingletonNodes{
 		APINexus: nexusapi,
 		Config:   config,
@@ -71,7 +71,7 @@ func initEnvVars() {
 
 func cleanupEnv() {
 	fmt.Println("cleaning up environment")
-	_ = fakeClient.DeleteApiNexus(context.Background(), "nexus")
+	_ = fakeClient.DeleteApiNexus(context.Background())
 }
 
 func newScheme() *runtime.Scheme {

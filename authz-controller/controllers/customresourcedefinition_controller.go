@@ -36,9 +36,9 @@ type CustomResourceDefinitionReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=apiextensions.k8s.io.authz-controller.com,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=apiextensions.k8s.io.authz-controller.com,resources=customresourcedefinitions/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=apiextensions.k8s.io.authz-controller.com,resources=customresourcedefinitions/finalizers,verbs=update
+//+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.

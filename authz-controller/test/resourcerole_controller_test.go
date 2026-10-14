@@ -14,7 +14,7 @@ import (
 
 	"authz-controller/controllers"
 	"authz-controller/pkg/utils"
-	auth_nexus_org "nexus/admin/api/build/apis/authorization.nexus.org/v1"
+	auth_nexus_org "nexus/admin/api/build/apis/authorization.admin.nexus.com/v1"
 )
 
 var _ = Describe("ResourceroleController", func() {

@@ -99,8 +99,8 @@ docker.publish:
 tools:
 	go install github.com/onsi/ginkgo/ginkgo@v1.16.0
 	go install github.com/onsi/gomega/...@v1.18.0
-	go install golang.org/x/tools/cmd/goimports@latest
-	go install github.com/mikefarah/yq/v4@latest
+	go install golang.org/x/tools/cmd/goimports@v0.51.0
+	go install github.com/mikefarah/yq/v4@v4.52.4
 	go install ../kube-openapi/cmd/nexus-openapi-gen
 	cd ../gqlgen && go install && cd -
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$$(go env GOPATH)"/bin v1.49.0
@@ -218,6 +218,7 @@ generate_code:
 	go run cmd/generate-openapischema/generate-openapischema.go -yamls-path _generated/crds -existing-CRDs-Path ${GENERATED_OUTPUT_DIRECTORY}/crds -force ${FORCE}
 	git checkout -- pkg/openapi_generator/openapi/openapi_generated.go
 	rm -rf ${GENERATED_OUTPUT_DIRECTORY}/{client,apis,crds,common,nexus-client,helper,nexus-gql,tsm-nexus-gql,model}
+	mkdir -p ${GENERATED_OUTPUT_DIRECTORY}
 	cp -r _generated/{client,apis,crds,common,clusterroles,nexus-client,helper,nexus-gql,tsm-nexus-gql,model} ${GENERATED_OUTPUT_DIRECTORY}
 	@echo "Sorting imports"
 	if [ -a _generated/model/model.go ]; then \
@@ -242,7 +243,9 @@ generate_code:
 	@echo "Nexus Compiler: Moving files to output directory"
 	mkdir -p ${GENERATED_OUTPUT_DIRECTORY}/install-validator
 	cp -r ${GOPATH}/src/github.com/dilipmighty245/graph-framework-for-microservices/install-validator/install.so ${GENERATED_OUTPUT_DIRECTORY}/install-validator/install.so || echo "Could not find install.so file, skipping"
+	mkdir -p ${GENERATED_OUTPUT_DIRECTORY}
 	cp -r _generated/{client,apis,crds,common,clusterroles,nexus-client,helper,nexus-gql,tsm-nexus-gql,model} ${GENERATED_OUTPUT_DIRECTORY}
+	bash scripts/finalize_graphql_module.sh "${GENERATED_OUTPUT_DIRECTORY}" "${CRD_MODULE_PATH}"
 	@echo "Nexus Compiler: Compiler code generation completed"
 
 .PHONY: test_generate_code_in_container

@@ -8,9 +8,9 @@ metadata:
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: (unknown)
   name: bars.example.my.domain
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
 spec:
   group: example.my.domain
   names:
@@ -66,10 +66,10 @@ status:
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  annotations:
-    controller-gen.kubebuilder.io/version: (unknown)
   creationTimestamp: null
   name: foos.example.my.domain
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
 spec:
   group: example.my.domain
   names:

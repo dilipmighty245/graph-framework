@@ -60,7 +60,7 @@ func (c *SvcGroup) CRDName() string {
 
 func (c *SvcGroup) DisplayName() string {
 	if c.GetLabels() != nil {
-		return c.GetLabels()[common.DISPLAY_NAME_LABEL]
+		return c.GetLabels()[common.DisplayNameLabel]
 	}
 	return ""
 }
@@ -102,7 +102,7 @@ func (c *SvcGroupLinkInfo) CRDName() string {
 
 func (c *SvcGroupLinkInfo) DisplayName() string {
 	if c.GetLabels() != nil {
-		return c.GetLabels()[common.DISPLAY_NAME_LABEL]
+		return c.GetLabels()[common.DisplayNameLabel]
 	}
 	return ""
 }

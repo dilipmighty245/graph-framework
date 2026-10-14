@@ -12,8 +12,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var uris = map[string]string{}
-
 func GetRestApiSpecs(p parser.Package, httpMethods map[string]nexus.HTTPMethodsResponses,
 	httpCodes map[string]nexus.HTTPCodesResponse, parentsMap map[string]parser.NodeHelper) map[string]nexus.RestAPISpec {
 
@@ -93,7 +91,11 @@ func extractApiSpecQueryParams(kv *ast.KeyValueExpr) []string {
 	return params
 }
 
-func ValidateRestApiSpec(apiSpec nexus.RestAPISpec, parentsMap map[string]parser.NodeHelper, crdName string) {
+func ValidateRestApiSpec(apiSpec nexus.RestAPISpec, parentsMap map[string]parser.NodeHelper, crdName string, registries ...map[string]string) {
+	uris := make(map[string]string)
+	if len(registries) > 0 {
+		uris = registries[0]
+	}
 	r := regexp.MustCompile(`{([^{}]+)}`)
 	crdHelper := parentsMap[crdName]
 

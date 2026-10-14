@@ -12,6 +12,7 @@ import (
 
 // Client is a mock for the controller-runtime dynamic client interface.
 type Client struct {
+	client.Client
 	mock.Mock
 }
 
@@ -28,10 +29,10 @@ func (c *Client) Status() client.StatusWriter {
 	return nil
 }
 
-func (c *Client) Get(ctx context.Context, key types.NamespacedName, obj client.Object) error {
+func (c *Client) Get(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error {
 	args := c.Called(ctx, key, obj)
 	var r0 error
-	if rf, ok := args.Get(0).(func(ctx context.Context, key types.NamespacedName, obj client.Object) error); ok {
+	if rf, ok := args.Get(0).(func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error); ok {
 		r0 = rf(ctx, key, obj)
 	} else {
 		r0 = args.Error(0)

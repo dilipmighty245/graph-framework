@@ -107,7 +107,7 @@ func (r *NexusConnectorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 		err := r.K8sClient.AppsV1().Deployments(namespace).Delete(ctx, name, deleteOptions)
 		if err != nil {
-			logger.Warnf(err.Error())
+			logger.Warn(err)
 			return ctrl.Result{}, err
 		}
 		logger.Infof("Nexus deploymemt: %q deleted\n", name)
@@ -126,19 +126,19 @@ func (r *NexusConnectorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// config map
 	err := r.createConfigMap(ctx, "connector-kubeconfig-local", namespace)
 	if err != nil {
-		logger.Errorf(err.Error())
+		logger.Error(err)
 		return ctrl.Result{}, err
 	}
 	// deployment
 	err = r.createDeployment(ctx, name, namespace, connectorImage, &endpoint)
 	if err != nil {
-		logger.Errorf(err.Error())
+		logger.Error(err)
 		return ctrl.Result{}, err
 	}
 	// service
 	err = r.createService(ctx, name, namespace)
 	if err != nil {
-		logger.Errorf(err.Error())
+		logger.Error(err)
 		return ctrl.Result{}, err
 	}
 

@@ -62,7 +62,7 @@ else
 DATAMODEL_DOCKER_TAG=${DATAMODEL_DOCKER_REGISTRY}/tenancy-datamodel/${DATAMODEL_GROUP_NAME}:${TAG}
 endif
 
-COMPILER_DOCKER_REGISTRY ?= amr-registry-pre.caas.intel.com
+COMPILER_DOCKER_REGISTRY ?= ghcr.io/dilipmighty245
 IMAGE_NAME ?= nexus/compiler
 GOARCH ?= $(shell go env GOARCH)
 COMPILER_NAME ?= ${IMAGE_NAME}/${GOARCH}

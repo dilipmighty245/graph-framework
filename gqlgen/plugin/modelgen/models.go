@@ -8,10 +8,10 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/config"
 	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/codegen/templates"
 	"github.com/dilipmighty245/graph-framework-for-microservices/gqlgen/plugin"
+	"github.com/vektah/gqlparser/v2/ast"
 )
 
 //go:embed models.gotpl
@@ -347,7 +347,10 @@ func (m *Plugin) generateFields(cfg *config.Config, schemaType *ast.Definition) 
 			}
 		}
 
-		name := field.Name
+		name := templates.ToGo(field.Name)
+		if cfg.Resolver.Nexus {
+			name = field.Name
+		}
 		if nameOveride := cfg.Models[schemaType.Name].Fields[field.Name].FieldName; nameOveride != "" {
 			name = nameOveride
 		}

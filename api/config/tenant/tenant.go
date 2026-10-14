@@ -1,7 +1,7 @@
 package tenantconfig
 
 import (
-	"nexus/base/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 
 	"nexus/admin/api/common"
 )

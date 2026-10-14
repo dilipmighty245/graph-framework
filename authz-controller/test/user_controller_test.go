@@ -15,7 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"authz-controller/controllers"
-	auth_nexus_org "nexus/admin/api/build/apis/authorization.nexus.org/v1"
+	auth_nexus_org "nexus/admin/api/build/apis/authorization.admin.nexus.com/v1"
 )
 
 var _ = Describe("UserController", func() {
@@ -60,6 +60,23 @@ var _ = Describe("UserController", func() {
 	})
 
 	Context("Nexus User", func() {
+		It("preserves an existing certificate on repeated reconciliation", func() {
+			hash := sha1.Sum([]byte(controllers.UserCertificateCRDName + ":default"))
+			certificateName := hex.EncodeToString(hash[:])
+			certificate := &auth_nexus_org.UserCertificate{
+				ObjectMeta: v1.ObjectMeta{Name: certificateName},
+				Spec:       auth_nexus_org.UserCertificateSpec{Key: "existing-key", Cert: "existing-cert"},
+			}
+			Expect(fakeClient.Create(ctx, certificate)).To(Succeed())
+			for i := 0; i < 2; i++ {
+				_, err := r.Reconcile(ctx, reconcileReq)
+				Expect(err).NotTo(HaveOccurred())
+			}
+			stored := &auth_nexus_org.UserCertificate{}
+			Expect(fakeClient.Get(ctx, types.NamespacedName{Name: certificateName}, stored)).To(Succeed())
+			Expect(stored.Spec).To(Equal(certificate.Spec))
+		})
+
 		It("should create successfully", func() {
 			// should throw error due to undefined cert path
 			_, err := r.Reconcile(ctx, reconcileReq)
@@ -85,7 +102,7 @@ var _ = Describe("UserController", func() {
 				return fakeClient.Delete(ctx, f)
 			}).Should(Succeed())
 
-			userCertificateCRDName := "usercertificates.authorization.nexus.org"
+			userCertificateCRDName := "usercertificates.authorization.admin.nexus.com"
 			certObjName := fmt.Sprintf("%s:%s", userCertificateCRDName, objectName)
 			h := sha1.New()
 			h.Write([]byte(certObjName))
@@ -96,7 +113,7 @@ var _ = Describe("UserController", func() {
 			uCert := &auth_nexus_org.UserCertificate{}
 			err := fakeClient.Get(ctx, types.NamespacedName{Name: userCertificateName}, uCert)
 			Expect(err).To(HaveOccurred())
-			Expect(err).Should(MatchError("usercertificates.authorization.nexus.org \"21477d3af6e858b7717eb6578951311835653ee2\" not found"))
+			Expect(err).Should(MatchError(fmt.Sprintf("usercertificates.authorization.admin.nexus.com %q not found", userCertificateName)))
 		})
 	})
 })

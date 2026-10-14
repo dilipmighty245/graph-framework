@@ -20,37 +20,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func GoModInit(path string, current bool) error {
-	goReplaceString := "go mod edit -replace nexus/base=github.com/intel-innersource/applications.development.nexus.core/nexus@v0.0.0-20240409150945-024eaf51388e"
-	if path != "" {
-		fmt.Printf("Intializing gomodule\nGo mod init name: %s\n", path)
-		cmdString := fmt.Sprintf("go mod init %s; %s ", path, goReplaceString)
-		cmd := exec.Command("/bin/sh", "-c", cmdString)
-
-		cmd.Env = os.Environ()
-		cmd.Env = append(cmd.Env, "GOTOOLCHAIN=go1.18")
-		out, err := cmd.Output()
-		fmt.Printf("output: %s", out)
-		if err != nil {
-			return err
-		}
-
-		if current == false {
-			err := os.Chdir("..")
-			if err != nil {
-				return err
-			}
-		}
-	} else {
-		fmt.Printf("Intializing gomodule\n")
-		cmdString := fmt.Sprintf("go mod init; %s", goReplaceString)
-		cmd := exec.Command("/bin/sh", "-c", cmdString)
-		cmd.Env = os.Environ()
-		cmd.Env = append(cmd.Env, "GOTOOLCHAIN=go1.18")
-		_, err := cmd.Output()
-		if err != nil {
-			return err
-		}
+func GoModInit(modulePath string, current bool) error {
+	args := []string{"mod", "init"}
+	if modulePath != "" {
+		args = append(args, modulePath)
+	}
+	cmd := exec.Command("go", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("initialize Go module: %w: %s", err, out)
+	}
+	if modulePath != "" && !current {
+		return os.Chdir("..")
 	}
 	return nil
 }

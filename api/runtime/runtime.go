@@ -1,13 +1,15 @@
 package runtime
 
 import (
+	"nexus/admin/api/authorization"
 	tenantruntime "nexus/admin/api/runtime/tenant"
 
-	"nexus/base/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 // Runtime tree.
 type Runtime struct {
+	UserCertificate authorization.UserCertificate `nexus:"children"`
 	nexus.SingletonNode
 
 	// Tenant runtime spec.

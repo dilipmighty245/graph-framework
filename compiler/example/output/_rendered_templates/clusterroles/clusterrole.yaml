@@ -5,9 +5,6 @@ kind: ClusterRole
 metadata:
   name: tsm.tanzu.vmware.com-read-role
 rules:
-  - apiGroups: ["root.tsm.tanzu.vmware.com"]
-    resources: ["roots", "roots/status"]
-    verbs: ["get", "list", "watch"]
   - apiGroups: ["config.tsm.tanzu.vmware.com"]
     resources: ["configs", "configs/status", "footypeabcs", "footypeabcs/status", "domains", "domains/status"]
     verbs: ["get", "list", "watch"]
@@ -22,6 +19,9 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: ["policypkg.tsm.tanzu.vmware.com"]
     resources: ["accesscontrolpolicies", "accesscontrolpolicies/status", "acpconfigs", "acpconfigs/status", "vmpolicies", "vmpolicies/status"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["root.tsm.tanzu.vmware.com"]
+    resources: ["roots", "roots/status"]
     verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -29,9 +29,6 @@ kind: ClusterRole
 metadata:
   name: tsm.tanzu.vmware.com-write-role
 rules:
-  - apiGroups: ["root.tsm.tanzu.vmware.com"]
-    resources: ["roots", "roots/status"]
-    verbs: ["create", "update", "patch", "delete"]
   - apiGroups: ["config.tsm.tanzu.vmware.com"]
     resources: ["configs", "configs/status", "footypeabcs", "footypeabcs/status", "domains", "domains/status"]
     verbs: ["create", "update", "patch", "delete"]
@@ -46,4 +43,7 @@ rules:
     verbs: ["create", "update", "patch", "delete"]
   - apiGroups: ["policypkg.tsm.tanzu.vmware.com"]
     resources: ["accesscontrolpolicies", "accesscontrolpolicies/status", "acpconfigs", "acpconfigs/status", "vmpolicies", "vmpolicies/status"]
+    verbs: ["create", "update", "patch", "delete"]
+  - apiGroups: ["root.tsm.tanzu.vmware.com"]
+    resources: ["roots", "roots/status"]
     verbs: ["create", "update", "patch", "delete"]

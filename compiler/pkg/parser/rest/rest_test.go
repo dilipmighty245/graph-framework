@@ -30,6 +30,7 @@ var _ = Describe("Rest tests", func() {
 		graph, _, _ := parser.ParseDSLNodes(exampleDSLPath, baseGroupName, pkgs, graphqlQueries)
 		parentsMap = parser.CreateParentsMap(graph)
 		Expect(ok).To(BeTrue())
+		methods, codes = rest.ParseResponses(pkgs)
 	})
 
 	It("should parse responses", func() {
@@ -137,11 +138,12 @@ var _ = Describe("Rest tests", func() {
 		g, _, _ := parser.ParseDSLNodes("../../../example/test-utils/duplicated-uris-datamodel", baseGroupName, pkgs, nil)
 		parents := parser.CreateParentsMap(g)
 
+		registry := make(map[string]string)
 		for _, p := range pkgs {
 			restAPISpecMap := rest.GetRestApiSpecs(p, methods, codes, parents)
 
 			for _, apiSpec := range restAPISpecMap {
-				rest.ValidateRestApiSpec(apiSpec, parents, "...")
+				rest.ValidateRestApiSpec(apiSpec, parents, "...", registry)
 			}
 		}
 

@@ -50,7 +50,9 @@ const (
 	generatedOpenAPIv3FileName = "generated.v3.json"
 	goldenOpenAPIv3Filename    = "golden.v3.json"
 
-	timeoutSeconds = 10.0
+	// Generation loads the Go dependency graph, which can exceed ten seconds on
+	// a cold build cache or while race-instrumented suites run concurrently.
+	timeoutSeconds = 120.0
 )
 
 func TestGenerators(t *testing.T) {
@@ -82,7 +84,7 @@ var _ = Describe("Open API Definitions Generation", func() {
 
 		// Build the OpenAPI code generator.
 		By("building openapi-gen")
-		binaryPath, berr := gexec.Build("../../cmd/openapi-gen/openapi-gen.go")
+		binaryPath, berr := gexec.Build("../../cmd/nexus-openapi-gen/nexus-openapi-gen.go")
 		Expect(berr).ShouldNot(HaveOccurred())
 		openAPIGenPath = binaryPath
 
@@ -133,6 +135,7 @@ var _ = Describe("Open API Definitions Generation", func() {
 	})
 
 	AfterSuite(func() {
+		gexec.KillAndWait()
 		os.RemoveAll(tempDir)
 		gexec.CleanupBuildArtifacts()
 	})

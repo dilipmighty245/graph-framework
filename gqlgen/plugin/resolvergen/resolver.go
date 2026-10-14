@@ -130,7 +130,9 @@ func (m *Plugin) generatePerSchema(data *codegen.Data) error {
 						}
 					}
 				}
-				if templates.ToGo(o.Name) == "Query" {
+				if !data.Config.Resolver.Nexus {
+					implementation = `panic(fmt.Errorf("not implemented: ` + f.GoFieldName + ` - ` + f.Name + `"))`
+				} else if templates.ToGo(o.Name) == "Query" {
 					implementation = fmt.Sprintf("return get%sResolver(%s)", templates.ToGo(f.Name), args)
 				} else {
 					implementation = fmt.Sprintf("return get%s%sResolver(%s,%s)", templates.ToGo(o.Name), f.Name, "obj", args)

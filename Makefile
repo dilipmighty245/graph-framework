@@ -14,7 +14,7 @@ COMPILER_TAG ?= latest
 CLUSTER_PORT ?= 9000
 K8S_RUNTIME_PORT = $(shell echo $$(( ${CLUSTER_PORT} + 1 )))
 LOG_LEVEL ?= ERROR
-DOCKER_REGISTRY ?= amr-registry-pre.caas.intel.com
+DOCKER_REGISTRY ?= ghcr.io/dilipmighty245
 OS ?= $(shell go env GOOS)
 ARCH ?= $(shell go env GOARCH)
 DOCKER_BUILDER_PLATFORM ?= linux/${ARCH}
@@ -416,7 +416,7 @@ core.runtime.build: api.build api-gw.docker.kubeconfig
 # Usage: DOCKER_REGISTRY=<registry> TAG=<tag-value> make core.runtime.release
 # Publish core artifiacats to container registry.
 #
-# Example: DOCKER_REGISTRY=amr-registry-pre.caas.intel.com TAG=latest make core.runtime.release
+# Example: DOCKER_REGISTRY=ghcr.io/dilipmighty245 TAG=latest make core.runtime.release
 #
 .PHONY: core.runtime.release
 core.runtime.release:
@@ -431,11 +431,11 @@ core.runtime.release:
 #
 .PHONY: core.runtime.download
 core.runtime.download:
-	docker pull amr-registry-pre.caas.intel.com/nexus/api-gw:${TAG}
-	docker pull amr-registry-pre.caas.intel.com/nexus/admin.nexus.com:${TAG}
-	docker pull amr-registry-pre.caas.intel.com/nexus/debugtools:latest
-	docker pull amr-registry-pre.caas.intel.com/nexus/nexus-kube-apiserver:latest
-	docker pull amr-registry-pre.caas.intel.com/nexus/nexus-etcd-kubectl:latest
+	docker pull ghcr.io/dilipmighty245/nexus/api-gw:${TAG}
+	docker pull ghcr.io/dilipmighty245/nexus/admin.nexus.com:${TAG}
+	docker pull ghcr.io/dilipmighty245/nexus/debugtools:latest
+	docker pull ghcr.io/dilipmighty245/nexus/nexus-kube-apiserver:latest
+	docker pull ghcr.io/dilipmighty245/nexus/nexus-etcd-kubectl:latest
 
 #
 # Usage: DOCKER_REGISTRY=<registry> TAG=<tag-value> make core.runtime.artifacts.push
@@ -445,15 +445,15 @@ core.runtime.download:
 #
 .PHONY: core.runtime.artifacts.push
 core.runtime.artifacts.push:
-	docker tag amr-registry-pre.caas.intel.com/nexus/api-gw:${TAG} ${API_GW_DOCKER_IMAGE}
+	docker tag ghcr.io/dilipmighty245/nexus/api-gw:${TAG} ${API_GW_DOCKER_IMAGE}
 	docker push ${API_GW_DOCKER_IMAGE}
-	docker tag amr-registry-pre.caas.intel.com/nexus/admin.nexus.com:${TAG} ${DOCKER_REGISTRY}/nexus/admin.nexus.com:${TAG}
+	docker tag ghcr.io/dilipmighty245/nexus/admin.nexus.com:${TAG} ${DOCKER_REGISTRY}/nexus/admin.nexus.com:${TAG}
 	docker push ${DOCKER_REGISTRY}/nexus/admin.nexus.com:${TAG}
-	docker tag amr-registry-pre.caas.intel.com/nexus/debugtools:latest ${DOCKER_REGISTRY}/nexus/debugtools:${TAG}
+	docker tag ghcr.io/dilipmighty245/nexus/debugtools:latest ${DOCKER_REGISTRY}/nexus/debugtools:${TAG}
 	docker push ${DOCKER_REGISTRY}/nexus/debugtools:${TAG}
-	docker tag amr-registry-pre.caas.intel.com/nexus/nexus-kube-apiserver:latest ${DOCKER_REGISTRY}/nexus/nexus-kube-apiserver:${TAG}
+	docker tag ghcr.io/dilipmighty245/nexus/nexus-kube-apiserver:latest ${DOCKER_REGISTRY}/nexus/nexus-kube-apiserver:${TAG}
 	docker push ${DOCKER_REGISTRY}/nexus/nexus-kube-apiserver:${TAG}
-	docker tag amr-registry-pre.caas.intel.com/nexus/nexus-etcd-kubectl:latest ${DOCKER_REGISTRY}/nexus/nexus-etcd-kubectl:${TAG}
+	docker tag ghcr.io/dilipmighty245/nexus/nexus-etcd-kubectl:latest ${DOCKER_REGISTRY}/nexus/nexus-etcd-kubectl:${TAG}
 	docker push ${DOCKER_REGISTRY}/nexus/nexus-etcd-kubectl:${TAG}
 
 #
@@ -504,3 +504,36 @@ traffic.demo.uninstall.kubeconfig: core.uninstall.kubeconfig
 	kubectl delete -n ${NAMESPACE} pvc data-nexus-etcd-0
 	kubectl delete -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 
+# Cross-module checks; see docs/testing.md for prerequisites and coverage.
+.PHONY: test.framework test.framework.compiler test.framework.gateway test.framework.all test.framework.e2e test.framework.stability test.framework.race test.framework.help
+test.framework:
+	@bash scripts/test-framework.sh regression
+
+test.framework.gateway:
+	@bash scripts/test-framework.sh gateway
+
+test.framework.compiler:
+	@bash scripts/test-framework.sh compiler
+
+test.framework.all:
+	@bash scripts/test-framework.sh all
+
+test.framework.stability:
+	@FRAMEWORK_TEST_RUNS=$${FRAMEWORK_TEST_RUNS:-3} FRAMEWORK_TEST_RACE=$${FRAMEWORK_TEST_RACE:-true} bash scripts/test-framework.sh all
+
+test.framework.race:
+	@FRAMEWORK_TEST_RACE=true bash scripts/test-framework.sh regression
+
+test.framework.e2e:
+	@bash scripts/test-framework-e2e.sh
+
+test.framework.help:
+	@printf '%s\n' \
+	  'make test.framework          Run complete source suites across framework modules' \
+	  'make test.framework.gateway  Run gateway and controller suites; generated admin API required' \
+	  'make test.framework.compiler Run every compiler command and package suite' \
+	  'make test.framework.all      Run source suites, generated SDK tests, services, and Kind E2E' \
+	  'make test.framework.e2e      Generate artifacts and test resources, gateway, and GraphQL in Kind' \
+	  'make test.framework.stability Repeat all checks with race detection (default: 3 passes)' \
+	  'make test.framework.race     Run source suites with the race detector' \
+	  'See docs/testing.md for host tools, optional compiler images, and logs.'

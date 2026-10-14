@@ -29,7 +29,7 @@ func CallbackHandler(c echo.Context) error {
 
 	if c.QueryParam(errorQueryParam) != "" {
 		errMsg := fmt.Sprintf("authorization server returned an error: %s", c.QueryParam(errorQueryParam))
-		log.Errorf(errMsg)
+		log.Error(errMsg)
 		return echo.NewHTTPError(http.StatusUnauthorized, errMsg)
 	}
 

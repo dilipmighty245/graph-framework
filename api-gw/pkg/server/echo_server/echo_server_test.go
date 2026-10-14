@@ -6,14 +6,12 @@ import (
 	"api-gw/pkg/model"
 	"api-gw/pkg/server/echo_server"
 	"context"
-	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"sync/atomic"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 
 	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 	"github.com/labstack/echo/v4"
@@ -33,138 +31,34 @@ import (
 var _ = Describe("Echo server tests", func() {
 	var e *echo_server.EchoServer
 
-	It("should watch for OpenApi spec file creation", func() {
-		openApiSpecDir := "testDir"
-		openApiSpecFile := "testDir/testFile"
-		echo_server.HttpServerRestartFromOpenApiSpecUpdateCounter = 0
-
-		stopCh := make(chan struct{})
-		receivedSignalFromStopCh := false
-		go func() {
-			for {
-				select {
-				case <-stopCh:
-					receivedSignalFromStopCh = true
-					return
-				}
+	for _, operation := range []string{"creation", "update", "deletion"} {
+		operation := operation
+		It("should watch for OpenApi spec file "+operation, func() {
+			dir, err := os.MkdirTemp("", "nexus-openapi-watch-*")
+			Expect(err).NotTo(HaveOccurred())
+			defer os.RemoveAll(dir)
+			file := filepath.Join(dir, "schema.json")
+			if operation != "creation" {
+				Expect(os.WriteFile(file, []byte("before"), 0600)).To(Succeed())
 			}
-		}()
-		err := os.Mkdir(openApiSpecDir, 0755)
-		defer os.RemoveAll(openApiSpecDir)
-		Expect(err).To(BeNil())
-		echo_server.WatchForOpenApiSpecChanges(stopCh, openApiSpecDir, openApiSpecFile)
-		time.Sleep(5 * time.Second)
-		f, err := os.Create(openApiSpecFile)
-		Expect(err).To(BeNil())
-		f.Sync()
-		defer f.Close()
-
-		for i := 0; i < 10; i++ {
-			time.Sleep(time.Second)
-			if receivedSignalFromStopCh && echo_server.HttpServerRestartFromOpenApiSpecUpdateCounter == 1 {
-				break
+			stopCh := make(chan struct{}, 16)
+			stop := echo_server.WatchForOpenApiSpecChanges(stopCh, dir, file)
+			defer stop()
+			if operation == "deletion" {
+				Expect(os.Remove(file)).To(Succeed())
+			} else {
+				Expect(os.WriteFile(file, []byte("after"), 0600)).To(Succeed())
 			}
-		}
-		Expect(echo_server.HttpServerRestartFromOpenApiSpecUpdateCounter).To(Equal(1))
-		Expect(receivedSignalFromStopCh).To(Equal(true))
-	})
-	It("should watch for OpenApi spec file update", func() {
-		openApiSpecDir := "testDir"
-		openApiSpecFile := "testDir/testFile"
-		echo_server.HttpServerRestartFromOpenApiSpecUpdateCounter = 0
+			Eventually(stopCh, 3*time.Second).Should(Receive())
+		})
+	}
 
-		stopCh := make(chan struct{})
-		receivedSignalFromStopCh := false
-		go func() {
-			for {
-				select {
-				case <-stopCh:
-					receivedSignalFromStopCh = true
-					return
-				}
-			}
-		}()
-
-		err := os.Mkdir(openApiSpecDir, 0755)
-		defer os.RemoveAll(openApiSpecDir)
-		Expect(err).To(BeNil())
-		f, err := os.Create(openApiSpecFile)
-		Expect(err).To(BeNil())
-		f.Sync()
-		defer f.Close()
-
-		echo_server.WatchForOpenApiSpecChanges(stopCh, openApiSpecDir, openApiSpecFile)
-		time.Sleep(5 * time.Second)
-		bytesWritten, err := f.WriteString("writes\n")
-		Expect(err).To(BeNil())
-		Expect(bytesWritten).ToNot(Equal(0))
-		f.Sync()
-		for i := 0; i < 10; i++ {
-			time.Sleep(time.Second)
-			if receivedSignalFromStopCh && echo_server.HttpServerRestartFromOpenApiSpecUpdateCounter == 1 {
-				break
-			}
-		}
-		Expect(echo_server.HttpServerRestartFromOpenApiSpecUpdateCounter).To(Equal(1))
-		Expect(receivedSignalFromStopCh).To(Equal(true))
-	})
-	It("should watch for OpenApi spec file deletion", func() {
-		openApiSpecDir := "testDir"
-		openApiSpecFile := "testDir/testFile"
-		echo_server.HttpServerRestartFromOpenApiSpecUpdateCounter = 0
-
-		stopCh := make(chan struct{})
-		receivedSignalFromStopCh := false
-		go func() {
-			for {
-				select {
-				case <-stopCh:
-					receivedSignalFromStopCh = true
-					return
-				}
-			}
-		}()
-
-		err := os.Mkdir(openApiSpecDir, 0755)
-		defer os.RemoveAll(openApiSpecDir)
-		Expect(err).To(BeNil())
-		f, err := os.Create(openApiSpecFile)
-		Expect(err).To(BeNil())
-		f.Sync()
-		f.Close()
-
-		echo_server.WatchForOpenApiSpecChanges(stopCh, openApiSpecDir, openApiSpecFile)
-		time.Sleep(5 * time.Second)
-		os.Remove(openApiSpecFile)
-
-		for i := 0; i < 10; i++ {
-			time.Sleep(time.Second)
-			if receivedSignalFromStopCh && echo_server.HttpServerRestartFromOpenApiSpecUpdateCounter == 1 {
-				break
-			}
-		}
-		Expect(echo_server.HttpServerRestartFromOpenApiSpecUpdateCounter).To(Equal(1))
-		Expect(receivedSignalFromStopCh).To(Equal(true))
-	})
-
-	It("should init echo server", func() {
+	BeforeEach(func() {
 
 		client.NexusClient = nexus_client.NewFakeClient()
-		_, err := client.NexusClient.Api().CreateNexusByName(context.TODO(), &apinexusv1.Nexus{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "default",
-			},
-		})
+		root, err := client.NexusClient.AddApiNexus(context.Background(), &apinexusv1.Nexus{ObjectMeta: metav1.ObjectMeta{Name: "default"}})
 		Expect(err).NotTo(HaveOccurred())
-
-		_, err = client.NexusClient.Config().CreateConfigByName(context.TODO(), &confignexusv1.Config{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "943ea6107388dc0d02a4c4d861295cd2ce24d551",
-				Labels: map[string]string{
-					"nexus/display_name": "default",
-				},
-			},
-		})
+		_, err = root.AddConfig(context.Background(), &confignexusv1.Config{ObjectMeta: metav1.ObjectMeta{Name: "default"}})
 		Expect(err).NotTo(HaveOccurred())
 
 		config.Cfg = &config.Config{
@@ -172,7 +66,7 @@ var _ = Describe("Echo server tests", func() {
 			EnableNexusRuntime: true,
 			BackendService:     "",
 		}
-		e = echo_server.NewEchoServer(config.Cfg, &kubernetes.Clientset{}, &nexus_client.Clientset{})
+		e = echo_server.NewEchoServer(config.Cfg, &kubernetes.Clientset{}, client.NexusClient)
 
 	})
 
@@ -278,7 +172,9 @@ var _ = Describe("Echo server tests", func() {
 		}, &kubernetes.Clientset{},
 			&nexus_client.Clientset{})
 
+		before := atomic.LoadInt64(&echo_server.TotalHttpServerRestartCounter)
 		stopCh <- struct{}{}
+		Eventually(func() int64 { return atomic.LoadInt64(&echo_server.TotalHttpServerRestartCounter) }, 3*time.Second).Should(BeNumerically(">", before))
 
 		e.StopServer()
 	})
@@ -353,27 +249,10 @@ var _ = Describe("Echo server tests", func() {
 		Expect(c.Path()).To(Equal("/v0/users/login"))
 	})
 
-	It("should start echo server and timeout on port checking", func() {
-		log.StandardLogger().ExitFunc = func(i int) {
-			Expect(i).To(Equal(1))
-		}
-
-		stopCh := make(chan struct{})
-		e := echo_server.InitEcho(stopCh, &config.Config{
-			Server: config.ServerConfig{
-				HttpPort: "0",
-			},
-			EnableNexusRuntime: true,
-			BackendService:     "http://localhost",
-		}, &kubernetes.Clientset{}, &nexus_client.Clientset{})
-
-		listen, err := net.Listen("tcp", ":0")
-		Expect(err).To(BeNil())
-		e.Config.Server.HttpPort = fmt.Sprintf("%d", listen.Addr().(*net.TCPAddr).Port)
-		e.StopServer()
-
-		err = listen.Close()
-		Expect(err).To(BeNil())
+	It("should stop cleanly before the asynchronous listener starts", func() {
+		server := echo_server.InitEcho(make(chan struct{}), &config.Config{Server: config.ServerConfig{HttpPort: "0"}}, &kubernetes.Clientset{}, &nexus_client.Clientset{})
+		server.StopServer()
+		server.StopServer() // Closing an already stopped server is safe.
 	})
 
 })

@@ -1,7 +1,7 @@
 package route
 
 import (
-	"nexus/base/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 type Service struct {

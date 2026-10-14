@@ -1,7 +1,9 @@
 package helper
 
+//nolint:gci // generated imports.
 import (
 	"context"
+	//nolint:gosec // only useful fixed strig hashing and not for security.
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
@@ -13,10 +15,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const DEFAULT_KEY = "default"
-const DISPLAY_NAME_LABEL = "nexus/display_name"
-const IS_NAME_HASHED_LABEL = "nexus/is_name_hashed"
+const DefaultKey = "default"
+const DisplayNameLabel = "nexus/display_name"
+const IsNameHashedLabel = "nexus/is_name_hashed"
 
+//nolint:lll // Generated code. Length depends on actual graph depth.
 func GetCRDParentsMap() map[string][]string {
 	return map[string][]string{
 		"accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com":                  {"roots.root.tsm.tanzu.vmware.com", "configs.config.tsm.tanzu.vmware.com", "gnses.gns.tsm.tanzu.vmware.com"},
@@ -37,7 +40,8 @@ func GetCRDParentsMap() map[string][]string {
 	}
 }
 
-func GetObjectByCRDName(dmClient *datamodel.Clientset, crdName string, name string) interface{} {
+//nolint:gocyclo,funlen,cyclop // Generated code. Length depends on actual graph depth.
+func GetObjectByCRDName(dmClient *datamodel.Clientset, crdName, name string) interface{} {
 	if crdName == "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com" {
 		obj, err := dmClient.PolicypkgTsmV1().AccessControlPolicies().Get(context.TODO(), name, metav1.GetOptions{})
 		if err != nil {
@@ -155,7 +159,7 @@ func ParseCRDLabels(crdName string, labels map[string]string) *orderedmap.Ordere
 		if label, ok := labels[parent]; ok {
 			m.Set(parent, label)
 		} else {
-			m.Set(parent, DEFAULT_KEY)
+			m.Set(parent, DefaultKey)
 		}
 	}
 
@@ -176,7 +180,7 @@ func GetHashedName(crdName string, labels map[string]string, name string) string
 	}
 
 	output += fmt.Sprintf("%s:%s", crdName, name)
-
+	//nolint:gosec // only useful fixed strig hashing and not for security.
 	h := sha1.New()
 	_, _ = h.Write([]byte(output))
 	return hex.EncodeToString(h.Sum(nil))

@@ -111,7 +111,7 @@ func GetCSPServiceOwnerToken() string {
 
 func SetCSPVariables() error {
 	CSP_PERMISSION_NAME = os.Getenv(CSPPermissionName)
-	fmt.Printf(CSP_PERMISSION_NAME)
+	fmt.Print(CSP_PERMISSION_NAME)
 	if CSP_PERMISSION_NAME == "" {
 		return fmt.Errorf("%s is set to be empty", CSPPermissionName)
 	} else {
@@ -159,7 +159,7 @@ func GetRuntimeNode(NexusClient *nexus_client.Clientset, name string) (configNod
 }
 
 func CheckTenantIfExists(NexusClient *nexus_client.Clientset, tenantName string) (found bool, err error) {
-	log.Debugf(fmt.Sprintf("checking if tenant exists for :%s", tenantName))
+	log.Debugf("checking if tenant exists for :%s", tenantName)
 	configData, err := GetConfigNode(NexusClient, "default")
 	if err != nil {
 		return false, err
@@ -359,11 +359,11 @@ func DeleteUsersForTenant(tenantName string) error {
 
 	for _, user := range users {
 		if user.Spec.TenantId == tenantName {
-			if err := configObj.DeleteUser(context.TODO(), user.Labels[common.DISPLAY_NAME_LABEL]); err != nil {
+			if err := configObj.DeleteUser(context.TODO(), user.Labels[common.DisplayNameLabel]); err != nil {
 				return err
 			}
 		}
-		DeleteUser(user.Labels[common.DISPLAY_NAME_LABEL])
+		DeleteUser(user.Labels[common.DisplayNameLabel])
 	}
 	return nil
 }
@@ -383,7 +383,7 @@ func InitAdminDatamodelCache() error {
 			if err != nil {
 				return err
 			}
-			if err := configObj.DeleteUser(context.TODO(), user.Labels[common.DISPLAY_NAME_LABEL]); err != nil {
+			if err := configObj.DeleteUser(context.TODO(), user.Labels[common.DisplayNameLabel]); err != nil {
 				return err
 			}
 		}

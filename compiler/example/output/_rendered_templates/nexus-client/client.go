@@ -20,16 +20,13 @@ import (
 	"os"
 	"reflect"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	types "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	fakeDynamicClientset "k8s.io/client-go/dynamic/fake"
@@ -56,7 +53,7 @@ import (
 	informerservicegrouptsmtanzuvmwarecomv1 "nexustempmodule/client/informers/externalversions/servicegroup.tsm.tanzu.vmware.com/v1"
 )
 
-var log = logrus.New()
+var logger = logrus.New()
 
 const maxRetryCount = 60
 const sleepTime = 5
@@ -70,6 +67,7 @@ var informerResyncPeriod time.Duration = 36000
 
 type Clientset struct {
 	baseClient                   baseClientset.Interface
+	children                     *childCache
 	DynamicClient                dynamic.Interface
 	rootTsmV1                    *RootTsmV1
 	configTsmV1                  *ConfigTsmV1
@@ -310,11 +308,11 @@ func NewForConfig(config *rest.Config) (*Clientset, error) {
 
 	customFormatter := new(logrus.TextFormatter)
 	customFormatter.TimestampFormat = "2006-01-02 15:04:05"
-	log.SetFormatter(customFormatter)
+	logger.SetFormatter(customFormatter)
 	customFormatter.FullTimestamp = true
 	if os.Getenv("NEXUS_LOG_LEVEL") == "debug" {
-		log.SetLevel(logrus.DebugLevel)
-		log.Debug("Nexus debug log enabled")
+		logger.SetLevel(logrus.DebugLevel)
+		logger.Debug("Nexus debug log enabled")
 	}
 
 	// INFORMER_RESYNC_PERIOD is os env to set Resync Period for informers
@@ -322,14 +320,14 @@ func NewForConfig(config *rest.Config) (*Clientset, error) {
 	if stringResyncPeriod != "" {
 		intResyncPeriod, err := strconv.Atoi(stringResyncPeriod)
 		if err != nil {
-			log.Errorf("env INFORMER_RESYNC_PERIOD is not set with correct value")
+			logger.Errorf("env INFORMER_RESYNC_PERIOD is not set with correct value")
 		} else {
 			informerResyncPeriod = time.Duration(intResyncPeriod)
-			log.Debugf("Resync Period for informers is set to %+v second", informerResyncPeriod)
+			logger.Debugf("Resync Period for informers is set to %+v second", informerResyncPeriod)
 		}
 	}
 
-	client := &Clientset{}
+	client := &Clientset{children: &childCache{}}
 	client.baseClient = baseClient
 	client.DynamicClient, _ = dynamic.NewForConfig(config) // TBD: check and react for error
 	client.rootTsmV1 = newRootTsmV1(client)
@@ -344,7 +342,7 @@ func NewForConfig(config *rest.Config) (*Clientset, error) {
 
 // NewFakeClient creates simple client which can be used for unit tests
 func NewFakeClient() *Clientset {
-	client := &Clientset{}
+	client := &Clientset{children: &childCache{}}
 	scheme := runtime.NewScheme()
 	client.baseClient = fakeBaseClienset.NewSimpleClientset()
 	client.DynamicClient = fakeDynamicClientset.NewSimpleDynamicClient(scheme)
@@ -470,11 +468,11 @@ func (group *RootTsmV1) GetRootByName(ctx context.Context, hashedName string) (*
 		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
 		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
-			log.Debugf("[GetRootByName] Object: %s exists in cache", hashedName)
+			logger.Debugf("[GetRootByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*baseroottsmtanzuvmwarecomv1.Root)
 			subsCacheVersion, subsCacheVersionErr := strconv.Atoi(resultCache.ResourceVersion)
 			if subsCacheVersionErr != nil {
-				log.Fatalf("[GetRootByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
+				logger.Fatalf("[GetRootByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
 			}
 
 			writeCacheVersion := 0
@@ -482,7 +480,7 @@ func (group *RootTsmV1) GetRootByName(ctx context.Context, hashedName string) (*
 			if inWrCache {
 				writeCacheVersion, writeCacheVersionErr = strconv.Atoi(resWrCache.(*baseroottsmtanzuvmwarecomv1.Root).ResourceVersion)
 				if writeCacheVersionErr != nil {
-					log.Fatalf("[GetRootByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
+					logger.Fatalf("[GetRootByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
 				}
 			}
 
@@ -515,22 +513,22 @@ func (group *RootTsmV1) GetRootByName(ctx context.Context, hashedName string) (*
 				Root:   result,
 			}, nil
 		} else if errors.IsNotFound(err) {
-			log.Debugf("[GetRootByName]: object %v not found", hashedName)
+			logger.Debugf("[GetRootByName]: object %v not found", hashedName)
 			return nil, err
 		} else {
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on Get Roots: %s", hashedName)
+					logger.Errorf("Max retry exceed on Get Roots: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[GetRootByName]: %+v", err)
+				logger.Errorf("[GetRootByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[GetRootByName]: %+v", err)
+				logger.Errorf("[GetRootByName]: %+v", err)
 				return nil, err
 			}
 		}
@@ -540,31 +538,31 @@ func (group *RootTsmV1) GetRootByName(ctx context.Context, hashedName string) (*
 // ForceReadRootByName read object directly from the database under the hashedName which is a hash of display
 // name and parents names. Use it when you know hashed name of object.
 func (group *RootTsmV1) ForceReadRootByName(ctx context.Context, hashedName string) (*RootRoot, error) {
-	log.Debugf("[ForceReadRootByName] Received object :%s to read from DB", hashedName)
+	logger.Debugf("[ForceReadRootByName] Received object :%s to read from DB", hashedName)
 	retryCount := 0
 	for {
 		result, err := group.client.baseClient.
 			RootTsmV1().
 			Roots().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[ForceReadRootByName] Failed to Get Roots: %+v", err)
+			logger.Errorf("[ForceReadRootByName] Failed to Get Roots: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Errorf("[Retry Count: %d ] %+v", retryCount, err)
+				logger.Errorf("[Retry Count: %d ] %+v", retryCount, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max Retry exceed on Get Roots: %s", hashedName)
+					logger.Errorf("Max Retry exceed on Get Roots: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[ForceReadRootByName]: %+v", err)
+				logger.Errorf("[ForceReadRootByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[ForceReadRootByName]: %+v", err)
+				logger.Errorf("[ForceReadRootByName]: %+v", err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[ForceReadRootByName] Executed Successfully :%s", hashedName)
+			logger.Debugf("[ForceReadRootByName] Executed Successfully :%s", hashedName)
 			return &RootRoot{
 				client: group.client,
 				Root:   result,
@@ -576,7 +574,7 @@ func (group *RootTsmV1) ForceReadRootByName(ctx context.Context, hashedName stri
 // DeleteRootByName deletes object stored in the database under the hashedName which is a hash of
 // display name and parents names. Use it when you know hashed name of object.
 func (group *RootTsmV1) DeleteRootByName(ctx context.Context, hashedName string) (err error) {
-	log.Debugf("[DeleteRootByName] Received objectToDelete: %s", hashedName)
+	logger.Debugf("[DeleteRootByName] Received objectToDelete: %s", hashedName)
 	var (
 		retryCount int
 		result     *baseroottsmtanzuvmwarecomv1.Root
@@ -588,23 +586,23 @@ func (group *RootTsmV1) DeleteRootByName(ctx context.Context, hashedName string)
 			RootTsmV1().
 			Roots().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[DeleteRootByName] Failed to get Roots: %+v", err)
+			logger.Errorf("[DeleteRootByName] Failed to get Roots: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on get Roots: %s", hashedName)
+					logger.Errorf("Max retry exceed on get Roots: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteRootByName] context canceled: %s", hashedName)
+				logger.Errorf("[DeleteRootByName] context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteRootByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteRootByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteRootByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteRootByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -616,12 +614,12 @@ func (group *RootTsmV1) DeleteRootByName(ctx context.Context, hashedName string)
 		return err
 	}
 
-	for _, child := range GetChildren("roots.root.tsm.tanzu.vmware.com", hashedName, "configs.config.tsm.tanzu.vmware.com") {
+	for _, child := range group.client.children.GetChildren("roots.root.tsm.tanzu.vmware.com", hashedName, "configs.config.tsm.tanzu.vmware.com") {
 		err := group.client.Config().DeleteConfigByName(ctx, child)
 		if err != nil && errors.IsNotFound(err) == false {
 			return err
 		}
-		RemoveChild("roots.root.tsm.tanzu.vmware.com", hashedName, "configs.config.tsm.tanzu.vmware.com", child)
+		group.client.children.RemoveChild("roots.root.tsm.tanzu.vmware.com", hashedName, "configs.config.tsm.tanzu.vmware.com", child)
 	}
 
 	retryCount = 0
@@ -630,23 +628,23 @@ func (group *RootTsmV1) DeleteRootByName(ctx context.Context, hashedName string)
 			RootTsmV1().
 			Roots().Delete(ctx, hashedName, metav1.DeleteOptions{})
 		if err != nil {
-			log.Errorf("[DeleteRootByName] failed to delete Roots: %+v", err)
+			logger.Errorf("[DeleteRootByName] failed to delete Roots: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on delete Roots: %s", hashedName)
+					logger.Errorf("Max retry exceed on delete Roots: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteRootByName]: context canceled: %s", hashedName)
+				logger.Errorf("[DeleteRootByName]: context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteRootByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteRootByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteRootByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteRootByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -665,18 +663,18 @@ func (group *RootTsmV1) DeleteRootByName(ctx context.Context, hashedName string)
 // Use it directly ONLY when objToCreate.Name is hashed name of the object.
 func (group *RootTsmV1) CreateRootByName(ctx context.Context,
 	objToCreate *baseroottsmtanzuvmwarecomv1.Root) (*RootRoot, error) {
-	log.Debugf("[CreateRootByName] Received objToCreate: %s", objToCreate.GetName())
+	logger.Debugf("[CreateRootByName] Received objToCreate: %s", objToCreate.GetName())
 	if objToCreate.GetLabels() == nil {
 		objToCreate.Labels = make(map[string]string)
 	}
-	if _, ok := objToCreate.Labels[common.DISPLAY_NAME_LABEL]; !ok {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
+	if _, ok := objToCreate.Labels[common.DisplayNameLabel]; !ok {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
 	}
-	if objToCreate.Labels[common.DISPLAY_NAME_LABEL] == "" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = helper.DEFAULT_KEY
+	if objToCreate.Labels[common.DisplayNameLabel] == "" {
+		objToCreate.Labels[common.DisplayNameLabel] = helper.DefaultKey
 	}
-	if objToCreate.Labels[common.DISPLAY_NAME_LABEL] != helper.DEFAULT_KEY {
-		return nil, NewSingletonNameError(objToCreate.Labels[common.DISPLAY_NAME_LABEL])
+	if objToCreate.Labels[common.DisplayNameLabel] != helper.DefaultKey {
+		return nil, NewSingletonNameError(objToCreate.Labels[common.DisplayNameLabel])
 	}
 
 	objToCreate.Spec.ConfigGvk = nil
@@ -692,33 +690,33 @@ func (group *RootTsmV1) CreateRootByName(ctx context.Context,
 			RootTsmV1().
 			Roots().Create(ctx, objToCreate, metav1.CreateOptions{})
 		if err != nil {
-			log.Errorf("[CreateRootByName] Failed to create Root: %s, error: %+v", objToCreate.GetName(), err)
+			logger.Errorf("[CreateRootByName] Failed to create Root: %s, error: %+v", objToCreate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on create Root: %s", objToCreate.GetName())
+					logger.Errorf("Max retry exceed on create Root: %s", objToCreate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[CreateRootByName] context canceled while creating Root: %s", objToCreate.GetName())
+				logger.Errorf("[CreateRootByName] context canceled while creating Root: %s", objToCreate.GetName())
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[CreateRootByName] found unexpected error while creating Root: %s, error: %+v", objToCreate.GetName(), err)
+				logger.Errorf("[CreateRootByName] found unexpected error while creating Root: %s, error: %+v", objToCreate.GetName(), err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[CreateRootByName] Root: %s created successfully", objToCreate.GetName())
+			logger.Debugf("[CreateRootByName] Root: %s created successfully", objToCreate.GetName())
 			if s, ok := subscriptionMap.Load("roots.root.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[CreateRootByName] Root: %s stored in wr-cache", objToCreate.GetName())
+				logger.Debugf("[CreateRootByName] Root: %s stored in wr-cache", objToCreate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
 		}
 	}
 
-	log.Debugf("[CreateRootByName] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[CreateRootByName] Executed Successfully: %s", objToCreate.GetName())
 	return &RootRoot{
 		client: group.client,
 		Root:   result,
@@ -729,9 +727,9 @@ func (group *RootTsmV1) CreateRootByName(ctx context.Context,
 // display name and parents names.
 func (group *RootTsmV1) UpdateRootByName(ctx context.Context,
 	objToUpdate *baseroottsmtanzuvmwarecomv1.Root) (*RootRoot, error) {
-	log.Debugf("[UpdateRootByName] Received objToUpdate: %s", objToUpdate.GetName())
-	if objToUpdate.Labels[common.DISPLAY_NAME_LABEL] != helper.DEFAULT_KEY {
-		return nil, NewSingletonNameError(objToUpdate.Labels[common.DISPLAY_NAME_LABEL])
+	logger.Debugf("[UpdateRootByName] Received objToUpdate: %s", objToUpdate.GetName())
+	if objToUpdate.Labels[common.DisplayNameLabel] != helper.DefaultKey {
+		return nil, NewSingletonNameError(objToUpdate.Labels[common.DisplayNameLabel])
 	}
 
 	var patch Patch
@@ -758,8 +756,8 @@ func (group *RootTsmV1) UpdateRootByName(ctx context.Context,
 			for _, k := range parentsList {
 				objToUpdate.Labels[k] = current.Labels[k]
 			}
-			objToUpdate.Labels[common.IS_NAME_HASHED_LABEL] = current.Labels[common.IS_NAME_HASHED_LABEL]
-			objToUpdate.Labels[common.DISPLAY_NAME_LABEL] = current.Labels[common.DISPLAY_NAME_LABEL]
+			objToUpdate.Labels[common.IsNameHashedLabel] = current.Labels[common.IsNameHashedLabel]
+			objToUpdate.Labels[common.DisplayNameLabel] = current.Labels[common.DisplayNameLabel]
 			patch = append(patch, PatchOp{
 				Op:    "replace",
 				Path:  "/metadata/labels",
@@ -788,46 +786,46 @@ func (group *RootTsmV1) UpdateRootByName(ctx context.Context,
 			RootTsmV1().
 			Roots().Patch(newCtx, objToUpdate.GetName(), types.JSONPatchType, marshaled, metav1.PatchOptions{}, "")
 		if err != nil {
-			log.Errorf("[UpdateRootByName] Failed to patch Root %s with error: %+v", objToUpdate.GetName(), err)
+			logger.Errorf("[UpdateRootByName] Failed to patch Root %s with error: %+v", objToUpdate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
-					log.Debugf("Trigger Root Delete: %s", objToUpdate.GetName())
+					logger.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
+					logger.Debugf("Trigger Root Delete: %s", objToUpdate.GetName())
 					delErr := group.DeleteRootByName(newCtx, objToUpdate.GetName())
 					if delErr != nil {
-						log.Debugf("Error occur while deleting Root: %s", objToUpdate.GetName())
+						logger.Debugf("Error occur while deleting Root: %s", objToUpdate.GetName())
 						return nil, delErr
 					}
-					log.Debugf("Root deleted: %s", objToUpdate.GetName())
+					logger.Debugf("Root deleted: %s", objToUpdate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[UpdateRootByName]: context canceled: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateRootByName]: context canceled: %s", objToUpdate.GetName())
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[UpdateRootByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
-				log.Debugf("Trigger Root Delete: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateRootByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
+				logger.Debugf("Trigger Root Delete: %s", objToUpdate.GetName())
 				delErr := group.DeleteRootByName(newCtx, objToUpdate.GetName())
 				if delErr != nil {
-					log.Debugf("Error occur while deleting Root: %+v", objToUpdate.GetName())
+					logger.Debugf("Error occur while deleting Root: %+v", objToUpdate.GetName())
 					return nil, delErr
 				}
-				log.Debugf("Root Deleted: %s", objToUpdate.GetName())
+				logger.Debugf("Root Deleted: %s", objToUpdate.GetName())
 				return nil, err
 			}
 		} else {
-			log.Debugf("[UpdateRootByName] Patch Root Success :%s", objToUpdate.GetName())
+			logger.Debugf("[UpdateRootByName] Patch Root Success :%s", objToUpdate.GetName())
 			if s, ok := subscriptionMap.Load("roots.root.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[UpdateRootByName] %s stored in wr-cache", objToUpdate.GetName())
+				logger.Debugf("[UpdateRootByName] %s stored in wr-cache", objToUpdate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
 	}
-	log.Debugf("[UpdateRootByName] Executed Successfully %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateRootByName] Executed Successfully %s", objToUpdate.GetName())
 	return &RootRoot{
 		client: group.client,
 		Root:   result,
@@ -894,37 +892,37 @@ func (obj *RootRoot) Update(ctx context.Context) error {
 // GetRootRoot calculates the hashed name based on parents and
 // returns given object
 func (c *Clientset) GetRootRoot(ctx context.Context) (result *RootRoot, err error) {
-	hashedName := helper.GetHashedName("roots.root.tsm.tanzu.vmware.com", nil, helper.DEFAULT_KEY)
+	hashedName := helper.GetHashedName("roots.root.tsm.tanzu.vmware.com", nil, helper.DefaultKey)
 	return c.Root().GetRootByName(ctx, hashedName)
 }
 
 func (c *Clientset) RootRoot() *rootRootTsmV1Chainer {
 	parentLabels := make(map[string]string)
-	parentLabels["roots.root.tsm.tanzu.vmware.com"] = helper.DEFAULT_KEY
+	parentLabels["roots.root.tsm.tanzu.vmware.com"] = helper.DefaultKey
 	return &rootRootTsmV1Chainer{
 		client:       c,
-		name:         helper.DEFAULT_KEY,
+		name:         helper.DefaultKey,
 		parentLabels: parentLabels,
 	}
 }
 
 // AddRootRoot calculates hashed name of the object based on
-// parents names and creates it. objToCreate.Name is changed to the hashed name. Original name (helper.DEFAULT_KEY) is preserved in
+// parents names and creates it. objToCreate.Name is changed to the hashed name. Original name (helper.DefaultKey) is preserved in
 // nexus/display_name label and can be obtained using DisplayName() method.
 func (c *Clientset) AddRootRoot(ctx context.Context,
 	objToCreate *baseroottsmtanzuvmwarecomv1.Root) (result *RootRoot, err error) {
 	if objToCreate.GetName() == "" {
-		objToCreate.SetName(helper.DEFAULT_KEY)
+		objToCreate.SetName(helper.DefaultKey)
 	}
-	if objToCreate.GetName() != helper.DEFAULT_KEY {
+	if objToCreate.GetName() != helper.DefaultKey {
 		return nil, NewSingletonNameError(objToCreate.GetName())
 	}
 	if objToCreate.Labels == nil {
 		objToCreate.Labels = map[string]string{}
 	}
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName(objToCreate.CRDName(), nil, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
@@ -934,14 +932,14 @@ func (c *Clientset) AddRootRoot(ctx context.Context,
 // DeleteRootRoot calculates hashedName of object based on
 // parents and deletes given object
 func (c *Clientset) DeleteRootRoot(ctx context.Context) (err error) {
-	hashedName := helper.GetHashedName("roots.root.tsm.tanzu.vmware.com", nil, helper.DEFAULT_KEY)
+	hashedName := helper.GetHashedName("roots.root.tsm.tanzu.vmware.com", nil, helper.DefaultKey)
 	return c.Root().DeleteRootByName(ctx, hashedName)
 }
 
 // GetConfig returns child of given type
 func (obj *RootRoot) GetConfig(ctx context.Context) (
 	result *ConfigConfig, err error) {
-	children := GetChildren("roots.root.tsm.tanzu.vmware.com", obj.Name, "configs.config.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("roots.root.tsm.tanzu.vmware.com", obj.Name, "configs.config.tsm.tanzu.vmware.com")
 	if len(children) == 0 {
 		return nil, NewChildNotFound(obj.DisplayName(), "Root.Root", "Config")
 	}
@@ -953,7 +951,7 @@ func (obj *RootRoot) GetConfig(ctx context.Context) (
 // nexus/display_name label and can be obtained using DisplayName() method.
 func (obj *RootRoot) AddConfig(ctx context.Context,
 	objToCreate *baseconfigtsmtanzuvmwarecomv1.Config) (result *ConfigConfig, err error) {
-	log.Debugf("[AddConfig] Received objToAdd: %s", objToCreate.GetName())
+	logger.Debugf("[AddConfig] Received objToAdd: %s", objToCreate.GetName())
 	if objToCreate.Labels == nil {
 		objToCreate.Labels = map[string]string{}
 	}
@@ -961,19 +959,19 @@ func (obj *RootRoot) AddConfig(ctx context.Context,
 		objToCreate.Labels[v] = obj.Labels[v]
 	}
 	objToCreate.Labels["roots.root.tsm.tanzu.vmware.com"] = obj.DisplayName()
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName(objToCreate.CRDName(), objToCreate.Labels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
 	result, err = obj.client.Config().CreateConfigByName(ctx, objToCreate)
-	log.Debugf("[AddConfig] Config created successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddConfig] Config created successfully: %s", objToCreate.GetName())
 	updatedObj, getErr := obj.client.Root().GetRootByName(ctx, obj.GetName())
 	if getErr == nil {
 		obj.Root = updatedObj.Root
 	}
-	log.Debugf("[AddConfig] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddConfig] Executed Successfully: %s", objToCreate.GetName())
 	return
 }
 
@@ -981,9 +979,9 @@ func (obj *RootRoot) AddConfig(ctx context.Context,
 // and parents names and deletes it.
 
 func (obj *RootRoot) DeleteConfig(ctx context.Context) (err error) {
-	children := GetChildren("roots.root.tsm.tanzu.vmware.com", obj.Name, "configs.config.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("roots.root.tsm.tanzu.vmware.com", obj.Name, "configs.config.tsm.tanzu.vmware.com")
 	if len(children) > 1 {
-		log.Panicf("[ DeleteConfig] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
+		logger.Panicf("[ DeleteConfig] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
 	}
 
 	if len(children) > 0 {
@@ -1055,6 +1053,7 @@ func (c *rootRootTsmV1Chainer) RegisterEventHandler(addCB func(obj *RootRoot), u
 				client: c.client,
 				Root:   obj.(*baseroottsmtanzuvmwarecomv1.Root),
 			}
+			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for roots.root.tsm.tanzu.vmware.com name %s", nc.Root.Name)
 
 			addCB(nc)
 		},
@@ -1068,6 +1067,7 @@ func (c *rootRootTsmV1Chainer) RegisterEventHandler(addCB func(obj *RootRoot), u
 				client: c.client,
 				Root:   newObj.(*baseroottsmtanzuvmwarecomv1.Root),
 			}
+			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for roots.root.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Root.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
 		},
 
@@ -1076,6 +1076,7 @@ func (c *rootRootTsmV1Chainer) RegisterEventHandler(addCB func(obj *RootRoot), u
 				client: c.client,
 				Root:   obj.(*baseroottsmtanzuvmwarecomv1.Root),
 			}
+			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for roots.root.tsm.tanzu.vmware.com name %s", nc.Root.Name)
 
 			deleteCB(nc)
 		},
@@ -1084,7 +1085,7 @@ func (c *rootRootTsmV1Chainer) RegisterEventHandler(addCB func(obj *RootRoot), u
 }
 
 func (c *rootRootTsmV1Chainer) RegisterAddCallback(cbfn func(obj *RootRoot)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterAddCallback] Received for RootRoot")
+	logger.Debugf("[RegisterAddCallback] Received for RootRoot")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -1109,6 +1110,7 @@ func (c *rootRootTsmV1Chainer) RegisterAddCallback(cbfn func(obj *RootRoot)) (ca
 				client: c.client,
 				Root:   obj.(*baseroottsmtanzuvmwarecomv1.Root),
 			}
+			logger.Debugf("[RegisterAddCallback] Got Add event for roots.root.tsm.tanzu.vmware.com name %s", nc.Root.Name)
 
 			cbfn(nc)
 		},
@@ -1118,7 +1120,7 @@ func (c *rootRootTsmV1Chainer) RegisterAddCallback(cbfn func(obj *RootRoot)) (ca
 }
 
 func (c *rootRootTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *RootRoot)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterUpdateCallback] Received for RootRoot")
+	logger.Debugf("[RegisterUpdateCallback] Received for RootRoot")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -1147,6 +1149,7 @@ func (c *rootRootTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *
 				client: c.client,
 				Root:   newObj.(*baseroottsmtanzuvmwarecomv1.Root),
 			}
+			logger.Debugf("[RegisterUpdateCallback] Got Update event for roots.root.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Root.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
 		},
 	})
@@ -1155,7 +1158,7 @@ func (c *rootRootTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *
 }
 
 func (c *rootRootTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *RootRoot)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterDeleteCallback] Received for RootRoot")
+	logger.Debugf("[RegisterDeleteCallback] Received for RootRoot")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -1180,6 +1183,7 @@ func (c *rootRootTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *RootRoot)) 
 				client: c.client,
 				Root:   obj.(*baseroottsmtanzuvmwarecomv1.Root),
 			}
+			logger.Debugf("[RegisterDeleteCallback] Got Delete event for roots.root.tsm.tanzu.vmware.com name %s", nc.Root.Name)
 
 			cbfn(nc)
 		},
@@ -1201,6 +1205,7 @@ func (c *rootRootTsmV1Chainer) Config(name string) *configConfigTsmV1Chainer {
 // GetConfig calculates hashed name of the object based on displayName and it's parents and returns the object
 func (c *rootRootTsmV1Chainer) GetConfig(ctx context.Context, displayName string) (result *ConfigConfig, err error) {
 	hashedName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", c.parentLabels, displayName)
+	logger.Debugf("[GetConfig] using chainer for name %s, displayName %s, labels %#v", hashedName, displayName, c.parentLabels)
 	return c.client.Config().GetConfigByName(ctx, hashedName)
 }
 
@@ -1215,9 +1220,9 @@ func (c *rootRootTsmV1Chainer) AddConfig(ctx context.Context,
 	for k, v := range c.parentLabels {
 		objToCreate.Labels[k] = v
 	}
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", c.parentLabels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
@@ -1230,7 +1235,7 @@ func (c *rootRootTsmV1Chainer) DeleteConfig(ctx context.Context, name string) (e
 	if c.parentLabels == nil {
 		c.parentLabels = map[string]string{}
 	}
-	c.parentLabels[common.IS_NAME_HASHED_LABEL] = "true"
+	c.parentLabels[common.IsNameHashedLabel] = "true"
 	hashedName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", c.parentLabels, name)
 	return c.client.Config().DeleteConfigByName(ctx, hashedName)
 }
@@ -1256,11 +1261,11 @@ func (group *ConfigTsmV1) GetConfigByName(ctx context.Context, hashedName string
 		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
 		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
-			log.Debugf("[GetConfigByName] Object: %s exists in cache", hashedName)
+			logger.Debugf("[GetConfigByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*baseconfigtsmtanzuvmwarecomv1.Config)
 			subsCacheVersion, subsCacheVersionErr := strconv.Atoi(resultCache.ResourceVersion)
 			if subsCacheVersionErr != nil {
-				log.Fatalf("[GetConfigByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
+				logger.Fatalf("[GetConfigByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
 			}
 
 			writeCacheVersion := 0
@@ -1268,7 +1273,7 @@ func (group *ConfigTsmV1) GetConfigByName(ctx context.Context, hashedName string
 			if inWrCache {
 				writeCacheVersion, writeCacheVersionErr = strconv.Atoi(resWrCache.(*baseconfigtsmtanzuvmwarecomv1.Config).ResourceVersion)
 				if writeCacheVersionErr != nil {
-					log.Fatalf("[GetConfigByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
+					logger.Fatalf("[GetConfigByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
 				}
 			}
 
@@ -1301,22 +1306,22 @@ func (group *ConfigTsmV1) GetConfigByName(ctx context.Context, hashedName string
 				Config: result,
 			}, nil
 		} else if errors.IsNotFound(err) {
-			log.Debugf("[GetConfigByName]: object %v not found", hashedName)
+			logger.Debugf("[GetConfigByName]: object %v not found", hashedName)
 			return nil, err
 		} else {
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on Get Configs: %s", hashedName)
+					logger.Errorf("Max retry exceed on Get Configs: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[GetConfigByName]: %+v", err)
+				logger.Errorf("[GetConfigByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[GetConfigByName]: %+v", err)
+				logger.Errorf("[GetConfigByName]: %+v", err)
 				return nil, err
 			}
 		}
@@ -1326,31 +1331,31 @@ func (group *ConfigTsmV1) GetConfigByName(ctx context.Context, hashedName string
 // ForceReadConfigByName read object directly from the database under the hashedName which is a hash of display
 // name and parents names. Use it when you know hashed name of object.
 func (group *ConfigTsmV1) ForceReadConfigByName(ctx context.Context, hashedName string) (*ConfigConfig, error) {
-	log.Debugf("[ForceReadConfigByName] Received object :%s to read from DB", hashedName)
+	logger.Debugf("[ForceReadConfigByName] Received object :%s to read from DB", hashedName)
 	retryCount := 0
 	for {
 		result, err := group.client.baseClient.
 			ConfigTsmV1().
 			Configs().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[ForceReadConfigByName] Failed to Get Configs: %+v", err)
+			logger.Errorf("[ForceReadConfigByName] Failed to Get Configs: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Errorf("[Retry Count: %d ] %+v", retryCount, err)
+				logger.Errorf("[Retry Count: %d ] %+v", retryCount, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max Retry exceed on Get Configs: %s", hashedName)
+					logger.Errorf("Max Retry exceed on Get Configs: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[ForceReadConfigByName]: %+v", err)
+				logger.Errorf("[ForceReadConfigByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[ForceReadConfigByName]: %+v", err)
+				logger.Errorf("[ForceReadConfigByName]: %+v", err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[ForceReadConfigByName] Executed Successfully :%s", hashedName)
+			logger.Debugf("[ForceReadConfigByName] Executed Successfully :%s", hashedName)
 			return &ConfigConfig{
 				client: group.client,
 				Config: result,
@@ -1362,7 +1367,7 @@ func (group *ConfigTsmV1) ForceReadConfigByName(ctx context.Context, hashedName 
 // DeleteConfigByName deletes object stored in the database under the hashedName which is a hash of
 // display name and parents names. Use it when you know hashed name of object.
 func (group *ConfigTsmV1) DeleteConfigByName(ctx context.Context, hashedName string) (err error) {
-	log.Debugf("[DeleteConfigByName] Received objectToDelete: %s", hashedName)
+	logger.Debugf("[DeleteConfigByName] Received objectToDelete: %s", hashedName)
 	var (
 		retryCount int
 		result     *baseconfigtsmtanzuvmwarecomv1.Config
@@ -1374,23 +1379,23 @@ func (group *ConfigTsmV1) DeleteConfigByName(ctx context.Context, hashedName str
 			ConfigTsmV1().
 			Configs().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[DeleteConfigByName] Failed to get Configs: %+v", err)
+			logger.Errorf("[DeleteConfigByName] Failed to get Configs: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on get Configs: %s", hashedName)
+					logger.Errorf("Max retry exceed on get Configs: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteConfigByName] context canceled: %s", hashedName)
+				logger.Errorf("[DeleteConfigByName] context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteConfigByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteConfigByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteConfigByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteConfigByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -1402,52 +1407,52 @@ func (group *ConfigTsmV1) DeleteConfigByName(ctx context.Context, hashedName str
 		return err
 	}
 
-	for _, child := range GetChildren("configs.config.tsm.tanzu.vmware.com", hashedName, "gnses.gns.tsm.tanzu.vmware.com") {
+	for _, child := range group.client.children.GetChildren("configs.config.tsm.tanzu.vmware.com", hashedName, "gnses.gns.tsm.tanzu.vmware.com") {
 		err := group.client.Gns().DeleteGnsByName(ctx, child)
 		if err != nil && errors.IsNotFound(err) == false {
 			return err
 		}
-		RemoveChild("configs.config.tsm.tanzu.vmware.com", hashedName, "gnses.gns.tsm.tanzu.vmware.com", child)
+		group.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", hashedName, "gnses.gns.tsm.tanzu.vmware.com", child)
 	}
 
-	for _, child := range GetChildren("configs.config.tsm.tanzu.vmware.com", hashedName, "dnses.gns.tsm.tanzu.vmware.com") {
+	for _, child := range group.client.children.GetChildren("configs.config.tsm.tanzu.vmware.com", hashedName, "dnses.gns.tsm.tanzu.vmware.com") {
 		err := group.client.Gns().DeleteDnsByName(ctx, child)
 		if err != nil && errors.IsNotFound(err) == false {
 			return err
 		}
-		RemoveChild("configs.config.tsm.tanzu.vmware.com", hashedName, "dnses.gns.tsm.tanzu.vmware.com", child)
+		group.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", hashedName, "dnses.gns.tsm.tanzu.vmware.com", child)
 	}
 
-	for _, child := range GetChildren("configs.config.tsm.tanzu.vmware.com", hashedName, "vmpolicies.policypkg.tsm.tanzu.vmware.com") {
+	for _, child := range group.client.children.GetChildren("configs.config.tsm.tanzu.vmware.com", hashedName, "vmpolicies.policypkg.tsm.tanzu.vmware.com") {
 		err := group.client.Policypkg().DeleteVMpolicyByName(ctx, child)
 		if err != nil && errors.IsNotFound(err) == false {
 			return err
 		}
-		RemoveChild("configs.config.tsm.tanzu.vmware.com", hashedName, "vmpolicies.policypkg.tsm.tanzu.vmware.com", child)
+		group.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", hashedName, "vmpolicies.policypkg.tsm.tanzu.vmware.com", child)
 	}
 
-	for _, child := range GetChildren("configs.config.tsm.tanzu.vmware.com", hashedName, "domains.config.tsm.tanzu.vmware.com") {
+	for _, child := range group.client.children.GetChildren("configs.config.tsm.tanzu.vmware.com", hashedName, "domains.config.tsm.tanzu.vmware.com") {
 		err := group.client.Config().DeleteDomainByName(ctx, child)
 		if err != nil && errors.IsNotFound(err) == false {
 			return err
 		}
-		RemoveChild("configs.config.tsm.tanzu.vmware.com", hashedName, "domains.config.tsm.tanzu.vmware.com", child)
+		group.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", hashedName, "domains.config.tsm.tanzu.vmware.com", child)
 	}
 
-	for _, child := range GetChildren("configs.config.tsm.tanzu.vmware.com", hashedName, "footypeabcs.config.tsm.tanzu.vmware.com") {
+	for _, child := range group.client.children.GetChildren("configs.config.tsm.tanzu.vmware.com", hashedName, "footypeabcs.config.tsm.tanzu.vmware.com") {
 		err := group.client.Config().DeleteFooTypeABCByName(ctx, child)
 		if err != nil && errors.IsNotFound(err) == false {
 			return err
 		}
-		RemoveChild("configs.config.tsm.tanzu.vmware.com", hashedName, "footypeabcs.config.tsm.tanzu.vmware.com", child)
+		group.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", hashedName, "footypeabcs.config.tsm.tanzu.vmware.com", child)
 	}
 
-	for _, child := range GetChildren("configs.config.tsm.tanzu.vmware.com", hashedName, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com") {
+	for _, child := range group.client.children.GetChildren("configs.config.tsm.tanzu.vmware.com", hashedName, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com") {
 		err := group.client.Servicegroup().DeleteSvcGroupLinkInfoByName(ctx, child)
 		if err != nil && errors.IsNotFound(err) == false {
 			return err
 		}
-		RemoveChild("configs.config.tsm.tanzu.vmware.com", hashedName, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", child)
+		group.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", hashedName, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", child)
 	}
 
 	retryCount = 0
@@ -1456,23 +1461,23 @@ func (group *ConfigTsmV1) DeleteConfigByName(ctx context.Context, hashedName str
 			ConfigTsmV1().
 			Configs().Delete(ctx, hashedName, metav1.DeleteOptions{})
 		if err != nil {
-			log.Errorf("[DeleteConfigByName] failed to delete Configs: %+v", err)
+			logger.Errorf("[DeleteConfigByName] failed to delete Configs: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on delete Configs: %s", hashedName)
+					logger.Errorf("Max retry exceed on delete Configs: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteConfigByName]: context canceled: %s", hashedName)
+				logger.Errorf("[DeleteConfigByName]: context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteConfigByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteConfigByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteConfigByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteConfigByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -1484,7 +1489,7 @@ func (group *ConfigTsmV1) DeleteConfigByName(ctx context.Context, hashedName str
 	}
 	// Get Parent Node and check if gvk present before patch
 
-	log.Debugf("[DeleteConfigByName] Get parent details for object: %s", hashedName)
+	logger.Debugf("[DeleteConfigByName] Get parent details for object: %s", hashedName)
 	// var patch Patch
 	parents := result.GetLabels()
 	if parents == nil {
@@ -1492,16 +1497,16 @@ func (group *ConfigTsmV1) DeleteConfigByName(ctx context.Context, hashedName str
 	}
 	parentName, ok := parents["roots.root.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	if result.GetLabels() != nil {
-		if parents[common.IS_NAME_HASHED_LABEL] == "true" {
+		if parents[common.IsNameHashedLabel] == "true" {
 			parentName = helper.GetHashedName("roots.root.tsm.tanzu.vmware.com", parents, parentName)
 		}
 	} else {
 		parentName = helper.GetHashedName("roots.root.tsm.tanzu.vmware.com", parents, parentName)
 	}
-	RemoveChild("roots.root.tsm.tanzu.vmware.com", parentName, "configs.config.tsm.tanzu.vmware.com", hashedName)
+	group.client.children.RemoveChild("roots.root.tsm.tanzu.vmware.com", parentName, "configs.config.tsm.tanzu.vmware.com", hashedName)
 
 	return nil
 }
@@ -1510,12 +1515,12 @@ func (group *ConfigTsmV1) DeleteConfigByName(ctx context.Context, hashedName str
 // Use it directly ONLY when objToCreate.Name is hashed name of the object.
 func (group *ConfigTsmV1) CreateConfigByName(ctx context.Context,
 	objToCreate *baseconfigtsmtanzuvmwarecomv1.Config) (*ConfigConfig, error) {
-	log.Debugf("[CreateConfigByName] Received objToCreate: %s", objToCreate.GetName())
+	logger.Debugf("[CreateConfigByName] Received objToCreate: %s", objToCreate.GetName())
 	if objToCreate.GetLabels() == nil {
 		objToCreate.Labels = make(map[string]string)
 	}
-	if _, ok := objToCreate.Labels[common.DISPLAY_NAME_LABEL]; !ok {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
+	if _, ok := objToCreate.Labels[common.DisplayNameLabel]; !ok {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
 	}
 
 	objToCreate.Spec.GNSGvk = nil
@@ -1537,33 +1542,33 @@ func (group *ConfigTsmV1) CreateConfigByName(ctx context.Context,
 			ConfigTsmV1().
 			Configs().Create(ctx, objToCreate, metav1.CreateOptions{})
 		if err != nil {
-			log.Errorf("[CreateConfigByName] Failed to create Config: %s, error: %+v", objToCreate.GetName(), err)
+			logger.Errorf("[CreateConfigByName] Failed to create Config: %s, error: %+v", objToCreate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on create Config: %s", objToCreate.GetName())
+					logger.Errorf("Max retry exceed on create Config: %s", objToCreate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[CreateConfigByName] context canceled while creating Config: %s", objToCreate.GetName())
+				logger.Errorf("[CreateConfigByName] context canceled while creating Config: %s", objToCreate.GetName())
 				return nil, context.Canceled
 			} else if errors.IsAlreadyExists(err) {
-				log.Debugf("[CreateConfigByName] Config: %s already exists, error: %+v", objToCreate.GetName(), err)
+				logger.Debugf("[CreateConfigByName] Config: %s already exists, error: %+v", objToCreate.GetName(), err)
 				result, err = group.client.baseClient.ConfigTsmV1().Configs().Get(ctx, objToCreate.GetName(), metav1.GetOptions{})
 				if err != nil {
-					log.Fatalf("[CreateConfigByName] Unable to Get Config %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
+					logger.Fatalf("[CreateConfigByName] Unable to Get Config %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
 				}
 				break
 			} else {
-				log.Errorf("[CreateConfigByName] found unexpected error while creating Config: %s, error: %+v", objToCreate.GetName(), err)
+				logger.Errorf("[CreateConfigByName] found unexpected error while creating Config: %s, error: %+v", objToCreate.GetName(), err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[CreateConfigByName] Config: %s created successfully", objToCreate.GetName())
+			logger.Debugf("[CreateConfigByName] Config: %s created successfully", objToCreate.GetName())
 			if s, ok := subscriptionMap.Load("configs.config.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[CreateConfigByName] Config: %s stored in wr-cache", objToCreate.GetName())
+				logger.Debugf("[CreateConfigByName] Config: %s stored in wr-cache", objToCreate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
@@ -1572,13 +1577,13 @@ func (group *ConfigTsmV1) CreateConfigByName(ctx context.Context,
 
 	parentName, ok := objToCreate.GetLabels()["roots.root.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	parentHashedName := helper.GetHashedName("roots.root.tsm.tanzu.vmware.com", objToCreate.GetLabels(), parentName)
 
-	AddChild("roots.root.tsm.tanzu.vmware.com", parentHashedName, "configs.config.tsm.tanzu.vmware.com", objToCreate.Name)
+	group.client.children.AddChild("roots.root.tsm.tanzu.vmware.com", parentHashedName, "configs.config.tsm.tanzu.vmware.com", objToCreate.Name)
 
-	log.Debugf("[CreateConfigByName] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[CreateConfigByName] Executed Successfully: %s", objToCreate.GetName())
 	return &ConfigConfig{
 		client: group.client,
 		Config: result,
@@ -1589,7 +1594,7 @@ func (group *ConfigTsmV1) CreateConfigByName(ctx context.Context,
 // display name and parents names.
 func (group *ConfigTsmV1) UpdateConfigByName(ctx context.Context,
 	objToUpdate *baseconfigtsmtanzuvmwarecomv1.Config) (*ConfigConfig, error) {
-	log.Debugf("[UpdateConfigByName] Received objToUpdate: %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateConfigByName] Received objToUpdate: %s", objToUpdate.GetName())
 
 	var patch Patch
 
@@ -1615,8 +1620,8 @@ func (group *ConfigTsmV1) UpdateConfigByName(ctx context.Context,
 			for _, k := range parentsList {
 				objToUpdate.Labels[k] = current.Labels[k]
 			}
-			objToUpdate.Labels[common.IS_NAME_HASHED_LABEL] = current.Labels[common.IS_NAME_HASHED_LABEL]
-			objToUpdate.Labels[common.DISPLAY_NAME_LABEL] = current.Labels[common.DISPLAY_NAME_LABEL]
+			objToUpdate.Labels[common.IsNameHashedLabel] = current.Labels[common.IsNameHashedLabel]
+			objToUpdate.Labels[common.DisplayNameLabel] = current.Labels[common.DisplayNameLabel]
 			patch = append(patch, PatchOp{
 				Op:    "replace",
 				Path:  "/metadata/labels",
@@ -1836,46 +1841,46 @@ func (group *ConfigTsmV1) UpdateConfigByName(ctx context.Context,
 			ConfigTsmV1().
 			Configs().Patch(newCtx, objToUpdate.GetName(), types.JSONPatchType, marshaled, metav1.PatchOptions{}, "")
 		if err != nil {
-			log.Errorf("[UpdateConfigByName] Failed to patch Config %s with error: %+v", objToUpdate.GetName(), err)
+			logger.Errorf("[UpdateConfigByName] Failed to patch Config %s with error: %+v", objToUpdate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
-					log.Debugf("Trigger Config Delete: %s", objToUpdate.GetName())
+					logger.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
+					logger.Debugf("Trigger Config Delete: %s", objToUpdate.GetName())
 					delErr := group.DeleteConfigByName(newCtx, objToUpdate.GetName())
 					if delErr != nil {
-						log.Debugf("Error occur while deleting Config: %s", objToUpdate.GetName())
+						logger.Debugf("Error occur while deleting Config: %s", objToUpdate.GetName())
 						return nil, delErr
 					}
-					log.Debugf("Config deleted: %s", objToUpdate.GetName())
+					logger.Debugf("Config deleted: %s", objToUpdate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[UpdateConfigByName]: context canceled: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateConfigByName]: context canceled: %s", objToUpdate.GetName())
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[UpdateConfigByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
-				log.Debugf("Trigger Config Delete: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateConfigByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
+				logger.Debugf("Trigger Config Delete: %s", objToUpdate.GetName())
 				delErr := group.DeleteConfigByName(newCtx, objToUpdate.GetName())
 				if delErr != nil {
-					log.Debugf("Error occur while deleting Config: %+v", objToUpdate.GetName())
+					logger.Debugf("Error occur while deleting Config: %+v", objToUpdate.GetName())
 					return nil, delErr
 				}
-				log.Debugf("Config Deleted: %s", objToUpdate.GetName())
+				logger.Debugf("Config Deleted: %s", objToUpdate.GetName())
 				return nil, err
 			}
 		} else {
-			log.Debugf("[UpdateConfigByName] Patch Config Success :%s", objToUpdate.GetName())
+			logger.Debugf("[UpdateConfigByName] Patch Config Success :%s", objToUpdate.GetName())
 			if s, ok := subscriptionMap.Load("configs.config.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[UpdateConfigByName] %s stored in wr-cache", objToUpdate.GetName())
+				logger.Debugf("[UpdateConfigByName] %s stored in wr-cache", objToUpdate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
 	}
-	log.Debugf("[UpdateConfigByName] Executed Successfully %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateConfigByName] Executed Successfully %s", objToUpdate.GetName())
 	return &ConfigConfig{
 		client: group.client,
 		Config: result,
@@ -1941,13 +1946,14 @@ func (obj *ConfigConfig) Update(ctx context.Context) error {
 
 func (obj *ConfigConfig) GetParent(ctx context.Context) (result *RootRoot, err error) {
 	hashedName := helper.GetHashedName("roots.root.tsm.tanzu.vmware.com", obj.Labels, obj.Labels["roots.root.tsm.tanzu.vmware.com"])
+	logger.Debugf("[GetParent] Get parent of ConfigConfig name %s [labels %#v] of parent type roots.root.tsm.tanzu.vmware.com and name %s", obj.Name, obj.Labels, hashedName)
 	return obj.client.Root().GetRootByName(ctx, hashedName)
 }
 
 // GetGNS returns child of given type
 func (obj *ConfigConfig) GetGNS(ctx context.Context) (
 	result *GnsGns, err error) {
-	children := GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "gnses.gns.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "gnses.gns.tsm.tanzu.vmware.com")
 	if len(children) == 0 {
 		return nil, NewChildNotFound(obj.DisplayName(), "Config.Config", "GNS")
 	}
@@ -1959,7 +1965,7 @@ func (obj *ConfigConfig) GetGNS(ctx context.Context) (
 // nexus/display_name label and can be obtained using DisplayName() method.
 func (obj *ConfigConfig) AddGNS(ctx context.Context,
 	objToCreate *basegnstsmtanzuvmwarecomv1.Gns) (result *GnsGns, err error) {
-	log.Debugf("[AddGNS] Received objToAdd: %s", objToCreate.GetName())
+	logger.Debugf("[AddGNS] Received objToAdd: %s", objToCreate.GetName())
 	if objToCreate.Labels == nil {
 		objToCreate.Labels = map[string]string{}
 	}
@@ -1967,19 +1973,19 @@ func (obj *ConfigConfig) AddGNS(ctx context.Context,
 		objToCreate.Labels[v] = obj.Labels[v]
 	}
 	objToCreate.Labels["configs.config.tsm.tanzu.vmware.com"] = obj.DisplayName()
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName(objToCreate.CRDName(), objToCreate.Labels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
 	result, err = obj.client.Gns().CreateGnsByName(ctx, objToCreate)
-	log.Debugf("[AddGNS] Gns created successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddGNS] Gns created successfully: %s", objToCreate.GetName())
 	updatedObj, getErr := obj.client.Config().GetConfigByName(ctx, obj.GetName())
 	if getErr == nil {
 		obj.Config = updatedObj.Config
 	}
-	log.Debugf("[AddGNS] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddGNS] Executed Successfully: %s", objToCreate.GetName())
 	return
 }
 
@@ -1987,9 +1993,9 @@ func (obj *ConfigConfig) AddGNS(ctx context.Context,
 // and parents names and deletes it.
 
 func (obj *ConfigConfig) DeleteGNS(ctx context.Context) (err error) {
-	children := GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "gnses.gns.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "gnses.gns.tsm.tanzu.vmware.com")
 	if len(children) > 1 {
-		log.Panicf("[ DeleteGNS] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
+		logger.Panicf("[ DeleteGNS] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
 	}
 
 	if len(children) > 0 {
@@ -2011,7 +2017,7 @@ func (obj *ConfigConfig) DeleteGNS(ctx context.Context) (err error) {
 // GetDNS returns child of given type
 func (obj *ConfigConfig) GetDNS(ctx context.Context) (
 	result *GnsDns, err error) {
-	children := GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "dnses.gns.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "dnses.gns.tsm.tanzu.vmware.com")
 	if len(children) == 0 {
 		return nil, NewChildNotFound(obj.DisplayName(), "Config.Config", "DNS")
 	}
@@ -2023,7 +2029,7 @@ func (obj *ConfigConfig) GetDNS(ctx context.Context) (
 // nexus/display_name label and can be obtained using DisplayName() method.
 func (obj *ConfigConfig) AddDNS(ctx context.Context,
 	objToCreate *basegnstsmtanzuvmwarecomv1.Dns) (result *GnsDns, err error) {
-	log.Debugf("[AddDNS] Received objToAdd: %s", objToCreate.GetName())
+	logger.Debugf("[AddDNS] Received objToAdd: %s", objToCreate.GetName())
 	if objToCreate.Labels == nil {
 		objToCreate.Labels = map[string]string{}
 	}
@@ -2031,25 +2037,25 @@ func (obj *ConfigConfig) AddDNS(ctx context.Context,
 		objToCreate.Labels[v] = obj.Labels[v]
 	}
 	objToCreate.Labels["configs.config.tsm.tanzu.vmware.com"] = obj.DisplayName()
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
 		if objToCreate.GetName() == "" {
-			objToCreate.SetName(helper.DEFAULT_KEY)
+			objToCreate.SetName(helper.DefaultKey)
 		}
-		if objToCreate.GetName() != helper.DEFAULT_KEY {
+		if objToCreate.GetName() != helper.DefaultKey {
 			return nil, NewSingletonNameError(objToCreate.GetName())
 		}
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName(objToCreate.CRDName(), objToCreate.Labels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
 	result, err = obj.client.Gns().CreateDnsByName(ctx, objToCreate)
-	log.Debugf("[AddDNS] Dns created successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddDNS] Dns created successfully: %s", objToCreate.GetName())
 	updatedObj, getErr := obj.client.Config().GetConfigByName(ctx, obj.GetName())
 	if getErr == nil {
 		obj.Config = updatedObj.Config
 	}
-	log.Debugf("[AddDNS] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddDNS] Executed Successfully: %s", objToCreate.GetName())
 	return
 }
 
@@ -2057,9 +2063,9 @@ func (obj *ConfigConfig) AddDNS(ctx context.Context,
 // and parents names and deletes it.
 
 func (obj *ConfigConfig) DeleteDNS(ctx context.Context) (err error) {
-	children := GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "dnses.gns.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "dnses.gns.tsm.tanzu.vmware.com")
 	if len(children) > 1 {
-		log.Panicf("[ DeleteDNS] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
+		logger.Panicf("[ DeleteDNS] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
 	}
 
 	if len(children) > 0 {
@@ -2081,7 +2087,7 @@ func (obj *ConfigConfig) DeleteDNS(ctx context.Context) (err error) {
 // GetVMPPolicies returns child of given type
 func (obj *ConfigConfig) GetVMPPolicies(ctx context.Context) (
 	result *PolicypkgVMpolicy, err error) {
-	children := GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com")
 	if len(children) == 0 {
 		return nil, NewChildNotFound(obj.DisplayName(), "Config.Config", "VMPPolicies")
 	}
@@ -2093,7 +2099,7 @@ func (obj *ConfigConfig) GetVMPPolicies(ctx context.Context) (
 // nexus/display_name label and can be obtained using DisplayName() method.
 func (obj *ConfigConfig) AddVMPPolicies(ctx context.Context,
 	objToCreate *basepolicypkgtsmtanzuvmwarecomv1.VMpolicy) (result *PolicypkgVMpolicy, err error) {
-	log.Debugf("[AddVMPPolicies] Received objToAdd: %s", objToCreate.GetName())
+	logger.Debugf("[AddVMPPolicies] Received objToAdd: %s", objToCreate.GetName())
 	if objToCreate.Labels == nil {
 		objToCreate.Labels = map[string]string{}
 	}
@@ -2101,19 +2107,19 @@ func (obj *ConfigConfig) AddVMPPolicies(ctx context.Context,
 		objToCreate.Labels[v] = obj.Labels[v]
 	}
 	objToCreate.Labels["configs.config.tsm.tanzu.vmware.com"] = obj.DisplayName()
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName(objToCreate.CRDName(), objToCreate.Labels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
 	result, err = obj.client.Policypkg().CreateVMpolicyByName(ctx, objToCreate)
-	log.Debugf("[AddVMPPolicies] VMpolicy created successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddVMPPolicies] VMpolicy created successfully: %s", objToCreate.GetName())
 	updatedObj, getErr := obj.client.Config().GetConfigByName(ctx, obj.GetName())
 	if getErr == nil {
 		obj.Config = updatedObj.Config
 	}
-	log.Debugf("[AddVMPPolicies] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddVMPPolicies] Executed Successfully: %s", objToCreate.GetName())
 	return
 }
 
@@ -2121,9 +2127,9 @@ func (obj *ConfigConfig) AddVMPPolicies(ctx context.Context,
 // and parents names and deletes it.
 
 func (obj *ConfigConfig) DeleteVMPPolicies(ctx context.Context) (err error) {
-	children := GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com")
 	if len(children) > 1 {
-		log.Panicf("[ DeleteVMPPolicies] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
+		logger.Panicf("[ DeleteVMPPolicies] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
 	}
 
 	if len(children) > 0 {
@@ -2145,7 +2151,7 @@ func (obj *ConfigConfig) DeleteVMPPolicies(ctx context.Context) (err error) {
 // GetDomain returns child of given type
 func (obj *ConfigConfig) GetDomain(ctx context.Context) (
 	result *ConfigDomain, err error) {
-	children := GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "domains.config.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "domains.config.tsm.tanzu.vmware.com")
 	if len(children) == 0 {
 		return nil, NewChildNotFound(obj.DisplayName(), "Config.Config", "Domain")
 	}
@@ -2157,7 +2163,7 @@ func (obj *ConfigConfig) GetDomain(ctx context.Context) (
 // nexus/display_name label and can be obtained using DisplayName() method.
 func (obj *ConfigConfig) AddDomain(ctx context.Context,
 	objToCreate *baseconfigtsmtanzuvmwarecomv1.Domain) (result *ConfigDomain, err error) {
-	log.Debugf("[AddDomain] Received objToAdd: %s", objToCreate.GetName())
+	logger.Debugf("[AddDomain] Received objToAdd: %s", objToCreate.GetName())
 	if objToCreate.Labels == nil {
 		objToCreate.Labels = map[string]string{}
 	}
@@ -2165,19 +2171,19 @@ func (obj *ConfigConfig) AddDomain(ctx context.Context,
 		objToCreate.Labels[v] = obj.Labels[v]
 	}
 	objToCreate.Labels["configs.config.tsm.tanzu.vmware.com"] = obj.DisplayName()
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName(objToCreate.CRDName(), objToCreate.Labels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
 	result, err = obj.client.Config().CreateDomainByName(ctx, objToCreate)
-	log.Debugf("[AddDomain] Domain created successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddDomain] Domain created successfully: %s", objToCreate.GetName())
 	updatedObj, getErr := obj.client.Config().GetConfigByName(ctx, obj.GetName())
 	if getErr == nil {
 		obj.Config = updatedObj.Config
 	}
-	log.Debugf("[AddDomain] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddDomain] Executed Successfully: %s", objToCreate.GetName())
 	return
 }
 
@@ -2185,9 +2191,9 @@ func (obj *ConfigConfig) AddDomain(ctx context.Context,
 // and parents names and deletes it.
 
 func (obj *ConfigConfig) DeleteDomain(ctx context.Context) (err error) {
-	children := GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "domains.config.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "domains.config.tsm.tanzu.vmware.com")
 	if len(children) > 1 {
-		log.Panicf("[ DeleteDomain] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
+		logger.Panicf("[ DeleteDomain] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
 	}
 
 	if len(children) > 0 {
@@ -2213,6 +2219,7 @@ type ConfigConfigFooExample struct {
 
 func (n *ConfigConfigFooExample) Next(ctx context.Context) (*ConfigFooTypeABC, error) {
 	for index, child := range n.FooExample {
+		logger.Debugf("[ConfigConfigFooExample Next] Get next FooExample with name %s", child.Name)
 		obj, err := n.client.Config().GetFooTypeABCByName(ctx, child.Name)
 		if err == nil {
 			if index == len(n.FooExample)-1 {
@@ -2234,7 +2241,7 @@ func (n *ConfigConfigFooExample) Next(ctx context.Context) (*ConfigFooTypeABC, e
 func (obj *ConfigConfig) GetAllFooExampleIter(ctx context.Context) (
 	result ConfigConfigFooExample) {
 	result.client = obj.client
-	for _, v := range GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "footypeabcs.config.tsm.tanzu.vmware.com") {
+	for _, v := range obj.client.children.GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "footypeabcs.config.tsm.tanzu.vmware.com") {
 		result.FooExample = append(result.FooExample, baseconfigtsmtanzuvmwarecomv1.Child{
 			Group: "config.tsm.tanzu.vmware.com",
 			Kind:  "FooTypeABC",
@@ -2247,7 +2254,8 @@ func (obj *ConfigConfig) GetAllFooExampleIter(ctx context.Context) (
 // GetAllFooExample returns all children of a given type
 func (obj *ConfigConfig) GetAllFooExample(ctx context.Context) (
 	result []*ConfigFooTypeABC, err error) {
-	for _, v := range GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "footypeabcs.config.tsm.tanzu.vmware.com") {
+	for _, v := range obj.client.children.GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "footypeabcs.config.tsm.tanzu.vmware.com") {
+		logger.Debugf("[ConfigConfig GetAllFooExample] Get next FooExample with name %s", v)
 		l, err := obj.client.Config().GetFooTypeABCByName(ctx, v)
 		if err != nil {
 			return nil, err
@@ -2267,10 +2275,13 @@ func (obj *ConfigConfig) GetFooExample(ctx context.Context,
 	}
 	parentLabels["configs.config.tsm.tanzu.vmware.com"] = obj.DisplayName()
 	childHashName := helper.GetHashedName("footypeabcs.config.tsm.tanzu.vmware.com", parentLabels, displayName)
-	if IsChildExists("configs.config.tsm.tanzu.vmware.com", obj.Name, "footypeabcs.config.tsm.tanzu.vmware.com", childHashName) == false {
+	logger.Debugf("[GetFooExample] in ConfigConfig with name %s, displayName %s, parentLabels %#v", childHashName, displayName, parentLabels)
+	if obj.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", obj.Name, "footypeabcs.config.tsm.tanzu.vmware.com", childHashName) == false {
+		logger.Debugf("[GetFooExample] ChildNotFound FooExample with name %s, displayName %s ", childHashName, displayName)
 		return nil, NewChildNotFound(obj.DisplayName(), "Config.Config", "FooExample", displayName)
 	}
 
+	logger.Debugf("[GetFooExample] invoke GetFooTypeABCByName name %s, displayName %s", childHashName, displayName)
 	result, err = obj.client.Config().GetFooTypeABCByName(ctx, childHashName)
 	return
 }
@@ -2280,7 +2291,7 @@ func (obj *ConfigConfig) GetFooExample(ctx context.Context,
 // nexus/display_name label and can be obtained using DisplayName() method.
 func (obj *ConfigConfig) AddFooExample(ctx context.Context,
 	objToCreate *baseconfigtsmtanzuvmwarecomv1.FooTypeABC) (result *ConfigFooTypeABC, err error) {
-	log.Debugf("[AddFooExample] Received objToAdd: %s", objToCreate.GetName())
+	logger.Debugf("[AddFooExample] Received objToAdd: %s", objToCreate.GetName())
 	if objToCreate.Labels == nil {
 		objToCreate.Labels = map[string]string{}
 	}
@@ -2288,19 +2299,19 @@ func (obj *ConfigConfig) AddFooExample(ctx context.Context,
 		objToCreate.Labels[v] = obj.Labels[v]
 	}
 	objToCreate.Labels["configs.config.tsm.tanzu.vmware.com"] = obj.DisplayName()
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName(objToCreate.CRDName(), objToCreate.Labels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
 	result, err = obj.client.Config().CreateFooTypeABCByName(ctx, objToCreate)
-	log.Debugf("[AddFooExample] FooTypeABC created successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddFooExample] FooTypeABC created successfully: %s", objToCreate.GetName())
 	updatedObj, getErr := obj.client.Config().GetConfigByName(ctx, obj.GetName())
 	if getErr == nil {
 		obj.Config = updatedObj.Config
 	}
-	log.Debugf("[AddFooExample] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddFooExample] Executed Successfully: %s", objToCreate.GetName())
 	return
 }
 
@@ -2308,7 +2319,7 @@ func (obj *ConfigConfig) AddFooExample(ctx context.Context,
 // and parents names and deletes it.
 
 func (obj *ConfigConfig) DeleteFooExample(ctx context.Context, displayName string) (err error) {
-	log.Debugf("[ DeleteFooExample] Received for FooTypeABC object: %s to delete", displayName)
+	logger.Debugf("[ DeleteFooExample] Received for FooTypeABC object: %s to delete", displayName)
 
 	parentLabels := make(map[string]string)
 	for k, v := range obj.Labels {
@@ -2316,7 +2327,7 @@ func (obj *ConfigConfig) DeleteFooExample(ctx context.Context, displayName strin
 	}
 	parentLabels["configs.config.tsm.tanzu.vmware.com"] = obj.DisplayName()
 	childHashName := helper.GetHashedName("footypeabcs.config.tsm.tanzu.vmware.com", parentLabels, displayName)
-	if IsChildExists("configs.config.tsm.tanzu.vmware.com", obj.Name, "footypeabcs.config.tsm.tanzu.vmware.com", childHashName) == false {
+	if obj.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", obj.Name, "footypeabcs.config.tsm.tanzu.vmware.com", childHashName) == false {
 		return NewChildNotFound(obj.DisplayName(), "Config.Config", "FooExample", displayName)
 	}
 
@@ -2324,7 +2335,7 @@ func (obj *ConfigConfig) DeleteFooExample(ctx context.Context, displayName strin
 	if err != nil {
 		return err
 	}
-	log.Debugf("[ DeleteFooExample] FooTypeABC object: %s deleted successfully", displayName)
+	logger.Debugf("[ DeleteFooExample] FooTypeABC object: %s deleted successfully", displayName)
 	updatedObj, err := obj.client.Config().GetConfigByName(ctx, obj.GetName())
 	if err == nil {
 		obj.Config = updatedObj.Config
@@ -2335,7 +2346,7 @@ func (obj *ConfigConfig) DeleteFooExample(ctx context.Context, displayName strin
 // GetSvcGrpInfo returns child of given type
 func (obj *ConfigConfig) GetSvcGrpInfo(ctx context.Context) (
 	result *ServicegroupSvcGroupLinkInfo, err error) {
-	children := GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com")
 	if len(children) == 0 {
 		return nil, NewChildNotFound(obj.DisplayName(), "Config.Config", "SvcGrpInfo")
 	}
@@ -2347,7 +2358,7 @@ func (obj *ConfigConfig) GetSvcGrpInfo(ctx context.Context) (
 // nexus/display_name label and can be obtained using DisplayName() method.
 func (obj *ConfigConfig) AddSvcGrpInfo(ctx context.Context,
 	objToCreate *baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo) (result *ServicegroupSvcGroupLinkInfo, err error) {
-	log.Debugf("[AddSvcGrpInfo] Received objToAdd: %s", objToCreate.GetName())
+	logger.Debugf("[AddSvcGrpInfo] Received objToAdd: %s", objToCreate.GetName())
 	if objToCreate.Labels == nil {
 		objToCreate.Labels = map[string]string{}
 	}
@@ -2355,19 +2366,19 @@ func (obj *ConfigConfig) AddSvcGrpInfo(ctx context.Context,
 		objToCreate.Labels[v] = obj.Labels[v]
 	}
 	objToCreate.Labels["configs.config.tsm.tanzu.vmware.com"] = obj.DisplayName()
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName(objToCreate.CRDName(), objToCreate.Labels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
 	result, err = obj.client.Servicegroup().CreateSvcGroupLinkInfoByName(ctx, objToCreate)
-	log.Debugf("[AddSvcGrpInfo] SvcGroupLinkInfo created successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddSvcGrpInfo] SvcGroupLinkInfo created successfully: %s", objToCreate.GetName())
 	updatedObj, getErr := obj.client.Config().GetConfigByName(ctx, obj.GetName())
 	if getErr == nil {
 		obj.Config = updatedObj.Config
 	}
-	log.Debugf("[AddSvcGrpInfo] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddSvcGrpInfo] Executed Successfully: %s", objToCreate.GetName())
 	return
 }
 
@@ -2375,9 +2386,9 @@ func (obj *ConfigConfig) AddSvcGrpInfo(ctx context.Context,
 // and parents names and deletes it.
 
 func (obj *ConfigConfig) DeleteSvcGrpInfo(ctx context.Context) (err error) {
-	children := GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("configs.config.tsm.tanzu.vmware.com", obj.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com")
 	if len(children) > 1 {
-		log.Panicf("[ DeleteSvcGrpInfo] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
+		logger.Panicf("[ DeleteSvcGrpInfo] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
 	}
 
 	if len(children) > 0 {
@@ -2493,23 +2504,25 @@ func (c *configConfigTsmV1Chainer) IsSubscribed() bool {
 }
 
 func (c *configConfigTsmV1Chainer) addCallback(obj *ConfigConfig) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["roots.root.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("roots.root.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[addCallback] received for configs.config.tsm.tanzu.vmware.com name %s displayName %s parent roots.root.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	AddChild("roots.root.tsm.tanzu.vmware.com", parentHashName, "configs.config.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.AddChild("roots.root.tsm.tanzu.vmware.com", parentHashName, "configs.config.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *configConfigTsmV1Chainer) deleteCallback(obj *ConfigConfig) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["roots.root.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("roots.root.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[deleteCallback] received for configs.config.tsm.tanzu.vmware.com name %s displayName %s parent roots.root.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	RemoveChild("roots.root.tsm.tanzu.vmware.com", parentHashName, "configs.config.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.RemoveChild("roots.root.tsm.tanzu.vmware.com", parentHashName, "configs.config.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *configConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigConfig), updateCB func(oldObj, newObj *ConfigConfig), deleteCB func(obj *ConfigConfig)) (cache.ResourceEventHandlerRegistration, error) {
@@ -2539,6 +2552,7 @@ func (c *configConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigCo
 				client: c.client,
 				Config: obj.(*baseconfigtsmtanzuvmwarecomv1.Config),
 			}
+			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for configs.config.tsm.tanzu.vmware.com name %s", nc.Config.Name)
 
 			var parent *RootRoot
 			for i := 0; i < 600; i++ {
@@ -2560,10 +2574,10 @@ func (c *configConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigCo
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if !IsChildExists("roots.root.tsm.tanzu.vmware.com", parent.Name, "configs.config.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("roots.root.tsm.tanzu.vmware.com", parent.Name, "configs.config.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("roots.root.tsm.tanzu.vmware.com", parent.Name, "configs.config.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("roots.root.tsm.tanzu.vmware.com", parent.Name, "configs.config.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			addCB(nc)
@@ -2578,6 +2592,7 @@ func (c *configConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigCo
 				client: c.client,
 				Config: newObj.(*baseconfigtsmtanzuvmwarecomv1.Config),
 			}
+			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for configs.config.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Config.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
 		},
 
@@ -2586,6 +2601,7 @@ func (c *configConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigCo
 				client: c.client,
 				Config: obj.(*baseconfigtsmtanzuvmwarecomv1.Config),
 			}
+			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for configs.config.tsm.tanzu.vmware.com name %s", nc.Config.Name)
 
 			var parent *RootRoot
 			for i := 0; i < 600; i++ {
@@ -2609,11 +2625,11 @@ func (c *configConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigCo
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if IsChildExists("roots.root.tsm.tanzu.vmware.com", parent.Name, "configs.config.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("roots.root.tsm.tanzu.vmware.com", parent.Name, "configs.config.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("roots.root.tsm.tanzu.vmware.com", parent.Name, "configs.config.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("roots.root.tsm.tanzu.vmware.com", parent.Name, "configs.config.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			deleteCB(nc)
@@ -2623,7 +2639,7 @@ func (c *configConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigCo
 }
 
 func (c *configConfigTsmV1Chainer) RegisterAddCallback(cbfn func(obj *ConfigConfig)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterAddCallback] Received for ConfigConfig")
+	logger.Debugf("[RegisterAddCallback] Received for ConfigConfig")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -2651,6 +2667,7 @@ func (c *configConfigTsmV1Chainer) RegisterAddCallback(cbfn func(obj *ConfigConf
 				client: c.client,
 				Config: obj.(*baseconfigtsmtanzuvmwarecomv1.Config),
 			}
+			logger.Debugf("[RegisterAddCallback] Got Add event for configs.config.tsm.tanzu.vmware.com name %s", nc.Config.Name)
 
 			var parent *RootRoot
 			for i := 0; i < 600; i++ {
@@ -2673,11 +2690,11 @@ func (c *configConfigTsmV1Chainer) RegisterAddCallback(cbfn func(obj *ConfigConf
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if !IsChildExists("roots.root.tsm.tanzu.vmware.com", parent.Name, "configs.config.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("roots.root.tsm.tanzu.vmware.com", parent.Name, "configs.config.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("roots.root.tsm.tanzu.vmware.com", parent.Name, "configs.config.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("roots.root.tsm.tanzu.vmware.com", parent.Name, "configs.config.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -2688,7 +2705,7 @@ func (c *configConfigTsmV1Chainer) RegisterAddCallback(cbfn func(obj *ConfigConf
 }
 
 func (c *configConfigTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *ConfigConfig)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterUpdateCallback] Received for ConfigConfig")
+	logger.Debugf("[RegisterUpdateCallback] Received for ConfigConfig")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -2720,6 +2737,7 @@ func (c *configConfigTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newO
 				client: c.client,
 				Config: newObj.(*baseconfigtsmtanzuvmwarecomv1.Config),
 			}
+			logger.Debugf("[RegisterUpdateCallback] Got Update event for configs.config.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Config.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
 		},
 	})
@@ -2728,7 +2746,7 @@ func (c *configConfigTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newO
 }
 
 func (c *configConfigTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *ConfigConfig)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterDeleteCallback] Received for ConfigConfig")
+	logger.Debugf("[RegisterDeleteCallback] Received for ConfigConfig")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -2756,6 +2774,7 @@ func (c *configConfigTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *ConfigC
 				client: c.client,
 				Config: obj.(*baseconfigtsmtanzuvmwarecomv1.Config),
 			}
+			logger.Debugf("[RegisterDeleteCallback] Got Delete event for configs.config.tsm.tanzu.vmware.com name %s", nc.Config.Name)
 
 			var parent *RootRoot
 			for i := 0; i < 600; i++ {
@@ -2781,10 +2800,10 @@ func (c *configConfigTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *ConfigC
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if IsChildExists("roots.root.tsm.tanzu.vmware.com", parent.Name, "configs.config.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("roots.root.tsm.tanzu.vmware.com", parent.Name, "configs.config.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("roots.root.tsm.tanzu.vmware.com", parent.Name, "configs.config.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("roots.root.tsm.tanzu.vmware.com", parent.Name, "configs.config.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -2807,6 +2826,7 @@ func (c *configConfigTsmV1Chainer) GNS(name string) *gnsGnsTsmV1Chainer {
 // GetGNS calculates hashed name of the object based on displayName and it's parents and returns the object
 func (c *configConfigTsmV1Chainer) GetGNS(ctx context.Context, displayName string) (result *GnsGns, err error) {
 	hashedName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", c.parentLabels, displayName)
+	logger.Debugf("[GetGNS] using chainer for name %s, displayName %s, labels %#v", hashedName, displayName, c.parentLabels)
 	return c.client.Gns().GetGnsByName(ctx, hashedName)
 }
 
@@ -2821,9 +2841,9 @@ func (c *configConfigTsmV1Chainer) AddGNS(ctx context.Context,
 	for k, v := range c.parentLabels {
 		objToCreate.Labels[k] = v
 	}
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", c.parentLabels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
@@ -2836,24 +2856,24 @@ func (c *configConfigTsmV1Chainer) DeleteGNS(ctx context.Context, name string) (
 	if c.parentLabels == nil {
 		c.parentLabels = map[string]string{}
 	}
-	c.parentLabels[common.IS_NAME_HASHED_LABEL] = "true"
+	c.parentLabels[common.IsNameHashedLabel] = "true"
 	hashedName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", c.parentLabels, name)
 	return c.client.Gns().DeleteGnsByName(ctx, hashedName)
 }
 
 func (c *configConfigTsmV1Chainer) DNS() *dnsGnsTsmV1Chainer {
 	parentLabels := c.parentLabels
-	parentLabels["dnses.gns.tsm.tanzu.vmware.com"] = helper.DEFAULT_KEY
+	parentLabels["dnses.gns.tsm.tanzu.vmware.com"] = helper.DefaultKey
 	return &dnsGnsTsmV1Chainer{
 		client:       c.client,
-		name:         helper.DEFAULT_KEY,
+		name:         helper.DefaultKey,
 		parentLabels: parentLabels,
 	}
 }
 
 // GetDNS calculates hashed name of the object based on it's parents and returns the object
 func (c *configConfigTsmV1Chainer) GetDNS(ctx context.Context) (result *GnsDns, err error) {
-	hashedName := helper.GetHashedName("dnses.gns.tsm.tanzu.vmware.com", c.parentLabels, helper.DEFAULT_KEY)
+	hashedName := helper.GetHashedName("dnses.gns.tsm.tanzu.vmware.com", c.parentLabels, helper.DefaultKey)
 	return c.client.Gns().GetDnsByName(ctx, hashedName)
 }
 
@@ -2863,9 +2883,9 @@ func (c *configConfigTsmV1Chainer) GetDNS(ctx context.Context) (result *GnsDns, 
 func (c *configConfigTsmV1Chainer) AddDNS(ctx context.Context,
 	objToCreate *basegnstsmtanzuvmwarecomv1.Dns) (result *GnsDns, err error) {
 	if objToCreate.GetName() == "" {
-		objToCreate.SetName(helper.DEFAULT_KEY)
+		objToCreate.SetName(helper.DefaultKey)
 	}
-	if objToCreate.GetName() != helper.DEFAULT_KEY {
+	if objToCreate.GetName() != helper.DefaultKey {
 		return nil, NewSingletonNameError(objToCreate.GetName())
 	}
 	if objToCreate.Labels == nil {
@@ -2874,9 +2894,9 @@ func (c *configConfigTsmV1Chainer) AddDNS(ctx context.Context,
 	for k, v := range c.parentLabels {
 		objToCreate.Labels[k] = v
 	}
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName("dnses.gns.tsm.tanzu.vmware.com", c.parentLabels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
@@ -2889,7 +2909,7 @@ func (c *configConfigTsmV1Chainer) DeleteDNS(ctx context.Context, name string) (
 	if c.parentLabels == nil {
 		c.parentLabels = map[string]string{}
 	}
-	c.parentLabels[common.IS_NAME_HASHED_LABEL] = "true"
+	c.parentLabels[common.IsNameHashedLabel] = "true"
 	hashedName := helper.GetHashedName("dnses.gns.tsm.tanzu.vmware.com", c.parentLabels, name)
 	return c.client.Gns().DeleteDnsByName(ctx, hashedName)
 }
@@ -2907,6 +2927,7 @@ func (c *configConfigTsmV1Chainer) VMPPolicies(name string) *vmpolicyPolicypkgTs
 // GetVMPPolicies calculates hashed name of the object based on displayName and it's parents and returns the object
 func (c *configConfigTsmV1Chainer) GetVMPPolicies(ctx context.Context, displayName string) (result *PolicypkgVMpolicy, err error) {
 	hashedName := helper.GetHashedName("vmpolicies.policypkg.tsm.tanzu.vmware.com", c.parentLabels, displayName)
+	logger.Debugf("[GetVMPPolicies] using chainer for name %s, displayName %s, labels %#v", hashedName, displayName, c.parentLabels)
 	return c.client.Policypkg().GetVMpolicyByName(ctx, hashedName)
 }
 
@@ -2921,9 +2942,9 @@ func (c *configConfigTsmV1Chainer) AddVMPPolicies(ctx context.Context,
 	for k, v := range c.parentLabels {
 		objToCreate.Labels[k] = v
 	}
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName("vmpolicies.policypkg.tsm.tanzu.vmware.com", c.parentLabels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
@@ -2936,7 +2957,7 @@ func (c *configConfigTsmV1Chainer) DeleteVMPPolicies(ctx context.Context, name s
 	if c.parentLabels == nil {
 		c.parentLabels = map[string]string{}
 	}
-	c.parentLabels[common.IS_NAME_HASHED_LABEL] = "true"
+	c.parentLabels[common.IsNameHashedLabel] = "true"
 	hashedName := helper.GetHashedName("vmpolicies.policypkg.tsm.tanzu.vmware.com", c.parentLabels, name)
 	return c.client.Policypkg().DeleteVMpolicyByName(ctx, hashedName)
 }
@@ -2954,6 +2975,7 @@ func (c *configConfigTsmV1Chainer) Domain(name string) *domainConfigTsmV1Chainer
 // GetDomain calculates hashed name of the object based on displayName and it's parents and returns the object
 func (c *configConfigTsmV1Chainer) GetDomain(ctx context.Context, displayName string) (result *ConfigDomain, err error) {
 	hashedName := helper.GetHashedName("domains.config.tsm.tanzu.vmware.com", c.parentLabels, displayName)
+	logger.Debugf("[GetDomain] using chainer for name %s, displayName %s, labels %#v", hashedName, displayName, c.parentLabels)
 	return c.client.Config().GetDomainByName(ctx, hashedName)
 }
 
@@ -2968,9 +2990,9 @@ func (c *configConfigTsmV1Chainer) AddDomain(ctx context.Context,
 	for k, v := range c.parentLabels {
 		objToCreate.Labels[k] = v
 	}
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName("domains.config.tsm.tanzu.vmware.com", c.parentLabels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
@@ -2983,7 +3005,7 @@ func (c *configConfigTsmV1Chainer) DeleteDomain(ctx context.Context, name string
 	if c.parentLabels == nil {
 		c.parentLabels = map[string]string{}
 	}
-	c.parentLabels[common.IS_NAME_HASHED_LABEL] = "true"
+	c.parentLabels[common.IsNameHashedLabel] = "true"
 	hashedName := helper.GetHashedName("domains.config.tsm.tanzu.vmware.com", c.parentLabels, name)
 	return c.client.Config().DeleteDomainByName(ctx, hashedName)
 }
@@ -3001,6 +3023,7 @@ func (c *configConfigTsmV1Chainer) FooExample(name string) *footypeabcConfigTsmV
 // GetFooExample calculates hashed name of the object based on displayName and it's parents and returns the object
 func (c *configConfigTsmV1Chainer) GetFooExample(ctx context.Context, displayName string) (result *ConfigFooTypeABC, err error) {
 	hashedName := helper.GetHashedName("footypeabcs.config.tsm.tanzu.vmware.com", c.parentLabels, displayName)
+	logger.Debugf("[GetFooExample] using chainer for name %s, displayName %s, labels %#v", hashedName, displayName, c.parentLabels)
 	return c.client.Config().GetFooTypeABCByName(ctx, hashedName)
 }
 
@@ -3015,9 +3038,9 @@ func (c *configConfigTsmV1Chainer) AddFooExample(ctx context.Context,
 	for k, v := range c.parentLabels {
 		objToCreate.Labels[k] = v
 	}
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName("footypeabcs.config.tsm.tanzu.vmware.com", c.parentLabels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
@@ -3030,7 +3053,7 @@ func (c *configConfigTsmV1Chainer) DeleteFooExample(ctx context.Context, name st
 	if c.parentLabels == nil {
 		c.parentLabels = map[string]string{}
 	}
-	c.parentLabels[common.IS_NAME_HASHED_LABEL] = "true"
+	c.parentLabels[common.IsNameHashedLabel] = "true"
 	hashedName := helper.GetHashedName("footypeabcs.config.tsm.tanzu.vmware.com", c.parentLabels, name)
 	return c.client.Config().DeleteFooTypeABCByName(ctx, hashedName)
 }
@@ -3048,6 +3071,7 @@ func (c *configConfigTsmV1Chainer) SvcGrpInfo(name string) *svcgrouplinkinfoServ
 // GetSvcGrpInfo calculates hashed name of the object based on displayName and it's parents and returns the object
 func (c *configConfigTsmV1Chainer) GetSvcGrpInfo(ctx context.Context, displayName string) (result *ServicegroupSvcGroupLinkInfo, err error) {
 	hashedName := helper.GetHashedName("svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", c.parentLabels, displayName)
+	logger.Debugf("[GetSvcGrpInfo] using chainer for name %s, displayName %s, labels %#v", hashedName, displayName, c.parentLabels)
 	return c.client.Servicegroup().GetSvcGroupLinkInfoByName(ctx, hashedName)
 }
 
@@ -3062,9 +3086,9 @@ func (c *configConfigTsmV1Chainer) AddSvcGrpInfo(ctx context.Context,
 	for k, v := range c.parentLabels {
 		objToCreate.Labels[k] = v
 	}
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName("svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", c.parentLabels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
@@ -3077,7 +3101,7 @@ func (c *configConfigTsmV1Chainer) DeleteSvcGrpInfo(ctx context.Context, name st
 	if c.parentLabels == nil {
 		c.parentLabels = map[string]string{}
 	}
-	c.parentLabels[common.IS_NAME_HASHED_LABEL] = "true"
+	c.parentLabels[common.IsNameHashedLabel] = "true"
 	hashedName := helper.GetHashedName("svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", c.parentLabels, name)
 	return c.client.Servicegroup().DeleteSvcGroupLinkInfoByName(ctx, hashedName)
 }
@@ -3103,11 +3127,11 @@ func (group *ConfigTsmV1) GetFooTypeABCByName(ctx context.Context, hashedName st
 		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
 		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
-			log.Debugf("[GetFooTypeABCByName] Object: %s exists in cache", hashedName)
+			logger.Debugf("[GetFooTypeABCByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC)
 			subsCacheVersion, subsCacheVersionErr := strconv.Atoi(resultCache.ResourceVersion)
 			if subsCacheVersionErr != nil {
-				log.Fatalf("[GetFooTypeABCByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
+				logger.Fatalf("[GetFooTypeABCByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
 			}
 
 			writeCacheVersion := 0
@@ -3115,7 +3139,7 @@ func (group *ConfigTsmV1) GetFooTypeABCByName(ctx context.Context, hashedName st
 			if inWrCache {
 				writeCacheVersion, writeCacheVersionErr = strconv.Atoi(resWrCache.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC).ResourceVersion)
 				if writeCacheVersionErr != nil {
-					log.Fatalf("[GetFooTypeABCByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
+					logger.Fatalf("[GetFooTypeABCByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
 				}
 			}
 
@@ -3148,22 +3172,22 @@ func (group *ConfigTsmV1) GetFooTypeABCByName(ctx context.Context, hashedName st
 				FooTypeABC: result,
 			}, nil
 		} else if errors.IsNotFound(err) {
-			log.Debugf("[GetFooTypeABCByName]: object %v not found", hashedName)
+			logger.Debugf("[GetFooTypeABCByName]: object %v not found", hashedName)
 			return nil, err
 		} else {
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on Get FooTypeABCs: %s", hashedName)
+					logger.Errorf("Max retry exceed on Get FooTypeABCs: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[GetFooTypeABCByName]: %+v", err)
+				logger.Errorf("[GetFooTypeABCByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[GetFooTypeABCByName]: %+v", err)
+				logger.Errorf("[GetFooTypeABCByName]: %+v", err)
 				return nil, err
 			}
 		}
@@ -3173,31 +3197,31 @@ func (group *ConfigTsmV1) GetFooTypeABCByName(ctx context.Context, hashedName st
 // ForceReadFooTypeABCByName read object directly from the database under the hashedName which is a hash of display
 // name and parents names. Use it when you know hashed name of object.
 func (group *ConfigTsmV1) ForceReadFooTypeABCByName(ctx context.Context, hashedName string) (*ConfigFooTypeABC, error) {
-	log.Debugf("[ForceReadFooTypeABCByName] Received object :%s to read from DB", hashedName)
+	logger.Debugf("[ForceReadFooTypeABCByName] Received object :%s to read from DB", hashedName)
 	retryCount := 0
 	for {
 		result, err := group.client.baseClient.
 			ConfigTsmV1().
 			FooTypeABCs().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[ForceReadFooTypeABCByName] Failed to Get FooTypeABCs: %+v", err)
+			logger.Errorf("[ForceReadFooTypeABCByName] Failed to Get FooTypeABCs: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Errorf("[Retry Count: %d ] %+v", retryCount, err)
+				logger.Errorf("[Retry Count: %d ] %+v", retryCount, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max Retry exceed on Get FooTypeABCs: %s", hashedName)
+					logger.Errorf("Max Retry exceed on Get FooTypeABCs: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[ForceReadFooTypeABCByName]: %+v", err)
+				logger.Errorf("[ForceReadFooTypeABCByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[ForceReadFooTypeABCByName]: %+v", err)
+				logger.Errorf("[ForceReadFooTypeABCByName]: %+v", err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[ForceReadFooTypeABCByName] Executed Successfully :%s", hashedName)
+			logger.Debugf("[ForceReadFooTypeABCByName] Executed Successfully :%s", hashedName)
 			return &ConfigFooTypeABC{
 				client:     group.client,
 				FooTypeABC: result,
@@ -3209,7 +3233,7 @@ func (group *ConfigTsmV1) ForceReadFooTypeABCByName(ctx context.Context, hashedN
 // DeleteFooTypeABCByName deletes object stored in the database under the hashedName which is a hash of
 // display name and parents names. Use it when you know hashed name of object.
 func (group *ConfigTsmV1) DeleteFooTypeABCByName(ctx context.Context, hashedName string) (err error) {
-	log.Debugf("[DeleteFooTypeABCByName] Received objectToDelete: %s", hashedName)
+	logger.Debugf("[DeleteFooTypeABCByName] Received objectToDelete: %s", hashedName)
 	var (
 		retryCount int
 		result     *baseconfigtsmtanzuvmwarecomv1.FooTypeABC
@@ -3221,23 +3245,23 @@ func (group *ConfigTsmV1) DeleteFooTypeABCByName(ctx context.Context, hashedName
 			ConfigTsmV1().
 			FooTypeABCs().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[DeleteFooTypeABCByName] Failed to get FooTypeABCs: %+v", err)
+			logger.Errorf("[DeleteFooTypeABCByName] Failed to get FooTypeABCs: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on get FooTypeABCs: %s", hashedName)
+					logger.Errorf("Max retry exceed on get FooTypeABCs: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteFooTypeABCByName] context canceled: %s", hashedName)
+				logger.Errorf("[DeleteFooTypeABCByName] context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteFooTypeABCByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteFooTypeABCByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteFooTypeABCByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteFooTypeABCByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -3255,23 +3279,23 @@ func (group *ConfigTsmV1) DeleteFooTypeABCByName(ctx context.Context, hashedName
 			ConfigTsmV1().
 			FooTypeABCs().Delete(ctx, hashedName, metav1.DeleteOptions{})
 		if err != nil {
-			log.Errorf("[DeleteFooTypeABCByName] failed to delete FooTypeABCs: %+v", err)
+			logger.Errorf("[DeleteFooTypeABCByName] failed to delete FooTypeABCs: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on delete FooTypeABCs: %s", hashedName)
+					logger.Errorf("Max retry exceed on delete FooTypeABCs: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteFooTypeABCByName]: context canceled: %s", hashedName)
+				logger.Errorf("[DeleteFooTypeABCByName]: context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteFooTypeABCByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteFooTypeABCByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteFooTypeABCByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteFooTypeABCByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -3283,7 +3307,7 @@ func (group *ConfigTsmV1) DeleteFooTypeABCByName(ctx context.Context, hashedName
 	}
 	// Get Parent Node and check if gvk present before patch
 
-	log.Debugf("[DeleteFooTypeABCByName] Get parent details for object: %s", hashedName)
+	logger.Debugf("[DeleteFooTypeABCByName] Get parent details for object: %s", hashedName)
 	// var patch Patch
 	parents := result.GetLabels()
 	if parents == nil {
@@ -3291,16 +3315,16 @@ func (group *ConfigTsmV1) DeleteFooTypeABCByName(ctx context.Context, hashedName
 	}
 	parentName, ok := parents["configs.config.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	if result.GetLabels() != nil {
-		if parents[common.IS_NAME_HASHED_LABEL] == "true" {
+		if parents[common.IsNameHashedLabel] == "true" {
 			parentName = helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", parents, parentName)
 		}
 	} else {
 		parentName = helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", parents, parentName)
 	}
-	RemoveChild("configs.config.tsm.tanzu.vmware.com", parentName, "footypeabcs.config.tsm.tanzu.vmware.com", hashedName)
+	group.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parentName, "footypeabcs.config.tsm.tanzu.vmware.com", hashedName)
 
 	return nil
 }
@@ -3309,12 +3333,12 @@ func (group *ConfigTsmV1) DeleteFooTypeABCByName(ctx context.Context, hashedName
 // Use it directly ONLY when objToCreate.Name is hashed name of the object.
 func (group *ConfigTsmV1) CreateFooTypeABCByName(ctx context.Context,
 	objToCreate *baseconfigtsmtanzuvmwarecomv1.FooTypeABC) (*ConfigFooTypeABC, error) {
-	log.Debugf("[CreateFooTypeABCByName] Received objToCreate: %s", objToCreate.GetName())
+	logger.Debugf("[CreateFooTypeABCByName] Received objToCreate: %s", objToCreate.GetName())
 	if objToCreate.GetLabels() == nil {
 		objToCreate.Labels = make(map[string]string)
 	}
-	if _, ok := objToCreate.Labels[common.DISPLAY_NAME_LABEL]; !ok {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
+	if _, ok := objToCreate.Labels[common.DisplayNameLabel]; !ok {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
 	}
 
 	var (
@@ -3328,33 +3352,33 @@ func (group *ConfigTsmV1) CreateFooTypeABCByName(ctx context.Context,
 			ConfigTsmV1().
 			FooTypeABCs().Create(ctx, objToCreate, metav1.CreateOptions{})
 		if err != nil {
-			log.Errorf("[CreateFooTypeABCByName] Failed to create FooTypeABC: %s, error: %+v", objToCreate.GetName(), err)
+			logger.Errorf("[CreateFooTypeABCByName] Failed to create FooTypeABC: %s, error: %+v", objToCreate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on create FooTypeABC: %s", objToCreate.GetName())
+					logger.Errorf("Max retry exceed on create FooTypeABC: %s", objToCreate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[CreateFooTypeABCByName] context canceled while creating FooTypeABC: %s", objToCreate.GetName())
+				logger.Errorf("[CreateFooTypeABCByName] context canceled while creating FooTypeABC: %s", objToCreate.GetName())
 				return nil, context.Canceled
 			} else if errors.IsAlreadyExists(err) {
-				log.Debugf("[CreateFooTypeABCByName] FooTypeABC: %s already exists, error: %+v", objToCreate.GetName(), err)
+				logger.Debugf("[CreateFooTypeABCByName] FooTypeABC: %s already exists, error: %+v", objToCreate.GetName(), err)
 				result, err = group.client.baseClient.ConfigTsmV1().FooTypeABCs().Get(ctx, objToCreate.GetName(), metav1.GetOptions{})
 				if err != nil {
-					log.Fatalf("[CreateFooTypeABCByName] Unable to Get FooTypeABC %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
+					logger.Fatalf("[CreateFooTypeABCByName] Unable to Get FooTypeABC %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
 				}
 				break
 			} else {
-				log.Errorf("[CreateFooTypeABCByName] found unexpected error while creating FooTypeABC: %s, error: %+v", objToCreate.GetName(), err)
+				logger.Errorf("[CreateFooTypeABCByName] found unexpected error while creating FooTypeABC: %s, error: %+v", objToCreate.GetName(), err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[CreateFooTypeABCByName] FooTypeABC: %s created successfully", objToCreate.GetName())
+			logger.Debugf("[CreateFooTypeABCByName] FooTypeABC: %s created successfully", objToCreate.GetName())
 			if s, ok := subscriptionMap.Load("footypeabcs.config.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[CreateFooTypeABCByName] FooTypeABC: %s stored in wr-cache", objToCreate.GetName())
+				logger.Debugf("[CreateFooTypeABCByName] FooTypeABC: %s stored in wr-cache", objToCreate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
@@ -3363,13 +3387,13 @@ func (group *ConfigTsmV1) CreateFooTypeABCByName(ctx context.Context,
 
 	parentName, ok := objToCreate.GetLabels()["configs.config.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	parentHashedName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", objToCreate.GetLabels(), parentName)
 
-	AddChild("configs.config.tsm.tanzu.vmware.com", parentHashedName, "footypeabcs.config.tsm.tanzu.vmware.com", objToCreate.Name)
+	group.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parentHashedName, "footypeabcs.config.tsm.tanzu.vmware.com", objToCreate.Name)
 
-	log.Debugf("[CreateFooTypeABCByName] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[CreateFooTypeABCByName] Executed Successfully: %s", objToCreate.GetName())
 	return &ConfigFooTypeABC{
 		client:     group.client,
 		FooTypeABC: result,
@@ -3380,7 +3404,7 @@ func (group *ConfigTsmV1) CreateFooTypeABCByName(ctx context.Context,
 // display name and parents names.
 func (group *ConfigTsmV1) UpdateFooTypeABCByName(ctx context.Context,
 	objToUpdate *baseconfigtsmtanzuvmwarecomv1.FooTypeABC) (*ConfigFooTypeABC, error) {
-	log.Debugf("[UpdateFooTypeABCByName] Received objToUpdate: %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateFooTypeABCByName] Received objToUpdate: %s", objToUpdate.GetName())
 
 	var patch Patch
 
@@ -3406,8 +3430,8 @@ func (group *ConfigTsmV1) UpdateFooTypeABCByName(ctx context.Context,
 			for _, k := range parentsList {
 				objToUpdate.Labels[k] = current.Labels[k]
 			}
-			objToUpdate.Labels[common.IS_NAME_HASHED_LABEL] = current.Labels[common.IS_NAME_HASHED_LABEL]
-			objToUpdate.Labels[common.DISPLAY_NAME_LABEL] = current.Labels[common.DISPLAY_NAME_LABEL]
+			objToUpdate.Labels[common.IsNameHashedLabel] = current.Labels[common.IsNameHashedLabel]
+			objToUpdate.Labels[common.DisplayNameLabel] = current.Labels[common.DisplayNameLabel]
 			patch = append(patch, PatchOp{
 				Op:    "replace",
 				Path:  "/metadata/labels",
@@ -3564,46 +3588,46 @@ func (group *ConfigTsmV1) UpdateFooTypeABCByName(ctx context.Context,
 			ConfigTsmV1().
 			FooTypeABCs().Patch(newCtx, objToUpdate.GetName(), types.JSONPatchType, marshaled, metav1.PatchOptions{}, "")
 		if err != nil {
-			log.Errorf("[UpdateFooTypeABCByName] Failed to patch FooTypeABC %s with error: %+v", objToUpdate.GetName(), err)
+			logger.Errorf("[UpdateFooTypeABCByName] Failed to patch FooTypeABC %s with error: %+v", objToUpdate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
-					log.Debugf("Trigger FooTypeABC Delete: %s", objToUpdate.GetName())
+					logger.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
+					logger.Debugf("Trigger FooTypeABC Delete: %s", objToUpdate.GetName())
 					delErr := group.DeleteFooTypeABCByName(newCtx, objToUpdate.GetName())
 					if delErr != nil {
-						log.Debugf("Error occur while deleting FooTypeABC: %s", objToUpdate.GetName())
+						logger.Debugf("Error occur while deleting FooTypeABC: %s", objToUpdate.GetName())
 						return nil, delErr
 					}
-					log.Debugf("FooTypeABC deleted: %s", objToUpdate.GetName())
+					logger.Debugf("FooTypeABC deleted: %s", objToUpdate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[UpdateFooTypeABCByName]: context canceled: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateFooTypeABCByName]: context canceled: %s", objToUpdate.GetName())
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[UpdateFooTypeABCByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
-				log.Debugf("Trigger FooTypeABC Delete: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateFooTypeABCByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
+				logger.Debugf("Trigger FooTypeABC Delete: %s", objToUpdate.GetName())
 				delErr := group.DeleteFooTypeABCByName(newCtx, objToUpdate.GetName())
 				if delErr != nil {
-					log.Debugf("Error occur while deleting FooTypeABC: %+v", objToUpdate.GetName())
+					logger.Debugf("Error occur while deleting FooTypeABC: %+v", objToUpdate.GetName())
 					return nil, delErr
 				}
-				log.Debugf("FooTypeABC Deleted: %s", objToUpdate.GetName())
+				logger.Debugf("FooTypeABC Deleted: %s", objToUpdate.GetName())
 				return nil, err
 			}
 		} else {
-			log.Debugf("[UpdateFooTypeABCByName] Patch FooTypeABC Success :%s", objToUpdate.GetName())
+			logger.Debugf("[UpdateFooTypeABCByName] Patch FooTypeABC Success :%s", objToUpdate.GetName())
 			if s, ok := subscriptionMap.Load("footypeabcs.config.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[UpdateFooTypeABCByName] %s stored in wr-cache", objToUpdate.GetName())
+				logger.Debugf("[UpdateFooTypeABCByName] %s stored in wr-cache", objToUpdate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
 	}
-	log.Debugf("[UpdateFooTypeABCByName] Executed Successfully %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateFooTypeABCByName] Executed Successfully %s", objToUpdate.GetName())
 	return &ConfigFooTypeABC{
 		client:     group.client,
 		FooTypeABC: result,
@@ -3669,6 +3693,7 @@ func (obj *ConfigFooTypeABC) Update(ctx context.Context) error {
 
 func (obj *ConfigFooTypeABC) GetParent(ctx context.Context) (result *ConfigConfig, err error) {
 	hashedName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", obj.Labels, obj.Labels["configs.config.tsm.tanzu.vmware.com"])
+	logger.Debugf("[GetParent] Get parent of ConfigFooTypeABC name %s [labels %#v] of parent type configs.config.tsm.tanzu.vmware.com and name %s", obj.Name, obj.Labels, hashedName)
 	return obj.client.Config().GetConfigByName(ctx, hashedName)
 }
 
@@ -3705,23 +3730,25 @@ func (c *footypeabcConfigTsmV1Chainer) IsSubscribed() bool {
 }
 
 func (c *footypeabcConfigTsmV1Chainer) addCallback(obj *ConfigFooTypeABC) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["configs.config.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[addCallback] received for footypeabcs.config.tsm.tanzu.vmware.com name %s displayName %s parent configs.config.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	AddChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "footypeabcs.config.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "footypeabcs.config.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *footypeabcConfigTsmV1Chainer) deleteCallback(obj *ConfigFooTypeABC) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["configs.config.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[deleteCallback] received for footypeabcs.config.tsm.tanzu.vmware.com name %s displayName %s parent configs.config.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	RemoveChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "footypeabcs.config.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "footypeabcs.config.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *footypeabcConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigFooTypeABC), updateCB func(oldObj, newObj *ConfigFooTypeABC), deleteCB func(obj *ConfigFooTypeABC)) (cache.ResourceEventHandlerRegistration, error) {
@@ -3751,6 +3778,7 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *Conf
 				client:     c.client,
 				FooTypeABC: obj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC),
 			}
+			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for footypeabcs.config.tsm.tanzu.vmware.com name %s", nc.FooTypeABC.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -3772,10 +3800,10 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *Conf
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if !IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "footypeabcs.config.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "footypeabcs.config.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "footypeabcs.config.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "footypeabcs.config.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			addCB(nc)
@@ -3790,6 +3818,7 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *Conf
 				client:     c.client,
 				FooTypeABC: newObj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC),
 			}
+			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for footypeabcs.config.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.FooTypeABC.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
 		},
 
@@ -3798,6 +3827,7 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *Conf
 				client:     c.client,
 				FooTypeABC: obj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC),
 			}
+			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for footypeabcs.config.tsm.tanzu.vmware.com name %s", nc.FooTypeABC.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -3821,11 +3851,11 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *Conf
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "footypeabcs.config.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "footypeabcs.config.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "footypeabcs.config.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "footypeabcs.config.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			deleteCB(nc)
@@ -3835,7 +3865,7 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *Conf
 }
 
 func (c *footypeabcConfigTsmV1Chainer) RegisterAddCallback(cbfn func(obj *ConfigFooTypeABC)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterAddCallback] Received for ConfigFooTypeABC")
+	logger.Debugf("[RegisterAddCallback] Received for ConfigFooTypeABC")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -3863,6 +3893,7 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Config
 				client:     c.client,
 				FooTypeABC: obj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC),
 			}
+			logger.Debugf("[RegisterAddCallback] Got Add event for footypeabcs.config.tsm.tanzu.vmware.com name %s", nc.FooTypeABC.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -3885,11 +3916,11 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Config
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if !IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "footypeabcs.config.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "footypeabcs.config.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "footypeabcs.config.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "footypeabcs.config.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -3900,7 +3931,7 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Config
 }
 
 func (c *footypeabcConfigTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *ConfigFooTypeABC)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterUpdateCallback] Received for ConfigFooTypeABC")
+	logger.Debugf("[RegisterUpdateCallback] Received for ConfigFooTypeABC")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -3932,6 +3963,7 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, 
 				client:     c.client,
 				FooTypeABC: newObj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC),
 			}
+			logger.Debugf("[RegisterUpdateCallback] Got Update event for footypeabcs.config.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.FooTypeABC.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
 		},
 	})
@@ -3940,7 +3972,7 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, 
 }
 
 func (c *footypeabcConfigTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *ConfigFooTypeABC)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterDeleteCallback] Received for ConfigFooTypeABC")
+	logger.Debugf("[RegisterDeleteCallback] Received for ConfigFooTypeABC")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -3968,6 +4000,7 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *Con
 				client:     c.client,
 				FooTypeABC: obj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC),
 			}
+			logger.Debugf("[RegisterDeleteCallback] Got Delete event for footypeabcs.config.tsm.tanzu.vmware.com name %s", nc.FooTypeABC.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -3993,10 +4026,10 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *Con
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "footypeabcs.config.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "footypeabcs.config.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "footypeabcs.config.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "footypeabcs.config.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -4027,11 +4060,11 @@ func (group *ConfigTsmV1) GetDomainByName(ctx context.Context, hashedName string
 		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
 		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
-			log.Debugf("[GetDomainByName] Object: %s exists in cache", hashedName)
+			logger.Debugf("[GetDomainByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*baseconfigtsmtanzuvmwarecomv1.Domain)
 			subsCacheVersion, subsCacheVersionErr := strconv.Atoi(resultCache.ResourceVersion)
 			if subsCacheVersionErr != nil {
-				log.Fatalf("[GetDomainByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
+				logger.Fatalf("[GetDomainByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
 			}
 
 			writeCacheVersion := 0
@@ -4039,7 +4072,7 @@ func (group *ConfigTsmV1) GetDomainByName(ctx context.Context, hashedName string
 			if inWrCache {
 				writeCacheVersion, writeCacheVersionErr = strconv.Atoi(resWrCache.(*baseconfigtsmtanzuvmwarecomv1.Domain).ResourceVersion)
 				if writeCacheVersionErr != nil {
-					log.Fatalf("[GetDomainByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
+					logger.Fatalf("[GetDomainByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
 				}
 			}
 
@@ -4072,22 +4105,22 @@ func (group *ConfigTsmV1) GetDomainByName(ctx context.Context, hashedName string
 				Domain: result,
 			}, nil
 		} else if errors.IsNotFound(err) {
-			log.Debugf("[GetDomainByName]: object %v not found", hashedName)
+			logger.Debugf("[GetDomainByName]: object %v not found", hashedName)
 			return nil, err
 		} else {
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on Get Domains: %s", hashedName)
+					logger.Errorf("Max retry exceed on Get Domains: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[GetDomainByName]: %+v", err)
+				logger.Errorf("[GetDomainByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[GetDomainByName]: %+v", err)
+				logger.Errorf("[GetDomainByName]: %+v", err)
 				return nil, err
 			}
 		}
@@ -4097,31 +4130,31 @@ func (group *ConfigTsmV1) GetDomainByName(ctx context.Context, hashedName string
 // ForceReadDomainByName read object directly from the database under the hashedName which is a hash of display
 // name and parents names. Use it when you know hashed name of object.
 func (group *ConfigTsmV1) ForceReadDomainByName(ctx context.Context, hashedName string) (*ConfigDomain, error) {
-	log.Debugf("[ForceReadDomainByName] Received object :%s to read from DB", hashedName)
+	logger.Debugf("[ForceReadDomainByName] Received object :%s to read from DB", hashedName)
 	retryCount := 0
 	for {
 		result, err := group.client.baseClient.
 			ConfigTsmV1().
 			Domains().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[ForceReadDomainByName] Failed to Get Domains: %+v", err)
+			logger.Errorf("[ForceReadDomainByName] Failed to Get Domains: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Errorf("[Retry Count: %d ] %+v", retryCount, err)
+				logger.Errorf("[Retry Count: %d ] %+v", retryCount, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max Retry exceed on Get Domains: %s", hashedName)
+					logger.Errorf("Max Retry exceed on Get Domains: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[ForceReadDomainByName]: %+v", err)
+				logger.Errorf("[ForceReadDomainByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[ForceReadDomainByName]: %+v", err)
+				logger.Errorf("[ForceReadDomainByName]: %+v", err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[ForceReadDomainByName] Executed Successfully :%s", hashedName)
+			logger.Debugf("[ForceReadDomainByName] Executed Successfully :%s", hashedName)
 			return &ConfigDomain{
 				client: group.client,
 				Domain: result,
@@ -4133,7 +4166,7 @@ func (group *ConfigTsmV1) ForceReadDomainByName(ctx context.Context, hashedName 
 // DeleteDomainByName deletes object stored in the database under the hashedName which is a hash of
 // display name and parents names. Use it when you know hashed name of object.
 func (group *ConfigTsmV1) DeleteDomainByName(ctx context.Context, hashedName string) (err error) {
-	log.Debugf("[DeleteDomainByName] Received objectToDelete: %s", hashedName)
+	logger.Debugf("[DeleteDomainByName] Received objectToDelete: %s", hashedName)
 	var (
 		retryCount int
 		result     *baseconfigtsmtanzuvmwarecomv1.Domain
@@ -4145,23 +4178,23 @@ func (group *ConfigTsmV1) DeleteDomainByName(ctx context.Context, hashedName str
 			ConfigTsmV1().
 			Domains().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[DeleteDomainByName] Failed to get Domains: %+v", err)
+			logger.Errorf("[DeleteDomainByName] Failed to get Domains: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on get Domains: %s", hashedName)
+					logger.Errorf("Max retry exceed on get Domains: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteDomainByName] context canceled: %s", hashedName)
+				logger.Errorf("[DeleteDomainByName] context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteDomainByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteDomainByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteDomainByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteDomainByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -4179,23 +4212,23 @@ func (group *ConfigTsmV1) DeleteDomainByName(ctx context.Context, hashedName str
 			ConfigTsmV1().
 			Domains().Delete(ctx, hashedName, metav1.DeleteOptions{})
 		if err != nil {
-			log.Errorf("[DeleteDomainByName] failed to delete Domains: %+v", err)
+			logger.Errorf("[DeleteDomainByName] failed to delete Domains: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on delete Domains: %s", hashedName)
+					logger.Errorf("Max retry exceed on delete Domains: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteDomainByName]: context canceled: %s", hashedName)
+				logger.Errorf("[DeleteDomainByName]: context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteDomainByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteDomainByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteDomainByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteDomainByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -4207,7 +4240,7 @@ func (group *ConfigTsmV1) DeleteDomainByName(ctx context.Context, hashedName str
 	}
 	// Get Parent Node and check if gvk present before patch
 
-	log.Debugf("[DeleteDomainByName] Get parent details for object: %s", hashedName)
+	logger.Debugf("[DeleteDomainByName] Get parent details for object: %s", hashedName)
 	// var patch Patch
 	parents := result.GetLabels()
 	if parents == nil {
@@ -4215,16 +4248,16 @@ func (group *ConfigTsmV1) DeleteDomainByName(ctx context.Context, hashedName str
 	}
 	parentName, ok := parents["configs.config.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	if result.GetLabels() != nil {
-		if parents[common.IS_NAME_HASHED_LABEL] == "true" {
+		if parents[common.IsNameHashedLabel] == "true" {
 			parentName = helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", parents, parentName)
 		}
 	} else {
 		parentName = helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", parents, parentName)
 	}
-	RemoveChild("configs.config.tsm.tanzu.vmware.com", parentName, "domains.config.tsm.tanzu.vmware.com", hashedName)
+	group.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parentName, "domains.config.tsm.tanzu.vmware.com", hashedName)
 
 	return nil
 }
@@ -4233,12 +4266,12 @@ func (group *ConfigTsmV1) DeleteDomainByName(ctx context.Context, hashedName str
 // Use it directly ONLY when objToCreate.Name is hashed name of the object.
 func (group *ConfigTsmV1) CreateDomainByName(ctx context.Context,
 	objToCreate *baseconfigtsmtanzuvmwarecomv1.Domain) (*ConfigDomain, error) {
-	log.Debugf("[CreateDomainByName] Received objToCreate: %s", objToCreate.GetName())
+	logger.Debugf("[CreateDomainByName] Received objToCreate: %s", objToCreate.GetName())
 	if objToCreate.GetLabels() == nil {
 		objToCreate.Labels = make(map[string]string)
 	}
-	if _, ok := objToCreate.Labels[common.DISPLAY_NAME_LABEL]; !ok {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
+	if _, ok := objToCreate.Labels[common.DisplayNameLabel]; !ok {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
 	}
 
 	var (
@@ -4252,33 +4285,33 @@ func (group *ConfigTsmV1) CreateDomainByName(ctx context.Context,
 			ConfigTsmV1().
 			Domains().Create(ctx, objToCreate, metav1.CreateOptions{})
 		if err != nil {
-			log.Errorf("[CreateDomainByName] Failed to create Domain: %s, error: %+v", objToCreate.GetName(), err)
+			logger.Errorf("[CreateDomainByName] Failed to create Domain: %s, error: %+v", objToCreate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on create Domain: %s", objToCreate.GetName())
+					logger.Errorf("Max retry exceed on create Domain: %s", objToCreate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[CreateDomainByName] context canceled while creating Domain: %s", objToCreate.GetName())
+				logger.Errorf("[CreateDomainByName] context canceled while creating Domain: %s", objToCreate.GetName())
 				return nil, context.Canceled
 			} else if errors.IsAlreadyExists(err) {
-				log.Debugf("[CreateDomainByName] Domain: %s already exists, error: %+v", objToCreate.GetName(), err)
+				logger.Debugf("[CreateDomainByName] Domain: %s already exists, error: %+v", objToCreate.GetName(), err)
 				result, err = group.client.baseClient.ConfigTsmV1().Domains().Get(ctx, objToCreate.GetName(), metav1.GetOptions{})
 				if err != nil {
-					log.Fatalf("[CreateDomainByName] Unable to Get Domain %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
+					logger.Fatalf("[CreateDomainByName] Unable to Get Domain %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
 				}
 				break
 			} else {
-				log.Errorf("[CreateDomainByName] found unexpected error while creating Domain: %s, error: %+v", objToCreate.GetName(), err)
+				logger.Errorf("[CreateDomainByName] found unexpected error while creating Domain: %s, error: %+v", objToCreate.GetName(), err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[CreateDomainByName] Domain: %s created successfully", objToCreate.GetName())
+			logger.Debugf("[CreateDomainByName] Domain: %s created successfully", objToCreate.GetName())
 			if s, ok := subscriptionMap.Load("domains.config.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[CreateDomainByName] Domain: %s stored in wr-cache", objToCreate.GetName())
+				logger.Debugf("[CreateDomainByName] Domain: %s stored in wr-cache", objToCreate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
@@ -4287,13 +4320,13 @@ func (group *ConfigTsmV1) CreateDomainByName(ctx context.Context,
 
 	parentName, ok := objToCreate.GetLabels()["configs.config.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	parentHashedName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", objToCreate.GetLabels(), parentName)
 
-	AddChild("configs.config.tsm.tanzu.vmware.com", parentHashedName, "domains.config.tsm.tanzu.vmware.com", objToCreate.Name)
+	group.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parentHashedName, "domains.config.tsm.tanzu.vmware.com", objToCreate.Name)
 
-	log.Debugf("[CreateDomainByName] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[CreateDomainByName] Executed Successfully: %s", objToCreate.GetName())
 	return &ConfigDomain{
 		client: group.client,
 		Domain: result,
@@ -4304,7 +4337,7 @@ func (group *ConfigTsmV1) CreateDomainByName(ctx context.Context,
 // display name and parents names.
 func (group *ConfigTsmV1) UpdateDomainByName(ctx context.Context,
 	objToUpdate *baseconfigtsmtanzuvmwarecomv1.Domain) (*ConfigDomain, error) {
-	log.Debugf("[UpdateDomainByName] Received objToUpdate: %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateDomainByName] Received objToUpdate: %s", objToUpdate.GetName())
 
 	var patch Patch
 
@@ -4330,8 +4363,8 @@ func (group *ConfigTsmV1) UpdateDomainByName(ctx context.Context,
 			for _, k := range parentsList {
 				objToUpdate.Labels[k] = current.Labels[k]
 			}
-			objToUpdate.Labels[common.IS_NAME_HASHED_LABEL] = current.Labels[common.IS_NAME_HASHED_LABEL]
-			objToUpdate.Labels[common.DISPLAY_NAME_LABEL] = current.Labels[common.DISPLAY_NAME_LABEL]
+			objToUpdate.Labels[common.IsNameHashedLabel] = current.Labels[common.IsNameHashedLabel]
+			objToUpdate.Labels[common.DisplayNameLabel] = current.Labels[common.DisplayNameLabel]
 			patch = append(patch, PatchOp{
 				Op:    "replace",
 				Path:  "/metadata/labels",
@@ -4551,46 +4584,46 @@ func (group *ConfigTsmV1) UpdateDomainByName(ctx context.Context,
 			ConfigTsmV1().
 			Domains().Patch(newCtx, objToUpdate.GetName(), types.JSONPatchType, marshaled, metav1.PatchOptions{}, "")
 		if err != nil {
-			log.Errorf("[UpdateDomainByName] Failed to patch Domain %s with error: %+v", objToUpdate.GetName(), err)
+			logger.Errorf("[UpdateDomainByName] Failed to patch Domain %s with error: %+v", objToUpdate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
-					log.Debugf("Trigger Domain Delete: %s", objToUpdate.GetName())
+					logger.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
+					logger.Debugf("Trigger Domain Delete: %s", objToUpdate.GetName())
 					delErr := group.DeleteDomainByName(newCtx, objToUpdate.GetName())
 					if delErr != nil {
-						log.Debugf("Error occur while deleting Domain: %s", objToUpdate.GetName())
+						logger.Debugf("Error occur while deleting Domain: %s", objToUpdate.GetName())
 						return nil, delErr
 					}
-					log.Debugf("Domain deleted: %s", objToUpdate.GetName())
+					logger.Debugf("Domain deleted: %s", objToUpdate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[UpdateDomainByName]: context canceled: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateDomainByName]: context canceled: %s", objToUpdate.GetName())
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[UpdateDomainByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
-				log.Debugf("Trigger Domain Delete: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateDomainByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
+				logger.Debugf("Trigger Domain Delete: %s", objToUpdate.GetName())
 				delErr := group.DeleteDomainByName(newCtx, objToUpdate.GetName())
 				if delErr != nil {
-					log.Debugf("Error occur while deleting Domain: %+v", objToUpdate.GetName())
+					logger.Debugf("Error occur while deleting Domain: %+v", objToUpdate.GetName())
 					return nil, delErr
 				}
-				log.Debugf("Domain Deleted: %s", objToUpdate.GetName())
+				logger.Debugf("Domain Deleted: %s", objToUpdate.GetName())
 				return nil, err
 			}
 		} else {
-			log.Debugf("[UpdateDomainByName] Patch Domain Success :%s", objToUpdate.GetName())
+			logger.Debugf("[UpdateDomainByName] Patch Domain Success :%s", objToUpdate.GetName())
 			if s, ok := subscriptionMap.Load("domains.config.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[UpdateDomainByName] %s stored in wr-cache", objToUpdate.GetName())
+				logger.Debugf("[UpdateDomainByName] %s stored in wr-cache", objToUpdate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
 	}
-	log.Debugf("[UpdateDomainByName] Executed Successfully %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateDomainByName] Executed Successfully %s", objToUpdate.GetName())
 	return &ConfigDomain{
 		client: group.client,
 		Domain: result,
@@ -4656,6 +4689,7 @@ func (obj *ConfigDomain) Update(ctx context.Context) error {
 
 func (obj *ConfigDomain) GetParent(ctx context.Context) (result *ConfigConfig, err error) {
 	hashedName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", obj.Labels, obj.Labels["configs.config.tsm.tanzu.vmware.com"])
+	logger.Debugf("[GetParent] Get parent of ConfigDomain name %s [labels %#v] of parent type configs.config.tsm.tanzu.vmware.com and name %s", obj.Name, obj.Labels, hashedName)
 	return obj.client.Config().GetConfigByName(ctx, hashedName)
 }
 
@@ -4692,23 +4726,25 @@ func (c *domainConfigTsmV1Chainer) IsSubscribed() bool {
 }
 
 func (c *domainConfigTsmV1Chainer) addCallback(obj *ConfigDomain) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["configs.config.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[addCallback] received for domains.config.tsm.tanzu.vmware.com name %s displayName %s parent configs.config.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	AddChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "domains.config.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "domains.config.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *domainConfigTsmV1Chainer) deleteCallback(obj *ConfigDomain) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["configs.config.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[deleteCallback] received for domains.config.tsm.tanzu.vmware.com name %s displayName %s parent configs.config.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	RemoveChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "domains.config.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "domains.config.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *domainConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigDomain), updateCB func(oldObj, newObj *ConfigDomain), deleteCB func(obj *ConfigDomain)) (cache.ResourceEventHandlerRegistration, error) {
@@ -4738,6 +4774,7 @@ func (c *domainConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigDo
 				client: c.client,
 				Domain: obj.(*baseconfigtsmtanzuvmwarecomv1.Domain),
 			}
+			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for domains.config.tsm.tanzu.vmware.com name %s", nc.Domain.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -4759,10 +4796,10 @@ func (c *domainConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigDo
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if !IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "domains.config.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "domains.config.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "domains.config.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "domains.config.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			addCB(nc)
@@ -4777,6 +4814,7 @@ func (c *domainConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigDo
 				client: c.client,
 				Domain: newObj.(*baseconfigtsmtanzuvmwarecomv1.Domain),
 			}
+			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for domains.config.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Domain.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
 		},
 
@@ -4785,6 +4823,7 @@ func (c *domainConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigDo
 				client: c.client,
 				Domain: obj.(*baseconfigtsmtanzuvmwarecomv1.Domain),
 			}
+			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for domains.config.tsm.tanzu.vmware.com name %s", nc.Domain.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -4808,11 +4847,11 @@ func (c *domainConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigDo
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "domains.config.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "domains.config.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "domains.config.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "domains.config.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			deleteCB(nc)
@@ -4822,7 +4861,7 @@ func (c *domainConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigDo
 }
 
 func (c *domainConfigTsmV1Chainer) RegisterAddCallback(cbfn func(obj *ConfigDomain)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterAddCallback] Received for ConfigDomain")
+	logger.Debugf("[RegisterAddCallback] Received for ConfigDomain")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -4850,6 +4889,7 @@ func (c *domainConfigTsmV1Chainer) RegisterAddCallback(cbfn func(obj *ConfigDoma
 				client: c.client,
 				Domain: obj.(*baseconfigtsmtanzuvmwarecomv1.Domain),
 			}
+			logger.Debugf("[RegisterAddCallback] Got Add event for domains.config.tsm.tanzu.vmware.com name %s", nc.Domain.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -4872,11 +4912,11 @@ func (c *domainConfigTsmV1Chainer) RegisterAddCallback(cbfn func(obj *ConfigDoma
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if !IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "domains.config.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "domains.config.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "domains.config.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "domains.config.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -4887,7 +4927,7 @@ func (c *domainConfigTsmV1Chainer) RegisterAddCallback(cbfn func(obj *ConfigDoma
 }
 
 func (c *domainConfigTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *ConfigDomain)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterUpdateCallback] Received for ConfigDomain")
+	logger.Debugf("[RegisterUpdateCallback] Received for ConfigDomain")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -4919,6 +4959,7 @@ func (c *domainConfigTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newO
 				client: c.client,
 				Domain: newObj.(*baseconfigtsmtanzuvmwarecomv1.Domain),
 			}
+			logger.Debugf("[RegisterUpdateCallback] Got Update event for domains.config.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Domain.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
 		},
 	})
@@ -4927,7 +4968,7 @@ func (c *domainConfigTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newO
 }
 
 func (c *domainConfigTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *ConfigDomain)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterDeleteCallback] Received for ConfigDomain")
+	logger.Debugf("[RegisterDeleteCallback] Received for ConfigDomain")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -4955,6 +4996,7 @@ func (c *domainConfigTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *ConfigD
 				client: c.client,
 				Domain: obj.(*baseconfigtsmtanzuvmwarecomv1.Domain),
 			}
+			logger.Debugf("[RegisterDeleteCallback] Got Delete event for domains.config.tsm.tanzu.vmware.com name %s", nc.Domain.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -4980,10 +5022,10 @@ func (c *domainConfigTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *ConfigD
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "domains.config.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "domains.config.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "domains.config.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "domains.config.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -5014,11 +5056,11 @@ func (group *GnsTsmV1) GetFooByName(ctx context.Context, hashedName string) (*Gn
 		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
 		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
-			log.Debugf("[GetFooByName] Object: %s exists in cache", hashedName)
+			logger.Debugf("[GetFooByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*basegnstsmtanzuvmwarecomv1.Foo)
 			subsCacheVersion, subsCacheVersionErr := strconv.Atoi(resultCache.ResourceVersion)
 			if subsCacheVersionErr != nil {
-				log.Fatalf("[GetFooByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
+				logger.Fatalf("[GetFooByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
 			}
 
 			writeCacheVersion := 0
@@ -5026,7 +5068,7 @@ func (group *GnsTsmV1) GetFooByName(ctx context.Context, hashedName string) (*Gn
 			if inWrCache {
 				writeCacheVersion, writeCacheVersionErr = strconv.Atoi(resWrCache.(*basegnstsmtanzuvmwarecomv1.Foo).ResourceVersion)
 				if writeCacheVersionErr != nil {
-					log.Fatalf("[GetFooByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
+					logger.Fatalf("[GetFooByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
 				}
 			}
 
@@ -5059,22 +5101,22 @@ func (group *GnsTsmV1) GetFooByName(ctx context.Context, hashedName string) (*Gn
 				Foo:    result,
 			}, nil
 		} else if errors.IsNotFound(err) {
-			log.Debugf("[GetFooByName]: object %v not found", hashedName)
+			logger.Debugf("[GetFooByName]: object %v not found", hashedName)
 			return nil, err
 		} else {
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on Get Foos: %s", hashedName)
+					logger.Errorf("Max retry exceed on Get Foos: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[GetFooByName]: %+v", err)
+				logger.Errorf("[GetFooByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[GetFooByName]: %+v", err)
+				logger.Errorf("[GetFooByName]: %+v", err)
 				return nil, err
 			}
 		}
@@ -5084,31 +5126,31 @@ func (group *GnsTsmV1) GetFooByName(ctx context.Context, hashedName string) (*Gn
 // ForceReadFooByName read object directly from the database under the hashedName which is a hash of display
 // name and parents names. Use it when you know hashed name of object.
 func (group *GnsTsmV1) ForceReadFooByName(ctx context.Context, hashedName string) (*GnsFoo, error) {
-	log.Debugf("[ForceReadFooByName] Received object :%s to read from DB", hashedName)
+	logger.Debugf("[ForceReadFooByName] Received object :%s to read from DB", hashedName)
 	retryCount := 0
 	for {
 		result, err := group.client.baseClient.
 			GnsTsmV1().
 			Foos().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[ForceReadFooByName] Failed to Get Foos: %+v", err)
+			logger.Errorf("[ForceReadFooByName] Failed to Get Foos: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Errorf("[Retry Count: %d ] %+v", retryCount, err)
+				logger.Errorf("[Retry Count: %d ] %+v", retryCount, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max Retry exceed on Get Foos: %s", hashedName)
+					logger.Errorf("Max Retry exceed on Get Foos: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[ForceReadFooByName]: %+v", err)
+				logger.Errorf("[ForceReadFooByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[ForceReadFooByName]: %+v", err)
+				logger.Errorf("[ForceReadFooByName]: %+v", err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[ForceReadFooByName] Executed Successfully :%s", hashedName)
+			logger.Debugf("[ForceReadFooByName] Executed Successfully :%s", hashedName)
 			return &GnsFoo{
 				client: group.client,
 				Foo:    result,
@@ -5120,7 +5162,7 @@ func (group *GnsTsmV1) ForceReadFooByName(ctx context.Context, hashedName string
 // DeleteFooByName deletes object stored in the database under the hashedName which is a hash of
 // display name and parents names. Use it when you know hashed name of object.
 func (group *GnsTsmV1) DeleteFooByName(ctx context.Context, hashedName string) (err error) {
-	log.Debugf("[DeleteFooByName] Received objectToDelete: %s", hashedName)
+	logger.Debugf("[DeleteFooByName] Received objectToDelete: %s", hashedName)
 	var (
 		retryCount int
 		result     *basegnstsmtanzuvmwarecomv1.Foo
@@ -5132,23 +5174,23 @@ func (group *GnsTsmV1) DeleteFooByName(ctx context.Context, hashedName string) (
 			GnsTsmV1().
 			Foos().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[DeleteFooByName] Failed to get Foos: %+v", err)
+			logger.Errorf("[DeleteFooByName] Failed to get Foos: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on get Foos: %s", hashedName)
+					logger.Errorf("Max retry exceed on get Foos: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteFooByName] context canceled: %s", hashedName)
+				logger.Errorf("[DeleteFooByName] context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteFooByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteFooByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteFooByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteFooByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -5166,23 +5208,23 @@ func (group *GnsTsmV1) DeleteFooByName(ctx context.Context, hashedName string) (
 			GnsTsmV1().
 			Foos().Delete(ctx, hashedName, metav1.DeleteOptions{})
 		if err != nil {
-			log.Errorf("[DeleteFooByName] failed to delete Foos: %+v", err)
+			logger.Errorf("[DeleteFooByName] failed to delete Foos: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on delete Foos: %s", hashedName)
+					logger.Errorf("Max retry exceed on delete Foos: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteFooByName]: context canceled: %s", hashedName)
+				logger.Errorf("[DeleteFooByName]: context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteFooByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteFooByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteFooByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteFooByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -5194,7 +5236,7 @@ func (group *GnsTsmV1) DeleteFooByName(ctx context.Context, hashedName string) (
 	}
 	// Get Parent Node and check if gvk present before patch
 
-	log.Debugf("[DeleteFooByName] Get parent details for object: %s", hashedName)
+	logger.Debugf("[DeleteFooByName] Get parent details for object: %s", hashedName)
 	// var patch Patch
 	parents := result.GetLabels()
 	if parents == nil {
@@ -5202,16 +5244,16 @@ func (group *GnsTsmV1) DeleteFooByName(ctx context.Context, hashedName string) (
 	}
 	parentName, ok := parents["gnses.gns.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	if result.GetLabels() != nil {
-		if parents[common.IS_NAME_HASHED_LABEL] == "true" {
+		if parents[common.IsNameHashedLabel] == "true" {
 			parentName = helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", parents, parentName)
 		}
 	} else {
 		parentName = helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", parents, parentName)
 	}
-	RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentName, "foos.gns.tsm.tanzu.vmware.com", hashedName)
+	group.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentName, "foos.gns.tsm.tanzu.vmware.com", hashedName)
 
 	return nil
 }
@@ -5220,12 +5262,12 @@ func (group *GnsTsmV1) DeleteFooByName(ctx context.Context, hashedName string) (
 // Use it directly ONLY when objToCreate.Name is hashed name of the object.
 func (group *GnsTsmV1) CreateFooByName(ctx context.Context,
 	objToCreate *basegnstsmtanzuvmwarecomv1.Foo) (*GnsFoo, error) {
-	log.Debugf("[CreateFooByName] Received objToCreate: %s", objToCreate.GetName())
+	logger.Debugf("[CreateFooByName] Received objToCreate: %s", objToCreate.GetName())
 	if objToCreate.GetLabels() == nil {
 		objToCreate.Labels = make(map[string]string)
 	}
-	if _, ok := objToCreate.Labels[common.DISPLAY_NAME_LABEL]; !ok {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
+	if _, ok := objToCreate.Labels[common.DisplayNameLabel]; !ok {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
 	}
 
 	var (
@@ -5239,33 +5281,33 @@ func (group *GnsTsmV1) CreateFooByName(ctx context.Context,
 			GnsTsmV1().
 			Foos().Create(ctx, objToCreate, metav1.CreateOptions{})
 		if err != nil {
-			log.Errorf("[CreateFooByName] Failed to create Foo: %s, error: %+v", objToCreate.GetName(), err)
+			logger.Errorf("[CreateFooByName] Failed to create Foo: %s, error: %+v", objToCreate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on create Foo: %s", objToCreate.GetName())
+					logger.Errorf("Max retry exceed on create Foo: %s", objToCreate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[CreateFooByName] context canceled while creating Foo: %s", objToCreate.GetName())
+				logger.Errorf("[CreateFooByName] context canceled while creating Foo: %s", objToCreate.GetName())
 				return nil, context.Canceled
 			} else if errors.IsAlreadyExists(err) {
-				log.Debugf("[CreateFooByName] Foo: %s already exists, error: %+v", objToCreate.GetName(), err)
+				logger.Debugf("[CreateFooByName] Foo: %s already exists, error: %+v", objToCreate.GetName(), err)
 				result, err = group.client.baseClient.GnsTsmV1().Foos().Get(ctx, objToCreate.GetName(), metav1.GetOptions{})
 				if err != nil {
-					log.Fatalf("[CreateFooByName] Unable to Get Foo %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
+					logger.Fatalf("[CreateFooByName] Unable to Get Foo %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
 				}
 				break
 			} else {
-				log.Errorf("[CreateFooByName] found unexpected error while creating Foo: %s, error: %+v", objToCreate.GetName(), err)
+				logger.Errorf("[CreateFooByName] found unexpected error while creating Foo: %s, error: %+v", objToCreate.GetName(), err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[CreateFooByName] Foo: %s created successfully", objToCreate.GetName())
+			logger.Debugf("[CreateFooByName] Foo: %s created successfully", objToCreate.GetName())
 			if s, ok := subscriptionMap.Load("foos.gns.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[CreateFooByName] Foo: %s stored in wr-cache", objToCreate.GetName())
+				logger.Debugf("[CreateFooByName] Foo: %s stored in wr-cache", objToCreate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
@@ -5274,13 +5316,13 @@ func (group *GnsTsmV1) CreateFooByName(ctx context.Context,
 
 	parentName, ok := objToCreate.GetLabels()["gnses.gns.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	parentHashedName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", objToCreate.GetLabels(), parentName)
 
-	AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashedName, "foos.gns.tsm.tanzu.vmware.com", objToCreate.Name)
+	group.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashedName, "foos.gns.tsm.tanzu.vmware.com", objToCreate.Name)
 
-	log.Debugf("[CreateFooByName] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[CreateFooByName] Executed Successfully: %s", objToCreate.GetName())
 	return &GnsFoo{
 		client: group.client,
 		Foo:    result,
@@ -5291,7 +5333,7 @@ func (group *GnsTsmV1) CreateFooByName(ctx context.Context,
 // display name and parents names.
 func (group *GnsTsmV1) UpdateFooByName(ctx context.Context,
 	objToUpdate *basegnstsmtanzuvmwarecomv1.Foo) (*GnsFoo, error) {
-	log.Debugf("[UpdateFooByName] Received objToUpdate: %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateFooByName] Received objToUpdate: %s", objToUpdate.GetName())
 
 	var patch Patch
 
@@ -5317,8 +5359,8 @@ func (group *GnsTsmV1) UpdateFooByName(ctx context.Context,
 			for _, k := range parentsList {
 				objToUpdate.Labels[k] = current.Labels[k]
 			}
-			objToUpdate.Labels[common.IS_NAME_HASHED_LABEL] = current.Labels[common.IS_NAME_HASHED_LABEL]
-			objToUpdate.Labels[common.DISPLAY_NAME_LABEL] = current.Labels[common.DISPLAY_NAME_LABEL]
+			objToUpdate.Labels[common.IsNameHashedLabel] = current.Labels[common.IsNameHashedLabel]
+			objToUpdate.Labels[common.DisplayNameLabel] = current.Labels[common.DisplayNameLabel]
 			patch = append(patch, PatchOp{
 				Op:    "replace",
 				Path:  "/metadata/labels",
@@ -5370,46 +5412,46 @@ func (group *GnsTsmV1) UpdateFooByName(ctx context.Context,
 			GnsTsmV1().
 			Foos().Patch(newCtx, objToUpdate.GetName(), types.JSONPatchType, marshaled, metav1.PatchOptions{}, "")
 		if err != nil {
-			log.Errorf("[UpdateFooByName] Failed to patch Foo %s with error: %+v", objToUpdate.GetName(), err)
+			logger.Errorf("[UpdateFooByName] Failed to patch Foo %s with error: %+v", objToUpdate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
-					log.Debugf("Trigger Foo Delete: %s", objToUpdate.GetName())
+					logger.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
+					logger.Debugf("Trigger Foo Delete: %s", objToUpdate.GetName())
 					delErr := group.DeleteFooByName(newCtx, objToUpdate.GetName())
 					if delErr != nil {
-						log.Debugf("Error occur while deleting Foo: %s", objToUpdate.GetName())
+						logger.Debugf("Error occur while deleting Foo: %s", objToUpdate.GetName())
 						return nil, delErr
 					}
-					log.Debugf("Foo deleted: %s", objToUpdate.GetName())
+					logger.Debugf("Foo deleted: %s", objToUpdate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[UpdateFooByName]: context canceled: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateFooByName]: context canceled: %s", objToUpdate.GetName())
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[UpdateFooByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
-				log.Debugf("Trigger Foo Delete: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateFooByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
+				logger.Debugf("Trigger Foo Delete: %s", objToUpdate.GetName())
 				delErr := group.DeleteFooByName(newCtx, objToUpdate.GetName())
 				if delErr != nil {
-					log.Debugf("Error occur while deleting Foo: %+v", objToUpdate.GetName())
+					logger.Debugf("Error occur while deleting Foo: %+v", objToUpdate.GetName())
 					return nil, delErr
 				}
-				log.Debugf("Foo Deleted: %s", objToUpdate.GetName())
+				logger.Debugf("Foo Deleted: %s", objToUpdate.GetName())
 				return nil, err
 			}
 		} else {
-			log.Debugf("[UpdateFooByName] Patch Foo Success :%s", objToUpdate.GetName())
+			logger.Debugf("[UpdateFooByName] Patch Foo Success :%s", objToUpdate.GetName())
 			if s, ok := subscriptionMap.Load("foos.gns.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[UpdateFooByName] %s stored in wr-cache", objToUpdate.GetName())
+				logger.Debugf("[UpdateFooByName] %s stored in wr-cache", objToUpdate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
 	}
-	log.Debugf("[UpdateFooByName] Executed Successfully %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateFooByName] Executed Successfully %s", objToUpdate.GetName())
 	return &GnsFoo{
 		client: group.client,
 		Foo:    result,
@@ -5475,6 +5517,7 @@ func (obj *GnsFoo) Update(ctx context.Context) error {
 
 func (obj *GnsFoo) GetParent(ctx context.Context) (result *GnsGns, err error) {
 	hashedName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", obj.Labels, obj.Labels["gnses.gns.tsm.tanzu.vmware.com"])
+	logger.Debugf("[GetParent] Get parent of GnsFoo name %s [labels %#v] of parent type gnses.gns.tsm.tanzu.vmware.com and name %s", obj.Name, obj.Labels, hashedName)
 	return obj.client.Gns().GetGnsByName(ctx, hashedName)
 }
 
@@ -5511,23 +5554,25 @@ func (c *fooGnsTsmV1Chainer) IsSubscribed() bool {
 }
 
 func (c *fooGnsTsmV1Chainer) addCallback(obj *GnsFoo) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["gnses.gns.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[addCallback] received for foos.gns.tsm.tanzu.vmware.com name %s displayName %s parent gnses.gns.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "foos.gns.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "foos.gns.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *fooGnsTsmV1Chainer) deleteCallback(obj *GnsFoo) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["gnses.gns.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[deleteCallback] received for foos.gns.tsm.tanzu.vmware.com name %s displayName %s parent gnses.gns.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "foos.gns.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "foos.gns.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *fooGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsFoo), updateCB func(oldObj, newObj *GnsFoo), deleteCB func(obj *GnsFoo)) (cache.ResourceEventHandlerRegistration, error) {
@@ -5557,6 +5602,7 @@ func (c *fooGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsFoo), updat
 				client: c.client,
 				Foo:    obj.(*basegnstsmtanzuvmwarecomv1.Foo),
 			}
+			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for foos.gns.tsm.tanzu.vmware.com name %s", nc.Foo.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -5578,10 +5624,10 @@ func (c *fooGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsFoo), updat
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if !IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "foos.gns.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "foos.gns.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "foos.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "foos.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			addCB(nc)
@@ -5596,6 +5642,7 @@ func (c *fooGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsFoo), updat
 				client: c.client,
 				Foo:    newObj.(*basegnstsmtanzuvmwarecomv1.Foo),
 			}
+			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for foos.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Foo.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
 		},
 
@@ -5604,6 +5651,7 @@ func (c *fooGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsFoo), updat
 				client: c.client,
 				Foo:    obj.(*basegnstsmtanzuvmwarecomv1.Foo),
 			}
+			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for foos.gns.tsm.tanzu.vmware.com name %s", nc.Foo.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -5627,11 +5675,11 @@ func (c *fooGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsFoo), updat
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "foos.gns.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "foos.gns.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "foos.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "foos.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			deleteCB(nc)
@@ -5641,7 +5689,7 @@ func (c *fooGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsFoo), updat
 }
 
 func (c *fooGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsFoo)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterAddCallback] Received for GnsFoo")
+	logger.Debugf("[RegisterAddCallback] Received for GnsFoo")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -5669,6 +5717,7 @@ func (c *fooGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsFoo)) (cache.
 				client: c.client,
 				Foo:    obj.(*basegnstsmtanzuvmwarecomv1.Foo),
 			}
+			logger.Debugf("[RegisterAddCallback] Got Add event for foos.gns.tsm.tanzu.vmware.com name %s", nc.Foo.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -5691,11 +5740,11 @@ func (c *fooGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsFoo)) (cache.
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if !IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "foos.gns.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "foos.gns.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "foos.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "foos.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -5706,7 +5755,7 @@ func (c *fooGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsFoo)) (cache.
 }
 
 func (c *fooGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *GnsFoo)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterUpdateCallback] Received for GnsFoo")
+	logger.Debugf("[RegisterUpdateCallback] Received for GnsFoo")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -5738,6 +5787,7 @@ func (c *fooGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *Gn
 				client: c.client,
 				Foo:    newObj.(*basegnstsmtanzuvmwarecomv1.Foo),
 			}
+			logger.Debugf("[RegisterUpdateCallback] Got Update event for foos.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Foo.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
 		},
 	})
@@ -5746,7 +5796,7 @@ func (c *fooGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *Gn
 }
 
 func (c *fooGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsFoo)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterDeleteCallback] Received for GnsFoo")
+	logger.Debugf("[RegisterDeleteCallback] Received for GnsFoo")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -5774,6 +5824,7 @@ func (c *fooGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsFoo)) (cac
 				client: c.client,
 				Foo:    obj.(*basegnstsmtanzuvmwarecomv1.Foo),
 			}
+			logger.Debugf("[RegisterDeleteCallback] Got Delete event for foos.gns.tsm.tanzu.vmware.com name %s", nc.Foo.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -5799,10 +5850,10 @@ func (c *fooGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsFoo)) (cac
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "foos.gns.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "foos.gns.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "foos.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "foos.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -5833,11 +5884,11 @@ func (group *GnsTsmV1) GetGnsByName(ctx context.Context, hashedName string) (*Gn
 		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
 		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
-			log.Debugf("[GetGnsByName] Object: %s exists in cache", hashedName)
+			logger.Debugf("[GetGnsByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*basegnstsmtanzuvmwarecomv1.Gns)
 			subsCacheVersion, subsCacheVersionErr := strconv.Atoi(resultCache.ResourceVersion)
 			if subsCacheVersionErr != nil {
-				log.Fatalf("[GetGnsByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
+				logger.Fatalf("[GetGnsByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
 			}
 
 			writeCacheVersion := 0
@@ -5845,7 +5896,7 @@ func (group *GnsTsmV1) GetGnsByName(ctx context.Context, hashedName string) (*Gn
 			if inWrCache {
 				writeCacheVersion, writeCacheVersionErr = strconv.Atoi(resWrCache.(*basegnstsmtanzuvmwarecomv1.Gns).ResourceVersion)
 				if writeCacheVersionErr != nil {
-					log.Fatalf("[GetGnsByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
+					logger.Fatalf("[GetGnsByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
 				}
 			}
 
@@ -5878,22 +5929,22 @@ func (group *GnsTsmV1) GetGnsByName(ctx context.Context, hashedName string) (*Gn
 				Gns:    result,
 			}, nil
 		} else if errors.IsNotFound(err) {
-			log.Debugf("[GetGnsByName]: object %v not found", hashedName)
+			logger.Debugf("[GetGnsByName]: object %v not found", hashedName)
 			return nil, err
 		} else {
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on Get Gnses: %s", hashedName)
+					logger.Errorf("Max retry exceed on Get Gnses: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[GetGnsByName]: %+v", err)
+				logger.Errorf("[GetGnsByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[GetGnsByName]: %+v", err)
+				logger.Errorf("[GetGnsByName]: %+v", err)
 				return nil, err
 			}
 		}
@@ -5903,31 +5954,31 @@ func (group *GnsTsmV1) GetGnsByName(ctx context.Context, hashedName string) (*Gn
 // ForceReadGnsByName read object directly from the database under the hashedName which is a hash of display
 // name and parents names. Use it when you know hashed name of object.
 func (group *GnsTsmV1) ForceReadGnsByName(ctx context.Context, hashedName string) (*GnsGns, error) {
-	log.Debugf("[ForceReadGnsByName] Received object :%s to read from DB", hashedName)
+	logger.Debugf("[ForceReadGnsByName] Received object :%s to read from DB", hashedName)
 	retryCount := 0
 	for {
 		result, err := group.client.baseClient.
 			GnsTsmV1().
 			Gnses().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[ForceReadGnsByName] Failed to Get Gnses: %+v", err)
+			logger.Errorf("[ForceReadGnsByName] Failed to Get Gnses: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Errorf("[Retry Count: %d ] %+v", retryCount, err)
+				logger.Errorf("[Retry Count: %d ] %+v", retryCount, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max Retry exceed on Get Gnses: %s", hashedName)
+					logger.Errorf("Max Retry exceed on Get Gnses: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[ForceReadGnsByName]: %+v", err)
+				logger.Errorf("[ForceReadGnsByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[ForceReadGnsByName]: %+v", err)
+				logger.Errorf("[ForceReadGnsByName]: %+v", err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[ForceReadGnsByName] Executed Successfully :%s", hashedName)
+			logger.Debugf("[ForceReadGnsByName] Executed Successfully :%s", hashedName)
 			return &GnsGns{
 				client: group.client,
 				Gns:    result,
@@ -5939,7 +5990,7 @@ func (group *GnsTsmV1) ForceReadGnsByName(ctx context.Context, hashedName string
 // DeleteGnsByName deletes object stored in the database under the hashedName which is a hash of
 // display name and parents names. Use it when you know hashed name of object.
 func (group *GnsTsmV1) DeleteGnsByName(ctx context.Context, hashedName string) (err error) {
-	log.Debugf("[DeleteGnsByName] Received objectToDelete: %s", hashedName)
+	logger.Debugf("[DeleteGnsByName] Received objectToDelete: %s", hashedName)
 	var (
 		retryCount int
 		result     *basegnstsmtanzuvmwarecomv1.Gns
@@ -5951,23 +6002,23 @@ func (group *GnsTsmV1) DeleteGnsByName(ctx context.Context, hashedName string) (
 			GnsTsmV1().
 			Gnses().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[DeleteGnsByName] Failed to get Gnses: %+v", err)
+			logger.Errorf("[DeleteGnsByName] Failed to get Gnses: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on get Gnses: %s", hashedName)
+					logger.Errorf("Max retry exceed on get Gnses: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteGnsByName] context canceled: %s", hashedName)
+				logger.Errorf("[DeleteGnsByName] context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteGnsByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteGnsByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteGnsByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteGnsByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -5979,52 +6030,52 @@ func (group *GnsTsmV1) DeleteGnsByName(ctx context.Context, hashedName string) (
 		return err
 	}
 
-	for _, child := range GetChildren("gnses.gns.tsm.tanzu.vmware.com", hashedName, "svcgroups.servicegroup.tsm.tanzu.vmware.com") {
+	for _, child := range group.client.children.GetChildren("gnses.gns.tsm.tanzu.vmware.com", hashedName, "svcgroups.servicegroup.tsm.tanzu.vmware.com") {
 		err := group.client.Servicegroup().DeleteSvcGroupByName(ctx, child)
 		if err != nil && errors.IsNotFound(err) == false {
 			return err
 		}
-		RemoveChild("gnses.gns.tsm.tanzu.vmware.com", hashedName, "svcgroups.servicegroup.tsm.tanzu.vmware.com", child)
+		group.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", hashedName, "svcgroups.servicegroup.tsm.tanzu.vmware.com", child)
 	}
 
-	for _, child := range GetChildren("gnses.gns.tsm.tanzu.vmware.com", hashedName, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com") {
+	for _, child := range group.client.children.GetChildren("gnses.gns.tsm.tanzu.vmware.com", hashedName, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com") {
 		err := group.client.Policypkg().DeleteAccessControlPolicyByName(ctx, child)
 		if err != nil && errors.IsNotFound(err) == false {
 			return err
 		}
-		RemoveChild("gnses.gns.tsm.tanzu.vmware.com", hashedName, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", child)
+		group.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", hashedName, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", child)
 	}
 
-	for _, child := range GetChildren("gnses.gns.tsm.tanzu.vmware.com", hashedName, "barchilds.gns.tsm.tanzu.vmware.com") {
+	for _, child := range group.client.children.GetChildren("gnses.gns.tsm.tanzu.vmware.com", hashedName, "barchilds.gns.tsm.tanzu.vmware.com") {
 		err := group.client.Gns().DeleteBarChildByName(ctx, child)
 		if err != nil && errors.IsNotFound(err) == false {
 			return err
 		}
-		RemoveChild("gnses.gns.tsm.tanzu.vmware.com", hashedName, "barchilds.gns.tsm.tanzu.vmware.com", child)
+		group.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", hashedName, "barchilds.gns.tsm.tanzu.vmware.com", child)
 	}
 
-	for _, child := range GetChildren("gnses.gns.tsm.tanzu.vmware.com", hashedName, "ignorechilds.gns.tsm.tanzu.vmware.com") {
+	for _, child := range group.client.children.GetChildren("gnses.gns.tsm.tanzu.vmware.com", hashedName, "ignorechilds.gns.tsm.tanzu.vmware.com") {
 		err := group.client.Gns().DeleteIgnoreChildByName(ctx, child)
 		if err != nil && errors.IsNotFound(err) == false {
 			return err
 		}
-		RemoveChild("gnses.gns.tsm.tanzu.vmware.com", hashedName, "ignorechilds.gns.tsm.tanzu.vmware.com", child)
+		group.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", hashedName, "ignorechilds.gns.tsm.tanzu.vmware.com", child)
 	}
 
-	for _, child := range GetChildren("gnses.gns.tsm.tanzu.vmware.com", hashedName, "foos.gns.tsm.tanzu.vmware.com") {
+	for _, child := range group.client.children.GetChildren("gnses.gns.tsm.tanzu.vmware.com", hashedName, "foos.gns.tsm.tanzu.vmware.com") {
 		err := group.client.Gns().DeleteFooByName(ctx, child)
 		if err != nil && errors.IsNotFound(err) == false {
 			return err
 		}
-		RemoveChild("gnses.gns.tsm.tanzu.vmware.com", hashedName, "foos.gns.tsm.tanzu.vmware.com", child)
+		group.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", hashedName, "foos.gns.tsm.tanzu.vmware.com", child)
 	}
 
-	for _, child := range GetChildren("gnses.gns.tsm.tanzu.vmware.com", hashedName, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com") {
+	for _, child := range group.client.children.GetChildren("gnses.gns.tsm.tanzu.vmware.com", hashedName, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com") {
 		err := group.client.Optionalparentpathparam().DeleteOptionalParentPathParamByName(ctx, child)
 		if err != nil && errors.IsNotFound(err) == false {
 			return err
 		}
-		RemoveChild("gnses.gns.tsm.tanzu.vmware.com", hashedName, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", child)
+		group.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", hashedName, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", child)
 	}
 
 	retryCount = 0
@@ -6033,23 +6084,23 @@ func (group *GnsTsmV1) DeleteGnsByName(ctx context.Context, hashedName string) (
 			GnsTsmV1().
 			Gnses().Delete(ctx, hashedName, metav1.DeleteOptions{})
 		if err != nil {
-			log.Errorf("[DeleteGnsByName] failed to delete Gnses: %+v", err)
+			logger.Errorf("[DeleteGnsByName] failed to delete Gnses: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on delete Gnses: %s", hashedName)
+					logger.Errorf("Max retry exceed on delete Gnses: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteGnsByName]: context canceled: %s", hashedName)
+				logger.Errorf("[DeleteGnsByName]: context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteGnsByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteGnsByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteGnsByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteGnsByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -6061,7 +6112,7 @@ func (group *GnsTsmV1) DeleteGnsByName(ctx context.Context, hashedName string) (
 	}
 	// Get Parent Node and check if gvk present before patch
 
-	log.Debugf("[DeleteGnsByName] Get parent details for object: %s", hashedName)
+	logger.Debugf("[DeleteGnsByName] Get parent details for object: %s", hashedName)
 	// var patch Patch
 	parents := result.GetLabels()
 	if parents == nil {
@@ -6069,16 +6120,16 @@ func (group *GnsTsmV1) DeleteGnsByName(ctx context.Context, hashedName string) (
 	}
 	parentName, ok := parents["configs.config.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	if result.GetLabels() != nil {
-		if parents[common.IS_NAME_HASHED_LABEL] == "true" {
+		if parents[common.IsNameHashedLabel] == "true" {
 			parentName = helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", parents, parentName)
 		}
 	} else {
 		parentName = helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", parents, parentName)
 	}
-	RemoveChild("configs.config.tsm.tanzu.vmware.com", parentName, "gnses.gns.tsm.tanzu.vmware.com", hashedName)
+	group.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parentName, "gnses.gns.tsm.tanzu.vmware.com", hashedName)
 
 	return nil
 }
@@ -6087,15 +6138,15 @@ func (group *GnsTsmV1) DeleteGnsByName(ctx context.Context, hashedName string) (
 // Use it directly ONLY when objToCreate.Name is hashed name of the object.
 func (group *GnsTsmV1) CreateGnsByName(ctx context.Context,
 	objToCreate *basegnstsmtanzuvmwarecomv1.Gns) (*GnsGns, error) {
-	log.Debugf("[CreateGnsByName] Received objToCreate: %s", objToCreate.GetName())
+	logger.Debugf("[CreateGnsByName] Received objToCreate: %s", objToCreate.GetName())
 	if objToCreate.GetLabels() == nil {
 		objToCreate.Labels = make(map[string]string)
 	}
-	if _, ok := objToCreate.Labels[common.DISPLAY_NAME_LABEL]; !ok {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
+	if _, ok := objToCreate.Labels[common.DisplayNameLabel]; !ok {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
 	}
 
-	log.Debugf("[CreateGnsByName] Node is marked for deferred delete: %s", objToCreate.GetName())
+	logger.Debugf("[CreateGnsByName] Node is marked for deferred delete: %s", objToCreate.GetName())
 	found := false
 	for _, finalizer := range objToCreate.Finalizers {
 		if finalizer == nexusDeferredDeleteAnnotation {
@@ -6105,7 +6156,7 @@ func (group *GnsTsmV1) CreateGnsByName(ctx context.Context,
 	}
 	if !found {
 		objToCreate.Finalizers = append(objToCreate.Finalizers, nexusDeferredDeleteAnnotation)
-		log.Debugf("[CreateGnsByName] Added %s finalizer to node: %s", nexusDeferredDeleteAnnotation, objToCreate.GetName())
+		logger.Debugf("[CreateGnsByName] Added %s finalizer to node: %s", nexusDeferredDeleteAnnotation, objToCreate.GetName())
 	}
 
 	objToCreate.Spec.GnsServiceGroupsGvk = nil
@@ -6127,33 +6178,33 @@ func (group *GnsTsmV1) CreateGnsByName(ctx context.Context,
 			GnsTsmV1().
 			Gnses().Create(ctx, objToCreate, metav1.CreateOptions{})
 		if err != nil {
-			log.Errorf("[CreateGnsByName] Failed to create Gns: %s, error: %+v", objToCreate.GetName(), err)
+			logger.Errorf("[CreateGnsByName] Failed to create Gns: %s, error: %+v", objToCreate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on create Gns: %s", objToCreate.GetName())
+					logger.Errorf("Max retry exceed on create Gns: %s", objToCreate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[CreateGnsByName] context canceled while creating Gns: %s", objToCreate.GetName())
+				logger.Errorf("[CreateGnsByName] context canceled while creating Gns: %s", objToCreate.GetName())
 				return nil, context.Canceled
 			} else if errors.IsAlreadyExists(err) {
-				log.Debugf("[CreateGnsByName] Gns: %s already exists, error: %+v", objToCreate.GetName(), err)
+				logger.Debugf("[CreateGnsByName] Gns: %s already exists, error: %+v", objToCreate.GetName(), err)
 				result, err = group.client.baseClient.GnsTsmV1().Gnses().Get(ctx, objToCreate.GetName(), metav1.GetOptions{})
 				if err != nil {
-					log.Fatalf("[CreateGnsByName] Unable to Get Gns %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
+					logger.Fatalf("[CreateGnsByName] Unable to Get Gns %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
 				}
 				break
 			} else {
-				log.Errorf("[CreateGnsByName] found unexpected error while creating Gns: %s, error: %+v", objToCreate.GetName(), err)
+				logger.Errorf("[CreateGnsByName] found unexpected error while creating Gns: %s, error: %+v", objToCreate.GetName(), err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[CreateGnsByName] Gns: %s created successfully", objToCreate.GetName())
+			logger.Debugf("[CreateGnsByName] Gns: %s created successfully", objToCreate.GetName())
 			if s, ok := subscriptionMap.Load("gnses.gns.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[CreateGnsByName] Gns: %s stored in wr-cache", objToCreate.GetName())
+				logger.Debugf("[CreateGnsByName] Gns: %s stored in wr-cache", objToCreate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
@@ -6162,13 +6213,13 @@ func (group *GnsTsmV1) CreateGnsByName(ctx context.Context,
 
 	parentName, ok := objToCreate.GetLabels()["configs.config.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	parentHashedName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", objToCreate.GetLabels(), parentName)
 
-	AddChild("configs.config.tsm.tanzu.vmware.com", parentHashedName, "gnses.gns.tsm.tanzu.vmware.com", objToCreate.Name)
+	group.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parentHashedName, "gnses.gns.tsm.tanzu.vmware.com", objToCreate.Name)
 
-	log.Debugf("[CreateGnsByName] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[CreateGnsByName] Executed Successfully: %s", objToCreate.GetName())
 	return &GnsGns{
 		client: group.client,
 		Gns:    result,
@@ -6178,82 +6229,30 @@ func (group *GnsTsmV1) CreateGnsByName(ctx context.Context,
 // SetGnsStateByName sets user defined status
 func (group *GnsTsmV1) SetGnsStateByName(ctx context.Context,
 	objToUpdate *basegnstsmtanzuvmwarecomv1.Gns, status *basegnstsmtanzuvmwarecomv1.GnsState) (*GnsGns, error) {
-	log.Debugf("[SetGnsStateByName] Received objToUpdate:%s", objToUpdate.GetName())
-
-	gvr := schema.GroupVersionResource{
-		Group:    "gns.tsm.tanzu.vmware.com",
-		Version:  "v1",
-		Resource: strings.ToLower("Gnses"),
+	if status == nil {
+		return nil, fmt.Errorf("status must not be nil")
 	}
-
-	hashedName := objToUpdate.ObjectMeta.Name
-	obj := basegnstsmtanzuvmwarecomv1.Gns{}
-	obj.Kind = strings.ToLower("Gnses")
-	obj.APIVersion = "gns.tsm.tanzu.vmware.com/v1"
-	obj.ObjectMeta = objToUpdate.ObjectMeta
-	obj.Status.State = *status
-
-	var mapInterface map[string]interface{}
-	marshalledObj, _ := json.Marshal(&obj)
-	json.Unmarshal(marshalledObj, &mapInterface)
-
-	newCtx := context.TODO()
-	retryCount := 0
-	for {
-		_, err := group.client.DynamicClient.Resource(gvr).UpdateStatus(ctx, &unstructured.Unstructured{Object: mapInterface}, metav1.UpdateOptions{})
-		if err == nil {
-			log.Debugf("[SetGnsStateByName] Updating status for Gns node %s successful", hashedName)
-			break
-		}
-
-		log.Errorf("[SetGnsStateByName] Updating status for Gns node: %s failed with error %v. Retrying...", hashedName, err)
-
-		updatedObj, err := group.ForceReadGnsByName(newCtx, hashedName)
-		if err == nil {
-			obj.ObjectMeta = updatedObj.ObjectMeta
-			marshalledObj, _ := json.Marshal(&obj)
-			json.Unmarshal(marshalledObj, &mapInterface)
-		}
-
-		retryCount += 1
-		if retryCount == maxRetryCount1SecSleep {
-			log.Fatalf("[SetGnsStateByName] Max retry exceeded for updating status for Gns node: %s", hashedName)
-			return nil, err
-		}
-		time.Sleep(time.Second)
+	updatedStatus := objToUpdate.Status
+	updatedStatus.State = *status
+	payload, err := json.Marshal(map[string]interface{}{"status": updatedStatus})
+	if err != nil {
+		return nil, err
 	}
-
-	/*
-		if s, ok := subscriptionMap.Load("gnses.gns.tsm.tanzu.vmware.com"); ok {
-			resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
-			var objectToWrite *basegnstsmtanzuvmwarecomv1.Gns
-			if inWrCache {
-				objectToWrite = resWrCache.(*basegnstsmtanzuvmwarecomv1.Gns)
-				objectToWrite.Status.State = *status
-			} else {
-				// Object is not in write cache. Populate the write cache with last "known" object.
-				// TBD: Is this right ???
-				//      Can we expect ObjectToUpdate to the latest version of the object ?
-				//      What if we received the object spec but only want to update the status ?
-				//      Get on the object will return a object form cache if the cache has newer version.
-				// 		So proceeding with assumption that if newer version is available, user will get the newer version anyways.
-				objectToWrite = objToUpdate
-				objToUpdate.Status.State = *status
-			}
-			s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), objectToWrite)
-		}
-	*/
-	return &GnsGns{
-		client: group.client,
-		Gns:    objToUpdate, // TBD: To be fixed to return back the "result"
-	}, nil
+	result, err := group.client.baseClient.GnsTsmV1().Gnses().Patch(ctx, objToUpdate.Name, types.MergePatchType, payload, metav1.PatchOptions{}, "status")
+	if err != nil {
+		return nil, err
+	}
+	if sub, ok := subscriptionMap.Load("gnses.gns.tsm.tanzu.vmware.com"); ok {
+		sub.(subscription).WriteCacheObjects.Store(result.Name, result)
+	}
+	return &GnsGns{client: group.client, Gns: result}, nil
 }
 
 // UpdateGnsByName updates object stored in the database under the hashedName which is a hash of
 // display name and parents names.
 func (group *GnsTsmV1) UpdateGnsByName(ctx context.Context,
 	objToUpdate *basegnstsmtanzuvmwarecomv1.Gns) (*GnsGns, error) {
-	log.Debugf("[UpdateGnsByName] Received objToUpdate: %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateGnsByName] Received objToUpdate: %s", objToUpdate.GetName())
 
 	var patch Patch
 
@@ -6279,8 +6278,8 @@ func (group *GnsTsmV1) UpdateGnsByName(ctx context.Context,
 			for _, k := range parentsList {
 				objToUpdate.Labels[k] = current.Labels[k]
 			}
-			objToUpdate.Labels[common.IS_NAME_HASHED_LABEL] = current.Labels[common.IS_NAME_HASHED_LABEL]
-			objToUpdate.Labels[common.DISPLAY_NAME_LABEL] = current.Labels[common.DISPLAY_NAME_LABEL]
+			objToUpdate.Labels[common.IsNameHashedLabel] = current.Labels[common.IsNameHashedLabel]
+			objToUpdate.Labels[common.DisplayNameLabel] = current.Labels[common.DisplayNameLabel]
 			patch = append(patch, PatchOp{
 				Op:    "replace",
 				Path:  "/metadata/labels",
@@ -6668,46 +6667,46 @@ func (group *GnsTsmV1) UpdateGnsByName(ctx context.Context,
 			GnsTsmV1().
 			Gnses().Patch(newCtx, objToUpdate.GetName(), types.JSONPatchType, marshaled, metav1.PatchOptions{}, "")
 		if err != nil {
-			log.Errorf("[UpdateGnsByName] Failed to patch Gns %s with error: %+v", objToUpdate.GetName(), err)
+			logger.Errorf("[UpdateGnsByName] Failed to patch Gns %s with error: %+v", objToUpdate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
-					log.Debugf("Trigger Gns Delete: %s", objToUpdate.GetName())
+					logger.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
+					logger.Debugf("Trigger Gns Delete: %s", objToUpdate.GetName())
 					delErr := group.DeleteGnsByName(newCtx, objToUpdate.GetName())
 					if delErr != nil {
-						log.Debugf("Error occur while deleting Gns: %s", objToUpdate.GetName())
+						logger.Debugf("Error occur while deleting Gns: %s", objToUpdate.GetName())
 						return nil, delErr
 					}
-					log.Debugf("Gns deleted: %s", objToUpdate.GetName())
+					logger.Debugf("Gns deleted: %s", objToUpdate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[UpdateGnsByName]: context canceled: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateGnsByName]: context canceled: %s", objToUpdate.GetName())
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[UpdateGnsByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
-				log.Debugf("Trigger Gns Delete: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateGnsByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
+				logger.Debugf("Trigger Gns Delete: %s", objToUpdate.GetName())
 				delErr := group.DeleteGnsByName(newCtx, objToUpdate.GetName())
 				if delErr != nil {
-					log.Debugf("Error occur while deleting Gns: %+v", objToUpdate.GetName())
+					logger.Debugf("Error occur while deleting Gns: %+v", objToUpdate.GetName())
 					return nil, delErr
 				}
-				log.Debugf("Gns Deleted: %s", objToUpdate.GetName())
+				logger.Debugf("Gns Deleted: %s", objToUpdate.GetName())
 				return nil, err
 			}
 		} else {
-			log.Debugf("[UpdateGnsByName] Patch Gns Success :%s", objToUpdate.GetName())
+			logger.Debugf("[UpdateGnsByName] Patch Gns Success :%s", objToUpdate.GetName())
 			if s, ok := subscriptionMap.Load("gnses.gns.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[UpdateGnsByName] %s stored in wr-cache", objToUpdate.GetName())
+				logger.Debugf("[UpdateGnsByName] %s stored in wr-cache", objToUpdate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
 	}
-	log.Debugf("[UpdateGnsByName] Executed Successfully %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateGnsByName] Executed Successfully %s", objToUpdate.GetName())
 	return &GnsGns{
 		client: group.client,
 		Gns:    result,
@@ -6773,8 +6772,10 @@ func (obj *GnsGns) Update(ctx context.Context) error {
 
 // SetState sets user defined status
 func (obj *GnsGns) SetState(ctx context.Context, status *basegnstsmtanzuvmwarecomv1.GnsState) error {
+	logger.Debugf("[GnsGns SetState] Set status for object with name %s", obj.GetName())
 	result, err := obj.client.Gns().SetGnsStateByName(ctx, obj.Gns, status)
 	if err != nil {
+		logger.Errorf("[GnsGns SetState] Set status for object with name %s failed with error %v", obj.GetName(), err)
 		return err
 	}
 	obj.Gns = result.Gns
@@ -6792,8 +6793,10 @@ func (obj *GnsGns) GetState(ctx context.Context) (*basegnstsmtanzuvmwarecomv1.Gn
 
 // ClearState to clear user defined status
 func (obj *GnsGns) ClearState(ctx context.Context) error {
+	logger.Debugf("[GnsGns ClearState] Set status for object with name %s", obj.GetName())
 	result, err := obj.client.Gns().SetGnsStateByName(ctx, obj.Gns, &basegnstsmtanzuvmwarecomv1.GnsState{})
 	if err != nil {
+		logger.Errorf("[GnsGns ClearState] Clear status for object with name %s failed with error %v", obj.GetName(), err)
 		return err
 	}
 	obj.Gns = result.Gns
@@ -6802,6 +6805,7 @@ func (obj *GnsGns) ClearState(ctx context.Context) error {
 
 func (obj *GnsGns) GetParent(ctx context.Context) (result *ConfigConfig, err error) {
 	hashedName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", obj.Labels, obj.Labels["configs.config.tsm.tanzu.vmware.com"])
+	logger.Debugf("[GetParent] Get parent of GnsGns name %s [labels %#v] of parent type configs.config.tsm.tanzu.vmware.com and name %s", obj.Name, obj.Labels, hashedName)
 	return obj.client.Config().GetConfigByName(ctx, hashedName)
 }
 
@@ -6812,6 +6816,7 @@ type GnsGnsGnsServiceGroups struct {
 
 func (n *GnsGnsGnsServiceGroups) Next(ctx context.Context) (*ServicegroupSvcGroup, error) {
 	for index, child := range n.GnsServiceGroups {
+		logger.Debugf("[GnsGnsGnsServiceGroups Next] Get next GnsServiceGroups with name %s", child.Name)
 		obj, err := n.client.Servicegroup().GetSvcGroupByName(ctx, child.Name)
 		if err == nil {
 			if index == len(n.GnsServiceGroups)-1 {
@@ -6833,7 +6838,7 @@ func (n *GnsGnsGnsServiceGroups) Next(ctx context.Context) (*ServicegroupSvcGrou
 func (obj *GnsGns) GetAllGnsServiceGroupsIter(ctx context.Context) (
 	result GnsGnsGnsServiceGroups) {
 	result.client = obj.client
-	for _, v := range GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com") {
+	for _, v := range obj.client.children.GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com") {
 		result.GnsServiceGroups = append(result.GnsServiceGroups, basegnstsmtanzuvmwarecomv1.Child{
 			Group: "servicegroup.tsm.tanzu.vmware.com",
 			Kind:  "SvcGroup",
@@ -6846,7 +6851,8 @@ func (obj *GnsGns) GetAllGnsServiceGroupsIter(ctx context.Context) (
 // GetAllGnsServiceGroups returns all children of a given type
 func (obj *GnsGns) GetAllGnsServiceGroups(ctx context.Context) (
 	result []*ServicegroupSvcGroup, err error) {
-	for _, v := range GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com") {
+	for _, v := range obj.client.children.GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com") {
+		logger.Debugf("[GnsGns GetAllGnsServiceGroups] Get next GnsServiceGroups with name %s", v)
 		l, err := obj.client.Servicegroup().GetSvcGroupByName(ctx, v)
 		if err != nil {
 			return nil, err
@@ -6866,10 +6872,13 @@ func (obj *GnsGns) GetGnsServiceGroups(ctx context.Context,
 	}
 	parentLabels["gnses.gns.tsm.tanzu.vmware.com"] = obj.DisplayName()
 	childHashName := helper.GetHashedName("svcgroups.servicegroup.tsm.tanzu.vmware.com", parentLabels, displayName)
-	if IsChildExists("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", childHashName) == false {
+	logger.Debugf("[GetGnsServiceGroups] in GnsGns with name %s, displayName %s, parentLabels %#v", childHashName, displayName, parentLabels)
+	if obj.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", childHashName) == false {
+		logger.Debugf("[GetGnsServiceGroups] ChildNotFound GnsServiceGroups with name %s, displayName %s ", childHashName, displayName)
 		return nil, NewChildNotFound(obj.DisplayName(), "Gns.Gns", "GnsServiceGroups", displayName)
 	}
 
+	logger.Debugf("[GetGnsServiceGroups] invoke GetSvcGroupByName name %s, displayName %s", childHashName, displayName)
 	result, err = obj.client.Servicegroup().GetSvcGroupByName(ctx, childHashName)
 	return
 }
@@ -6879,7 +6888,7 @@ func (obj *GnsGns) GetGnsServiceGroups(ctx context.Context,
 // nexus/display_name label and can be obtained using DisplayName() method.
 func (obj *GnsGns) AddGnsServiceGroups(ctx context.Context,
 	objToCreate *baseservicegrouptsmtanzuvmwarecomv1.SvcGroup) (result *ServicegroupSvcGroup, err error) {
-	log.Debugf("[AddGnsServiceGroups] Received objToAdd: %s", objToCreate.GetName())
+	logger.Debugf("[AddGnsServiceGroups] Received objToAdd: %s", objToCreate.GetName())
 	if objToCreate.Labels == nil {
 		objToCreate.Labels = map[string]string{}
 	}
@@ -6887,19 +6896,19 @@ func (obj *GnsGns) AddGnsServiceGroups(ctx context.Context,
 		objToCreate.Labels[v] = obj.Labels[v]
 	}
 	objToCreate.Labels["gnses.gns.tsm.tanzu.vmware.com"] = obj.DisplayName()
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName(objToCreate.CRDName(), objToCreate.Labels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
 	result, err = obj.client.Servicegroup().CreateSvcGroupByName(ctx, objToCreate)
-	log.Debugf("[AddGnsServiceGroups] SvcGroup created successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddGnsServiceGroups] SvcGroup created successfully: %s", objToCreate.GetName())
 	updatedObj, getErr := obj.client.Gns().GetGnsByName(ctx, obj.GetName())
 	if getErr == nil {
 		obj.Gns = updatedObj.Gns
 	}
-	log.Debugf("[AddGnsServiceGroups] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddGnsServiceGroups] Executed Successfully: %s", objToCreate.GetName())
 	return
 }
 
@@ -6907,7 +6916,7 @@ func (obj *GnsGns) AddGnsServiceGroups(ctx context.Context,
 // and parents names and deletes it.
 
 func (obj *GnsGns) DeleteGnsServiceGroups(ctx context.Context, displayName string) (err error) {
-	log.Debugf("[ DeleteGnsServiceGroups] Received for SvcGroup object: %s to delete", displayName)
+	logger.Debugf("[ DeleteGnsServiceGroups] Received for SvcGroup object: %s to delete", displayName)
 
 	parentLabels := make(map[string]string)
 	for k, v := range obj.Labels {
@@ -6915,7 +6924,7 @@ func (obj *GnsGns) DeleteGnsServiceGroups(ctx context.Context, displayName strin
 	}
 	parentLabels["gnses.gns.tsm.tanzu.vmware.com"] = obj.DisplayName()
 	childHashName := helper.GetHashedName("svcgroups.servicegroup.tsm.tanzu.vmware.com", parentLabels, displayName)
-	if IsChildExists("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", childHashName) == false {
+	if obj.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", childHashName) == false {
 		return NewChildNotFound(obj.DisplayName(), "Gns.Gns", "GnsServiceGroups", displayName)
 	}
 
@@ -6923,7 +6932,7 @@ func (obj *GnsGns) DeleteGnsServiceGroups(ctx context.Context, displayName strin
 	if err != nil {
 		return err
 	}
-	log.Debugf("[ DeleteGnsServiceGroups] SvcGroup object: %s deleted successfully", displayName)
+	logger.Debugf("[ DeleteGnsServiceGroups] SvcGroup object: %s deleted successfully", displayName)
 	updatedObj, err := obj.client.Gns().GetGnsByName(ctx, obj.GetName())
 	if err == nil {
 		obj.Gns = updatedObj.Gns
@@ -6934,7 +6943,7 @@ func (obj *GnsGns) DeleteGnsServiceGroups(ctx context.Context, displayName strin
 // GetGnsAccessControlPolicy returns child of given type
 func (obj *GnsGns) GetGnsAccessControlPolicy(ctx context.Context) (
 	result *PolicypkgAccessControlPolicy, err error) {
-	children := GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com")
 	if len(children) == 0 {
 		return nil, NewChildNotFound(obj.DisplayName(), "Gns.Gns", "GnsAccessControlPolicy")
 	}
@@ -6946,7 +6955,7 @@ func (obj *GnsGns) GetGnsAccessControlPolicy(ctx context.Context) (
 // nexus/display_name label and can be obtained using DisplayName() method.
 func (obj *GnsGns) AddGnsAccessControlPolicy(ctx context.Context,
 	objToCreate *basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy) (result *PolicypkgAccessControlPolicy, err error) {
-	log.Debugf("[AddGnsAccessControlPolicy] Received objToAdd: %s", objToCreate.GetName())
+	logger.Debugf("[AddGnsAccessControlPolicy] Received objToAdd: %s", objToCreate.GetName())
 	if objToCreate.Labels == nil {
 		objToCreate.Labels = map[string]string{}
 	}
@@ -6954,19 +6963,19 @@ func (obj *GnsGns) AddGnsAccessControlPolicy(ctx context.Context,
 		objToCreate.Labels[v] = obj.Labels[v]
 	}
 	objToCreate.Labels["gnses.gns.tsm.tanzu.vmware.com"] = obj.DisplayName()
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName(objToCreate.CRDName(), objToCreate.Labels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
 	result, err = obj.client.Policypkg().CreateAccessControlPolicyByName(ctx, objToCreate)
-	log.Debugf("[AddGnsAccessControlPolicy] AccessControlPolicy created successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddGnsAccessControlPolicy] AccessControlPolicy created successfully: %s", objToCreate.GetName())
 	updatedObj, getErr := obj.client.Gns().GetGnsByName(ctx, obj.GetName())
 	if getErr == nil {
 		obj.Gns = updatedObj.Gns
 	}
-	log.Debugf("[AddGnsAccessControlPolicy] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddGnsAccessControlPolicy] Executed Successfully: %s", objToCreate.GetName())
 	return
 }
 
@@ -6974,9 +6983,9 @@ func (obj *GnsGns) AddGnsAccessControlPolicy(ctx context.Context,
 // and parents names and deletes it.
 
 func (obj *GnsGns) DeleteGnsAccessControlPolicy(ctx context.Context) (err error) {
-	children := GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com")
 	if len(children) > 1 {
-		log.Panicf("[ DeleteGnsAccessControlPolicy] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
+		logger.Panicf("[ DeleteGnsAccessControlPolicy] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
 	}
 
 	if len(children) > 0 {
@@ -6998,7 +7007,7 @@ func (obj *GnsGns) DeleteGnsAccessControlPolicy(ctx context.Context) (err error)
 // GetFooChild returns child of given type
 func (obj *GnsGns) GetFooChild(ctx context.Context) (
 	result *GnsBarChild, err error) {
-	children := GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "barchilds.gns.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "barchilds.gns.tsm.tanzu.vmware.com")
 	if len(children) == 0 {
 		return nil, NewChildNotFound(obj.DisplayName(), "Gns.Gns", "FooChild")
 	}
@@ -7010,7 +7019,7 @@ func (obj *GnsGns) GetFooChild(ctx context.Context) (
 // nexus/display_name label and can be obtained using DisplayName() method.
 func (obj *GnsGns) AddFooChild(ctx context.Context,
 	objToCreate *basegnstsmtanzuvmwarecomv1.BarChild) (result *GnsBarChild, err error) {
-	log.Debugf("[AddFooChild] Received objToAdd: %s", objToCreate.GetName())
+	logger.Debugf("[AddFooChild] Received objToAdd: %s", objToCreate.GetName())
 	if objToCreate.Labels == nil {
 		objToCreate.Labels = map[string]string{}
 	}
@@ -7018,25 +7027,25 @@ func (obj *GnsGns) AddFooChild(ctx context.Context,
 		objToCreate.Labels[v] = obj.Labels[v]
 	}
 	objToCreate.Labels["gnses.gns.tsm.tanzu.vmware.com"] = obj.DisplayName()
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
 		if objToCreate.GetName() == "" {
-			objToCreate.SetName(helper.DEFAULT_KEY)
+			objToCreate.SetName(helper.DefaultKey)
 		}
-		if objToCreate.GetName() != helper.DEFAULT_KEY {
+		if objToCreate.GetName() != helper.DefaultKey {
 			return nil, NewSingletonNameError(objToCreate.GetName())
 		}
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName(objToCreate.CRDName(), objToCreate.Labels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
 	result, err = obj.client.Gns().CreateBarChildByName(ctx, objToCreate)
-	log.Debugf("[AddFooChild] BarChild created successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddFooChild] BarChild created successfully: %s", objToCreate.GetName())
 	updatedObj, getErr := obj.client.Gns().GetGnsByName(ctx, obj.GetName())
 	if getErr == nil {
 		obj.Gns = updatedObj.Gns
 	}
-	log.Debugf("[AddFooChild] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddFooChild] Executed Successfully: %s", objToCreate.GetName())
 	return
 }
 
@@ -7044,9 +7053,9 @@ func (obj *GnsGns) AddFooChild(ctx context.Context,
 // and parents names and deletes it.
 
 func (obj *GnsGns) DeleteFooChild(ctx context.Context) (err error) {
-	children := GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "barchilds.gns.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "barchilds.gns.tsm.tanzu.vmware.com")
 	if len(children) > 1 {
-		log.Panicf("[ DeleteFooChild] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
+		logger.Panicf("[ DeleteFooChild] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
 	}
 
 	if len(children) > 0 {
@@ -7068,7 +7077,7 @@ func (obj *GnsGns) DeleteFooChild(ctx context.Context) (err error) {
 // GetIgnoreChild returns child of given type
 func (obj *GnsGns) GetIgnoreChild(ctx context.Context) (
 	result *GnsIgnoreChild, err error) {
-	children := GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "ignorechilds.gns.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "ignorechilds.gns.tsm.tanzu.vmware.com")
 	if len(children) == 0 {
 		return nil, NewChildNotFound(obj.DisplayName(), "Gns.Gns", "IgnoreChild")
 	}
@@ -7080,7 +7089,7 @@ func (obj *GnsGns) GetIgnoreChild(ctx context.Context) (
 // nexus/display_name label and can be obtained using DisplayName() method.
 func (obj *GnsGns) AddIgnoreChild(ctx context.Context,
 	objToCreate *basegnstsmtanzuvmwarecomv1.IgnoreChild) (result *GnsIgnoreChild, err error) {
-	log.Debugf("[AddIgnoreChild] Received objToAdd: %s", objToCreate.GetName())
+	logger.Debugf("[AddIgnoreChild] Received objToAdd: %s", objToCreate.GetName())
 	if objToCreate.Labels == nil {
 		objToCreate.Labels = map[string]string{}
 	}
@@ -7088,19 +7097,19 @@ func (obj *GnsGns) AddIgnoreChild(ctx context.Context,
 		objToCreate.Labels[v] = obj.Labels[v]
 	}
 	objToCreate.Labels["gnses.gns.tsm.tanzu.vmware.com"] = obj.DisplayName()
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName(objToCreate.CRDName(), objToCreate.Labels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
 	result, err = obj.client.Gns().CreateIgnoreChildByName(ctx, objToCreate)
-	log.Debugf("[AddIgnoreChild] IgnoreChild created successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddIgnoreChild] IgnoreChild created successfully: %s", objToCreate.GetName())
 	updatedObj, getErr := obj.client.Gns().GetGnsByName(ctx, obj.GetName())
 	if getErr == nil {
 		obj.Gns = updatedObj.Gns
 	}
-	log.Debugf("[AddIgnoreChild] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddIgnoreChild] Executed Successfully: %s", objToCreate.GetName())
 	return
 }
 
@@ -7108,9 +7117,9 @@ func (obj *GnsGns) AddIgnoreChild(ctx context.Context,
 // and parents names and deletes it.
 
 func (obj *GnsGns) DeleteIgnoreChild(ctx context.Context) (err error) {
-	children := GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "ignorechilds.gns.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "ignorechilds.gns.tsm.tanzu.vmware.com")
 	if len(children) > 1 {
-		log.Panicf("[ DeleteIgnoreChild] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
+		logger.Panicf("[ DeleteIgnoreChild] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
 	}
 
 	if len(children) > 0 {
@@ -7132,7 +7141,7 @@ func (obj *GnsGns) DeleteIgnoreChild(ctx context.Context) (err error) {
 // GetFoo returns child of given type
 func (obj *GnsGns) GetFoo(ctx context.Context) (
 	result *GnsFoo, err error) {
-	children := GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "foos.gns.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "foos.gns.tsm.tanzu.vmware.com")
 	if len(children) == 0 {
 		return nil, NewChildNotFound(obj.DisplayName(), "Gns.Gns", "Foo")
 	}
@@ -7144,7 +7153,7 @@ func (obj *GnsGns) GetFoo(ctx context.Context) (
 // nexus/display_name label and can be obtained using DisplayName() method.
 func (obj *GnsGns) AddFoo(ctx context.Context,
 	objToCreate *basegnstsmtanzuvmwarecomv1.Foo) (result *GnsFoo, err error) {
-	log.Debugf("[AddFoo] Received objToAdd: %s", objToCreate.GetName())
+	logger.Debugf("[AddFoo] Received objToAdd: %s", objToCreate.GetName())
 	if objToCreate.Labels == nil {
 		objToCreate.Labels = map[string]string{}
 	}
@@ -7152,19 +7161,19 @@ func (obj *GnsGns) AddFoo(ctx context.Context,
 		objToCreate.Labels[v] = obj.Labels[v]
 	}
 	objToCreate.Labels["gnses.gns.tsm.tanzu.vmware.com"] = obj.DisplayName()
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName(objToCreate.CRDName(), objToCreate.Labels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
 	result, err = obj.client.Gns().CreateFooByName(ctx, objToCreate)
-	log.Debugf("[AddFoo] Foo created successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddFoo] Foo created successfully: %s", objToCreate.GetName())
 	updatedObj, getErr := obj.client.Gns().GetGnsByName(ctx, obj.GetName())
 	if getErr == nil {
 		obj.Gns = updatedObj.Gns
 	}
-	log.Debugf("[AddFoo] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddFoo] Executed Successfully: %s", objToCreate.GetName())
 	return
 }
 
@@ -7172,9 +7181,9 @@ func (obj *GnsGns) AddFoo(ctx context.Context,
 // and parents names and deletes it.
 
 func (obj *GnsGns) DeleteFoo(ctx context.Context) (err error) {
-	children := GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "foos.gns.tsm.tanzu.vmware.com")
+	children := obj.client.children.GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "foos.gns.tsm.tanzu.vmware.com")
 	if len(children) > 1 {
-		log.Panicf("[ DeleteFoo] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
+		logger.Panicf("[ DeleteFoo] Cannot have more than 1 unnamed link for object %s. Current children %d", obj.GetName(), len(children))
 	}
 
 	if len(children) > 0 {
@@ -7200,6 +7209,7 @@ type GnsGnsTestOptionalParentPathParamChild struct {
 
 func (n *GnsGnsTestOptionalParentPathParamChild) Next(ctx context.Context) (*OptionalparentpathparamOptionalParentPathParam, error) {
 	for index, child := range n.TestOptionalParentPathParamChild {
+		logger.Debugf("[GnsGnsTestOptionalParentPathParamChild Next] Get next TestOptionalParentPathParamChild with name %s", child.Name)
 		obj, err := n.client.Optionalparentpathparam().GetOptionalParentPathParamByName(ctx, child.Name)
 		if err == nil {
 			if index == len(n.TestOptionalParentPathParamChild)-1 {
@@ -7221,7 +7231,7 @@ func (n *GnsGnsTestOptionalParentPathParamChild) Next(ctx context.Context) (*Opt
 func (obj *GnsGns) GetAllTestOptionalParentPathParamChildIter(ctx context.Context) (
 	result GnsGnsTestOptionalParentPathParamChild) {
 	result.client = obj.client
-	for _, v := range GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com") {
+	for _, v := range obj.client.children.GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com") {
 		result.TestOptionalParentPathParamChild = append(result.TestOptionalParentPathParamChild, basegnstsmtanzuvmwarecomv1.Child{
 			Group: "optionalparentpathparam.tsm.tanzu.vmware.com",
 			Kind:  "OptionalParentPathParam",
@@ -7234,7 +7244,8 @@ func (obj *GnsGns) GetAllTestOptionalParentPathParamChildIter(ctx context.Contex
 // GetAllTestOptionalParentPathParamChild returns all children of a given type
 func (obj *GnsGns) GetAllTestOptionalParentPathParamChild(ctx context.Context) (
 	result []*OptionalparentpathparamOptionalParentPathParam, err error) {
-	for _, v := range GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com") {
+	for _, v := range obj.client.children.GetChildren("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com") {
+		logger.Debugf("[GnsGns GetAllTestOptionalParentPathParamChild] Get next TestOptionalParentPathParamChild with name %s", v)
 		l, err := obj.client.Optionalparentpathparam().GetOptionalParentPathParamByName(ctx, v)
 		if err != nil {
 			return nil, err
@@ -7254,10 +7265,13 @@ func (obj *GnsGns) GetTestOptionalParentPathParamChild(ctx context.Context,
 	}
 	parentLabels["gnses.gns.tsm.tanzu.vmware.com"] = obj.DisplayName()
 	childHashName := helper.GetHashedName("optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", parentLabels, displayName)
-	if IsChildExists("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", childHashName) == false {
+	logger.Debugf("[GetTestOptionalParentPathParamChild] in GnsGns with name %s, displayName %s, parentLabels %#v", childHashName, displayName, parentLabels)
+	if obj.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", childHashName) == false {
+		logger.Debugf("[GetTestOptionalParentPathParamChild] ChildNotFound TestOptionalParentPathParamChild with name %s, displayName %s ", childHashName, displayName)
 		return nil, NewChildNotFound(obj.DisplayName(), "Gns.Gns", "TestOptionalParentPathParamChild", displayName)
 	}
 
+	logger.Debugf("[GetTestOptionalParentPathParamChild] invoke GetOptionalParentPathParamByName name %s, displayName %s", childHashName, displayName)
 	result, err = obj.client.Optionalparentpathparam().GetOptionalParentPathParamByName(ctx, childHashName)
 	return
 }
@@ -7267,7 +7281,7 @@ func (obj *GnsGns) GetTestOptionalParentPathParamChild(ctx context.Context,
 // nexus/display_name label and can be obtained using DisplayName() method.
 func (obj *GnsGns) AddTestOptionalParentPathParamChild(ctx context.Context,
 	objToCreate *baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam) (result *OptionalparentpathparamOptionalParentPathParam, err error) {
-	log.Debugf("[AddTestOptionalParentPathParamChild] Received objToAdd: %s", objToCreate.GetName())
+	logger.Debugf("[AddTestOptionalParentPathParamChild] Received objToAdd: %s", objToCreate.GetName())
 	if objToCreate.Labels == nil {
 		objToCreate.Labels = map[string]string{}
 	}
@@ -7275,19 +7289,19 @@ func (obj *GnsGns) AddTestOptionalParentPathParamChild(ctx context.Context,
 		objToCreate.Labels[v] = obj.Labels[v]
 	}
 	objToCreate.Labels["gnses.gns.tsm.tanzu.vmware.com"] = obj.DisplayName()
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName(objToCreate.CRDName(), objToCreate.Labels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
 	result, err = obj.client.Optionalparentpathparam().CreateOptionalParentPathParamByName(ctx, objToCreate)
-	log.Debugf("[AddTestOptionalParentPathParamChild] OptionalParentPathParam created successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddTestOptionalParentPathParamChild] OptionalParentPathParam created successfully: %s", objToCreate.GetName())
 	updatedObj, getErr := obj.client.Gns().GetGnsByName(ctx, obj.GetName())
 	if getErr == nil {
 		obj.Gns = updatedObj.Gns
 	}
-	log.Debugf("[AddTestOptionalParentPathParamChild] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddTestOptionalParentPathParamChild] Executed Successfully: %s", objToCreate.GetName())
 	return
 }
 
@@ -7295,7 +7309,7 @@ func (obj *GnsGns) AddTestOptionalParentPathParamChild(ctx context.Context,
 // and parents names and deletes it.
 
 func (obj *GnsGns) DeleteTestOptionalParentPathParamChild(ctx context.Context, displayName string) (err error) {
-	log.Debugf("[ DeleteTestOptionalParentPathParamChild] Received for OptionalParentPathParam object: %s to delete", displayName)
+	logger.Debugf("[ DeleteTestOptionalParentPathParamChild] Received for OptionalParentPathParam object: %s to delete", displayName)
 
 	parentLabels := make(map[string]string)
 	for k, v := range obj.Labels {
@@ -7303,7 +7317,7 @@ func (obj *GnsGns) DeleteTestOptionalParentPathParamChild(ctx context.Context, d
 	}
 	parentLabels["gnses.gns.tsm.tanzu.vmware.com"] = obj.DisplayName()
 	childHashName := helper.GetHashedName("optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", parentLabels, displayName)
-	if IsChildExists("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", childHashName) == false {
+	if obj.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", obj.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", childHashName) == false {
 		return NewChildNotFound(obj.DisplayName(), "Gns.Gns", "TestOptionalParentPathParamChild", displayName)
 	}
 
@@ -7311,7 +7325,7 @@ func (obj *GnsGns) DeleteTestOptionalParentPathParamChild(ctx context.Context, d
 	if err != nil {
 		return err
 	}
-	log.Debugf("[ DeleteTestOptionalParentPathParamChild] OptionalParentPathParam object: %s deleted successfully", displayName)
+	logger.Debugf("[ DeleteTestOptionalParentPathParamChild] OptionalParentPathParam object: %s deleted successfully", displayName)
 	updatedObj, err := obj.client.Gns().GetGnsByName(ctx, obj.GetName())
 	if err == nil {
 		obj.Gns = updatedObj.Gns
@@ -7413,23 +7427,25 @@ func (c *gnsGnsTsmV1Chainer) IsSubscribed() bool {
 }
 
 func (c *gnsGnsTsmV1Chainer) addCallback(obj *GnsGns) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["configs.config.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[addCallback] received for gnses.gns.tsm.tanzu.vmware.com name %s displayName %s parent configs.config.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	AddChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "gnses.gns.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "gnses.gns.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *gnsGnsTsmV1Chainer) deleteCallback(obj *GnsGns) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["configs.config.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[deleteCallback] received for gnses.gns.tsm.tanzu.vmware.com name %s displayName %s parent configs.config.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	RemoveChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "gnses.gns.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "gnses.gns.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *gnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsGns), updateCB func(oldObj, newObj *GnsGns), deleteCB func(obj *GnsGns)) (cache.ResourceEventHandlerRegistration, error) {
@@ -7459,6 +7475,7 @@ func (c *gnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsGns), updat
 				client: c.client,
 				Gns:    obj.(*basegnstsmtanzuvmwarecomv1.Gns),
 			}
+			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for gnses.gns.tsm.tanzu.vmware.com name %s", nc.Gns.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -7480,10 +7497,10 @@ func (c *gnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsGns), updat
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if !IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "gnses.gns.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "gnses.gns.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "gnses.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "gnses.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			addCB(nc)
@@ -7498,6 +7515,7 @@ func (c *gnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsGns), updat
 				client: c.client,
 				Gns:    newObj.(*basegnstsmtanzuvmwarecomv1.Gns),
 			}
+			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for gnses.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Gns.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
 		},
 
@@ -7506,6 +7524,7 @@ func (c *gnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsGns), updat
 				client: c.client,
 				Gns:    obj.(*basegnstsmtanzuvmwarecomv1.Gns),
 			}
+			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for gnses.gns.tsm.tanzu.vmware.com name %s", nc.Gns.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -7529,11 +7548,11 @@ func (c *gnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsGns), updat
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "gnses.gns.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "gnses.gns.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "gnses.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "gnses.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			deleteCB(nc)
@@ -7543,7 +7562,7 @@ func (c *gnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsGns), updat
 }
 
 func (c *gnsGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsGns)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterAddCallback] Received for GnsGns")
+	logger.Debugf("[RegisterAddCallback] Received for GnsGns")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -7571,6 +7590,7 @@ func (c *gnsGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsGns)) (cache.
 				client: c.client,
 				Gns:    obj.(*basegnstsmtanzuvmwarecomv1.Gns),
 			}
+			logger.Debugf("[RegisterAddCallback] Got Add event for gnses.gns.tsm.tanzu.vmware.com name %s", nc.Gns.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -7593,11 +7613,11 @@ func (c *gnsGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsGns)) (cache.
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if !IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "gnses.gns.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "gnses.gns.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "gnses.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "gnses.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -7608,7 +7628,7 @@ func (c *gnsGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsGns)) (cache.
 }
 
 func (c *gnsGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *GnsGns)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterUpdateCallback] Received for GnsGns")
+	logger.Debugf("[RegisterUpdateCallback] Received for GnsGns")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -7640,6 +7660,7 @@ func (c *gnsGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *Gn
 				client: c.client,
 				Gns:    newObj.(*basegnstsmtanzuvmwarecomv1.Gns),
 			}
+			logger.Debugf("[RegisterUpdateCallback] Got Update event for gnses.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Gns.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
 		},
 	})
@@ -7648,7 +7669,7 @@ func (c *gnsGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *Gn
 }
 
 func (c *gnsGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsGns)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterDeleteCallback] Received for GnsGns")
+	logger.Debugf("[RegisterDeleteCallback] Received for GnsGns")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -7676,6 +7697,7 @@ func (c *gnsGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsGns)) (cac
 				client: c.client,
 				Gns:    obj.(*basegnstsmtanzuvmwarecomv1.Gns),
 			}
+			logger.Debugf("[RegisterDeleteCallback] Got Delete event for gnses.gns.tsm.tanzu.vmware.com name %s", nc.Gns.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -7701,10 +7723,10 @@ func (c *gnsGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsGns)) (cac
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "gnses.gns.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "gnses.gns.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "gnses.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "gnses.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -7717,11 +7739,13 @@ func (c *gnsGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsGns)) (cac
 // ClearState to clear user defined status
 func (c *gnsGnsTsmV1Chainer) ClearState(ctx context.Context) (err error) {
 	hashedName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", c.parentLabels, c.name)
+	logger.Debugf("[gnsGnsTsmV1Chainer ClearState] Clear status for object with name %s", hashedName)
 	obj, err := c.client.Gns().GetGnsByName(ctx, hashedName)
 	if err != nil {
+		logger.Errorf("[gnsGnsTsmV1Chainer ClearState] Clear status for object with name %s failed with error %v", hashedName, err)
 		return err
 	}
-	_, err = c.client.Gns().SetGnsStateByName(ctx, obj.Gns, nil)
+	_, err = c.client.Gns().SetGnsStateByName(ctx, obj.Gns, &basegnstsmtanzuvmwarecomv1.GnsState{})
 	return err
 }
 
@@ -7738,8 +7762,10 @@ func (c *gnsGnsTsmV1Chainer) GetState(ctx context.Context) (result *basegnstsmta
 // SetState sets user defined status
 func (c *gnsGnsTsmV1Chainer) SetState(ctx context.Context, status *basegnstsmtanzuvmwarecomv1.GnsState) (err error) {
 	hashedName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", c.parentLabels, c.name)
+	logger.Debugf("[gnsGnsTsmV1Chainer SetState] Set status for object with name %s", hashedName)
 	obj, err := c.client.Gns().GetGnsByName(ctx, hashedName)
 	if err != nil {
+		logger.Errorf("[gnsGnsTsmV1Chainer SetState] Set status for object with name %s failed with error %v", hashedName, err)
 		return err
 	}
 	_, err = c.client.Gns().SetGnsStateByName(ctx, obj.Gns, status)
@@ -7759,6 +7785,7 @@ func (c *gnsGnsTsmV1Chainer) GnsServiceGroups(name string) *svcgroupServicegroup
 // GetGnsServiceGroups calculates hashed name of the object based on displayName and it's parents and returns the object
 func (c *gnsGnsTsmV1Chainer) GetGnsServiceGroups(ctx context.Context, displayName string) (result *ServicegroupSvcGroup, err error) {
 	hashedName := helper.GetHashedName("svcgroups.servicegroup.tsm.tanzu.vmware.com", c.parentLabels, displayName)
+	logger.Debugf("[GetGnsServiceGroups] using chainer for name %s, displayName %s, labels %#v", hashedName, displayName, c.parentLabels)
 	return c.client.Servicegroup().GetSvcGroupByName(ctx, hashedName)
 }
 
@@ -7773,9 +7800,9 @@ func (c *gnsGnsTsmV1Chainer) AddGnsServiceGroups(ctx context.Context,
 	for k, v := range c.parentLabels {
 		objToCreate.Labels[k] = v
 	}
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName("svcgroups.servicegroup.tsm.tanzu.vmware.com", c.parentLabels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
@@ -7788,7 +7815,7 @@ func (c *gnsGnsTsmV1Chainer) DeleteGnsServiceGroups(ctx context.Context, name st
 	if c.parentLabels == nil {
 		c.parentLabels = map[string]string{}
 	}
-	c.parentLabels[common.IS_NAME_HASHED_LABEL] = "true"
+	c.parentLabels[common.IsNameHashedLabel] = "true"
 	hashedName := helper.GetHashedName("svcgroups.servicegroup.tsm.tanzu.vmware.com", c.parentLabels, name)
 	return c.client.Servicegroup().DeleteSvcGroupByName(ctx, hashedName)
 }
@@ -7806,6 +7833,7 @@ func (c *gnsGnsTsmV1Chainer) GnsAccessControlPolicy(name string) *accesscontrolp
 // GetGnsAccessControlPolicy calculates hashed name of the object based on displayName and it's parents and returns the object
 func (c *gnsGnsTsmV1Chainer) GetGnsAccessControlPolicy(ctx context.Context, displayName string) (result *PolicypkgAccessControlPolicy, err error) {
 	hashedName := helper.GetHashedName("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", c.parentLabels, displayName)
+	logger.Debugf("[GetGnsAccessControlPolicy] using chainer for name %s, displayName %s, labels %#v", hashedName, displayName, c.parentLabels)
 	return c.client.Policypkg().GetAccessControlPolicyByName(ctx, hashedName)
 }
 
@@ -7820,9 +7848,9 @@ func (c *gnsGnsTsmV1Chainer) AddGnsAccessControlPolicy(ctx context.Context,
 	for k, v := range c.parentLabels {
 		objToCreate.Labels[k] = v
 	}
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", c.parentLabels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
@@ -7835,24 +7863,24 @@ func (c *gnsGnsTsmV1Chainer) DeleteGnsAccessControlPolicy(ctx context.Context, n
 	if c.parentLabels == nil {
 		c.parentLabels = map[string]string{}
 	}
-	c.parentLabels[common.IS_NAME_HASHED_LABEL] = "true"
+	c.parentLabels[common.IsNameHashedLabel] = "true"
 	hashedName := helper.GetHashedName("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", c.parentLabels, name)
 	return c.client.Policypkg().DeleteAccessControlPolicyByName(ctx, hashedName)
 }
 
 func (c *gnsGnsTsmV1Chainer) FooChild() *barchildGnsTsmV1Chainer {
 	parentLabels := c.parentLabels
-	parentLabels["barchilds.gns.tsm.tanzu.vmware.com"] = helper.DEFAULT_KEY
+	parentLabels["barchilds.gns.tsm.tanzu.vmware.com"] = helper.DefaultKey
 	return &barchildGnsTsmV1Chainer{
 		client:       c.client,
-		name:         helper.DEFAULT_KEY,
+		name:         helper.DefaultKey,
 		parentLabels: parentLabels,
 	}
 }
 
 // GetFooChild calculates hashed name of the object based on it's parents and returns the object
 func (c *gnsGnsTsmV1Chainer) GetFooChild(ctx context.Context) (result *GnsBarChild, err error) {
-	hashedName := helper.GetHashedName("barchilds.gns.tsm.tanzu.vmware.com", c.parentLabels, helper.DEFAULT_KEY)
+	hashedName := helper.GetHashedName("barchilds.gns.tsm.tanzu.vmware.com", c.parentLabels, helper.DefaultKey)
 	return c.client.Gns().GetBarChildByName(ctx, hashedName)
 }
 
@@ -7862,9 +7890,9 @@ func (c *gnsGnsTsmV1Chainer) GetFooChild(ctx context.Context) (result *GnsBarChi
 func (c *gnsGnsTsmV1Chainer) AddFooChild(ctx context.Context,
 	objToCreate *basegnstsmtanzuvmwarecomv1.BarChild) (result *GnsBarChild, err error) {
 	if objToCreate.GetName() == "" {
-		objToCreate.SetName(helper.DEFAULT_KEY)
+		objToCreate.SetName(helper.DefaultKey)
 	}
-	if objToCreate.GetName() != helper.DEFAULT_KEY {
+	if objToCreate.GetName() != helper.DefaultKey {
 		return nil, NewSingletonNameError(objToCreate.GetName())
 	}
 	if objToCreate.Labels == nil {
@@ -7873,9 +7901,9 @@ func (c *gnsGnsTsmV1Chainer) AddFooChild(ctx context.Context,
 	for k, v := range c.parentLabels {
 		objToCreate.Labels[k] = v
 	}
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName("barchilds.gns.tsm.tanzu.vmware.com", c.parentLabels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
@@ -7888,7 +7916,7 @@ func (c *gnsGnsTsmV1Chainer) DeleteFooChild(ctx context.Context, name string) (e
 	if c.parentLabels == nil {
 		c.parentLabels = map[string]string{}
 	}
-	c.parentLabels[common.IS_NAME_HASHED_LABEL] = "true"
+	c.parentLabels[common.IsNameHashedLabel] = "true"
 	hashedName := helper.GetHashedName("barchilds.gns.tsm.tanzu.vmware.com", c.parentLabels, name)
 	return c.client.Gns().DeleteBarChildByName(ctx, hashedName)
 }
@@ -7906,6 +7934,7 @@ func (c *gnsGnsTsmV1Chainer) IgnoreChild(name string) *ignorechildGnsTsmV1Chaine
 // GetIgnoreChild calculates hashed name of the object based on displayName and it's parents and returns the object
 func (c *gnsGnsTsmV1Chainer) GetIgnoreChild(ctx context.Context, displayName string) (result *GnsIgnoreChild, err error) {
 	hashedName := helper.GetHashedName("ignorechilds.gns.tsm.tanzu.vmware.com", c.parentLabels, displayName)
+	logger.Debugf("[GetIgnoreChild] using chainer for name %s, displayName %s, labels %#v", hashedName, displayName, c.parentLabels)
 	return c.client.Gns().GetIgnoreChildByName(ctx, hashedName)
 }
 
@@ -7920,9 +7949,9 @@ func (c *gnsGnsTsmV1Chainer) AddIgnoreChild(ctx context.Context,
 	for k, v := range c.parentLabels {
 		objToCreate.Labels[k] = v
 	}
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName("ignorechilds.gns.tsm.tanzu.vmware.com", c.parentLabels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
@@ -7935,7 +7964,7 @@ func (c *gnsGnsTsmV1Chainer) DeleteIgnoreChild(ctx context.Context, name string)
 	if c.parentLabels == nil {
 		c.parentLabels = map[string]string{}
 	}
-	c.parentLabels[common.IS_NAME_HASHED_LABEL] = "true"
+	c.parentLabels[common.IsNameHashedLabel] = "true"
 	hashedName := helper.GetHashedName("ignorechilds.gns.tsm.tanzu.vmware.com", c.parentLabels, name)
 	return c.client.Gns().DeleteIgnoreChildByName(ctx, hashedName)
 }
@@ -7953,6 +7982,7 @@ func (c *gnsGnsTsmV1Chainer) Foo(name string) *fooGnsTsmV1Chainer {
 // GetFoo calculates hashed name of the object based on displayName and it's parents and returns the object
 func (c *gnsGnsTsmV1Chainer) GetFoo(ctx context.Context, displayName string) (result *GnsFoo, err error) {
 	hashedName := helper.GetHashedName("foos.gns.tsm.tanzu.vmware.com", c.parentLabels, displayName)
+	logger.Debugf("[GetFoo] using chainer for name %s, displayName %s, labels %#v", hashedName, displayName, c.parentLabels)
 	return c.client.Gns().GetFooByName(ctx, hashedName)
 }
 
@@ -7967,9 +7997,9 @@ func (c *gnsGnsTsmV1Chainer) AddFoo(ctx context.Context,
 	for k, v := range c.parentLabels {
 		objToCreate.Labels[k] = v
 	}
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName("foos.gns.tsm.tanzu.vmware.com", c.parentLabels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
@@ -7982,7 +8012,7 @@ func (c *gnsGnsTsmV1Chainer) DeleteFoo(ctx context.Context, name string) (err er
 	if c.parentLabels == nil {
 		c.parentLabels = map[string]string{}
 	}
-	c.parentLabels[common.IS_NAME_HASHED_LABEL] = "true"
+	c.parentLabels[common.IsNameHashedLabel] = "true"
 	hashedName := helper.GetHashedName("foos.gns.tsm.tanzu.vmware.com", c.parentLabels, name)
 	return c.client.Gns().DeleteFooByName(ctx, hashedName)
 }
@@ -8000,6 +8030,7 @@ func (c *gnsGnsTsmV1Chainer) TestOptionalParentPathParamChild(name string) *opti
 // GetTestOptionalParentPathParamChild calculates hashed name of the object based on displayName and it's parents and returns the object
 func (c *gnsGnsTsmV1Chainer) GetTestOptionalParentPathParamChild(ctx context.Context, displayName string) (result *OptionalparentpathparamOptionalParentPathParam, err error) {
 	hashedName := helper.GetHashedName("optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", c.parentLabels, displayName)
+	logger.Debugf("[GetTestOptionalParentPathParamChild] using chainer for name %s, displayName %s, labels %#v", hashedName, displayName, c.parentLabels)
 	return c.client.Optionalparentpathparam().GetOptionalParentPathParamByName(ctx, hashedName)
 }
 
@@ -8014,9 +8045,9 @@ func (c *gnsGnsTsmV1Chainer) AddTestOptionalParentPathParamChild(ctx context.Con
 	for k, v := range c.parentLabels {
 		objToCreate.Labels[k] = v
 	}
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName("optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", c.parentLabels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
@@ -8029,7 +8060,7 @@ func (c *gnsGnsTsmV1Chainer) DeleteTestOptionalParentPathParamChild(ctx context.
 	if c.parentLabels == nil {
 		c.parentLabels = map[string]string{}
 	}
-	c.parentLabels[common.IS_NAME_HASHED_LABEL] = "true"
+	c.parentLabels[common.IsNameHashedLabel] = "true"
 	hashedName := helper.GetHashedName("optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", c.parentLabels, name)
 	return c.client.Optionalparentpathparam().DeleteOptionalParentPathParamByName(ctx, hashedName)
 }
@@ -8055,11 +8086,11 @@ func (group *GnsTsmV1) GetBarChildByName(ctx context.Context, hashedName string)
 		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
 		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
-			log.Debugf("[GetBarChildByName] Object: %s exists in cache", hashedName)
+			logger.Debugf("[GetBarChildByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*basegnstsmtanzuvmwarecomv1.BarChild)
 			subsCacheVersion, subsCacheVersionErr := strconv.Atoi(resultCache.ResourceVersion)
 			if subsCacheVersionErr != nil {
-				log.Fatalf("[GetBarChildByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
+				logger.Fatalf("[GetBarChildByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
 			}
 
 			writeCacheVersion := 0
@@ -8067,7 +8098,7 @@ func (group *GnsTsmV1) GetBarChildByName(ctx context.Context, hashedName string)
 			if inWrCache {
 				writeCacheVersion, writeCacheVersionErr = strconv.Atoi(resWrCache.(*basegnstsmtanzuvmwarecomv1.BarChild).ResourceVersion)
 				if writeCacheVersionErr != nil {
-					log.Fatalf("[GetBarChildByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
+					logger.Fatalf("[GetBarChildByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
 				}
 			}
 
@@ -8100,22 +8131,22 @@ func (group *GnsTsmV1) GetBarChildByName(ctx context.Context, hashedName string)
 				BarChild: result,
 			}, nil
 		} else if errors.IsNotFound(err) {
-			log.Debugf("[GetBarChildByName]: object %v not found", hashedName)
+			logger.Debugf("[GetBarChildByName]: object %v not found", hashedName)
 			return nil, err
 		} else {
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on Get BarChilds: %s", hashedName)
+					logger.Errorf("Max retry exceed on Get BarChilds: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[GetBarChildByName]: %+v", err)
+				logger.Errorf("[GetBarChildByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[GetBarChildByName]: %+v", err)
+				logger.Errorf("[GetBarChildByName]: %+v", err)
 				return nil, err
 			}
 		}
@@ -8125,31 +8156,31 @@ func (group *GnsTsmV1) GetBarChildByName(ctx context.Context, hashedName string)
 // ForceReadBarChildByName read object directly from the database under the hashedName which is a hash of display
 // name and parents names. Use it when you know hashed name of object.
 func (group *GnsTsmV1) ForceReadBarChildByName(ctx context.Context, hashedName string) (*GnsBarChild, error) {
-	log.Debugf("[ForceReadBarChildByName] Received object :%s to read from DB", hashedName)
+	logger.Debugf("[ForceReadBarChildByName] Received object :%s to read from DB", hashedName)
 	retryCount := 0
 	for {
 		result, err := group.client.baseClient.
 			GnsTsmV1().
 			BarChilds().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[ForceReadBarChildByName] Failed to Get BarChilds: %+v", err)
+			logger.Errorf("[ForceReadBarChildByName] Failed to Get BarChilds: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Errorf("[Retry Count: %d ] %+v", retryCount, err)
+				logger.Errorf("[Retry Count: %d ] %+v", retryCount, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max Retry exceed on Get BarChilds: %s", hashedName)
+					logger.Errorf("Max Retry exceed on Get BarChilds: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[ForceReadBarChildByName]: %+v", err)
+				logger.Errorf("[ForceReadBarChildByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[ForceReadBarChildByName]: %+v", err)
+				logger.Errorf("[ForceReadBarChildByName]: %+v", err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[ForceReadBarChildByName] Executed Successfully :%s", hashedName)
+			logger.Debugf("[ForceReadBarChildByName] Executed Successfully :%s", hashedName)
 			return &GnsBarChild{
 				client:   group.client,
 				BarChild: result,
@@ -8161,7 +8192,7 @@ func (group *GnsTsmV1) ForceReadBarChildByName(ctx context.Context, hashedName s
 // DeleteBarChildByName deletes object stored in the database under the hashedName which is a hash of
 // display name and parents names. Use it when you know hashed name of object.
 func (group *GnsTsmV1) DeleteBarChildByName(ctx context.Context, hashedName string) (err error) {
-	log.Debugf("[DeleteBarChildByName] Received objectToDelete: %s", hashedName)
+	logger.Debugf("[DeleteBarChildByName] Received objectToDelete: %s", hashedName)
 	var (
 		retryCount int
 		result     *basegnstsmtanzuvmwarecomv1.BarChild
@@ -8173,23 +8204,23 @@ func (group *GnsTsmV1) DeleteBarChildByName(ctx context.Context, hashedName stri
 			GnsTsmV1().
 			BarChilds().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[DeleteBarChildByName] Failed to get BarChilds: %+v", err)
+			logger.Errorf("[DeleteBarChildByName] Failed to get BarChilds: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on get BarChilds: %s", hashedName)
+					logger.Errorf("Max retry exceed on get BarChilds: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteBarChildByName] context canceled: %s", hashedName)
+				logger.Errorf("[DeleteBarChildByName] context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteBarChildByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteBarChildByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteBarChildByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteBarChildByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -8207,23 +8238,23 @@ func (group *GnsTsmV1) DeleteBarChildByName(ctx context.Context, hashedName stri
 			GnsTsmV1().
 			BarChilds().Delete(ctx, hashedName, metav1.DeleteOptions{})
 		if err != nil {
-			log.Errorf("[DeleteBarChildByName] failed to delete BarChilds: %+v", err)
+			logger.Errorf("[DeleteBarChildByName] failed to delete BarChilds: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on delete BarChilds: %s", hashedName)
+					logger.Errorf("Max retry exceed on delete BarChilds: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteBarChildByName]: context canceled: %s", hashedName)
+				logger.Errorf("[DeleteBarChildByName]: context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteBarChildByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteBarChildByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteBarChildByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteBarChildByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -8235,7 +8266,7 @@ func (group *GnsTsmV1) DeleteBarChildByName(ctx context.Context, hashedName stri
 	}
 	// Get Parent Node and check if gvk present before patch
 
-	log.Debugf("[DeleteBarChildByName] Get parent details for object: %s", hashedName)
+	logger.Debugf("[DeleteBarChildByName] Get parent details for object: %s", hashedName)
 	// var patch Patch
 	parents := result.GetLabels()
 	if parents == nil {
@@ -8243,16 +8274,16 @@ func (group *GnsTsmV1) DeleteBarChildByName(ctx context.Context, hashedName stri
 	}
 	parentName, ok := parents["gnses.gns.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	if result.GetLabels() != nil {
-		if parents[common.IS_NAME_HASHED_LABEL] == "true" {
+		if parents[common.IsNameHashedLabel] == "true" {
 			parentName = helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", parents, parentName)
 		}
 	} else {
 		parentName = helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", parents, parentName)
 	}
-	RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentName, "barchilds.gns.tsm.tanzu.vmware.com", hashedName)
+	group.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentName, "barchilds.gns.tsm.tanzu.vmware.com", hashedName)
 
 	return nil
 }
@@ -8261,18 +8292,18 @@ func (group *GnsTsmV1) DeleteBarChildByName(ctx context.Context, hashedName stri
 // Use it directly ONLY when objToCreate.Name is hashed name of the object.
 func (group *GnsTsmV1) CreateBarChildByName(ctx context.Context,
 	objToCreate *basegnstsmtanzuvmwarecomv1.BarChild) (*GnsBarChild, error) {
-	log.Debugf("[CreateBarChildByName] Received objToCreate: %s", objToCreate.GetName())
+	logger.Debugf("[CreateBarChildByName] Received objToCreate: %s", objToCreate.GetName())
 	if objToCreate.GetLabels() == nil {
 		objToCreate.Labels = make(map[string]string)
 	}
-	if _, ok := objToCreate.Labels[common.DISPLAY_NAME_LABEL]; !ok {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
+	if _, ok := objToCreate.Labels[common.DisplayNameLabel]; !ok {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
 	}
-	if objToCreate.Labels[common.DISPLAY_NAME_LABEL] == "" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = helper.DEFAULT_KEY
+	if objToCreate.Labels[common.DisplayNameLabel] == "" {
+		objToCreate.Labels[common.DisplayNameLabel] = helper.DefaultKey
 	}
-	if objToCreate.Labels[common.DISPLAY_NAME_LABEL] != helper.DEFAULT_KEY {
-		return nil, NewSingletonNameError(objToCreate.Labels[common.DISPLAY_NAME_LABEL])
+	if objToCreate.Labels[common.DisplayNameLabel] != helper.DefaultKey {
+		return nil, NewSingletonNameError(objToCreate.Labels[common.DisplayNameLabel])
 	}
 
 	var (
@@ -8286,33 +8317,33 @@ func (group *GnsTsmV1) CreateBarChildByName(ctx context.Context,
 			GnsTsmV1().
 			BarChilds().Create(ctx, objToCreate, metav1.CreateOptions{})
 		if err != nil {
-			log.Errorf("[CreateBarChildByName] Failed to create BarChild: %s, error: %+v", objToCreate.GetName(), err)
+			logger.Errorf("[CreateBarChildByName] Failed to create BarChild: %s, error: %+v", objToCreate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on create BarChild: %s", objToCreate.GetName())
+					logger.Errorf("Max retry exceed on create BarChild: %s", objToCreate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[CreateBarChildByName] context canceled while creating BarChild: %s", objToCreate.GetName())
+				logger.Errorf("[CreateBarChildByName] context canceled while creating BarChild: %s", objToCreate.GetName())
 				return nil, context.Canceled
 			} else if errors.IsAlreadyExists(err) {
-				log.Debugf("[CreateBarChildByName] BarChild: %s already exists, error: %+v", objToCreate.GetName(), err)
+				logger.Debugf("[CreateBarChildByName] BarChild: %s already exists, error: %+v", objToCreate.GetName(), err)
 				result, err = group.client.baseClient.GnsTsmV1().BarChilds().Get(ctx, objToCreate.GetName(), metav1.GetOptions{})
 				if err != nil {
-					log.Fatalf("[CreateBarChildByName] Unable to Get BarChild %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
+					logger.Fatalf("[CreateBarChildByName] Unable to Get BarChild %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
 				}
 				break
 			} else {
-				log.Errorf("[CreateBarChildByName] found unexpected error while creating BarChild: %s, error: %+v", objToCreate.GetName(), err)
+				logger.Errorf("[CreateBarChildByName] found unexpected error while creating BarChild: %s, error: %+v", objToCreate.GetName(), err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[CreateBarChildByName] BarChild: %s created successfully", objToCreate.GetName())
+			logger.Debugf("[CreateBarChildByName] BarChild: %s created successfully", objToCreate.GetName())
 			if s, ok := subscriptionMap.Load("barchilds.gns.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[CreateBarChildByName] BarChild: %s stored in wr-cache", objToCreate.GetName())
+				logger.Debugf("[CreateBarChildByName] BarChild: %s stored in wr-cache", objToCreate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
@@ -8321,13 +8352,13 @@ func (group *GnsTsmV1) CreateBarChildByName(ctx context.Context,
 
 	parentName, ok := objToCreate.GetLabels()["gnses.gns.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	parentHashedName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", objToCreate.GetLabels(), parentName)
 
-	AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashedName, "barchilds.gns.tsm.tanzu.vmware.com", objToCreate.Name)
+	group.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashedName, "barchilds.gns.tsm.tanzu.vmware.com", objToCreate.Name)
 
-	log.Debugf("[CreateBarChildByName] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[CreateBarChildByName] Executed Successfully: %s", objToCreate.GetName())
 	return &GnsBarChild{
 		client:   group.client,
 		BarChild: result,
@@ -8338,9 +8369,9 @@ func (group *GnsTsmV1) CreateBarChildByName(ctx context.Context,
 // display name and parents names.
 func (group *GnsTsmV1) UpdateBarChildByName(ctx context.Context,
 	objToUpdate *basegnstsmtanzuvmwarecomv1.BarChild) (*GnsBarChild, error) {
-	log.Debugf("[UpdateBarChildByName] Received objToUpdate: %s", objToUpdate.GetName())
-	if objToUpdate.Labels[common.DISPLAY_NAME_LABEL] != helper.DEFAULT_KEY {
-		return nil, NewSingletonNameError(objToUpdate.Labels[common.DISPLAY_NAME_LABEL])
+	logger.Debugf("[UpdateBarChildByName] Received objToUpdate: %s", objToUpdate.GetName())
+	if objToUpdate.Labels[common.DisplayNameLabel] != helper.DefaultKey {
+		return nil, NewSingletonNameError(objToUpdate.Labels[common.DisplayNameLabel])
 	}
 
 	var patch Patch
@@ -8367,8 +8398,8 @@ func (group *GnsTsmV1) UpdateBarChildByName(ctx context.Context,
 			for _, k := range parentsList {
 				objToUpdate.Labels[k] = current.Labels[k]
 			}
-			objToUpdate.Labels[common.IS_NAME_HASHED_LABEL] = current.Labels[common.IS_NAME_HASHED_LABEL]
-			objToUpdate.Labels[common.DISPLAY_NAME_LABEL] = current.Labels[common.DISPLAY_NAME_LABEL]
+			objToUpdate.Labels[common.IsNameHashedLabel] = current.Labels[common.IsNameHashedLabel]
+			objToUpdate.Labels[common.DisplayNameLabel] = current.Labels[common.DisplayNameLabel]
 			patch = append(patch, PatchOp{
 				Op:    "replace",
 				Path:  "/metadata/labels",
@@ -8420,46 +8451,46 @@ func (group *GnsTsmV1) UpdateBarChildByName(ctx context.Context,
 			GnsTsmV1().
 			BarChilds().Patch(newCtx, objToUpdate.GetName(), types.JSONPatchType, marshaled, metav1.PatchOptions{}, "")
 		if err != nil {
-			log.Errorf("[UpdateBarChildByName] Failed to patch BarChild %s with error: %+v", objToUpdate.GetName(), err)
+			logger.Errorf("[UpdateBarChildByName] Failed to patch BarChild %s with error: %+v", objToUpdate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
-					log.Debugf("Trigger BarChild Delete: %s", objToUpdate.GetName())
+					logger.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
+					logger.Debugf("Trigger BarChild Delete: %s", objToUpdate.GetName())
 					delErr := group.DeleteBarChildByName(newCtx, objToUpdate.GetName())
 					if delErr != nil {
-						log.Debugf("Error occur while deleting BarChild: %s", objToUpdate.GetName())
+						logger.Debugf("Error occur while deleting BarChild: %s", objToUpdate.GetName())
 						return nil, delErr
 					}
-					log.Debugf("BarChild deleted: %s", objToUpdate.GetName())
+					logger.Debugf("BarChild deleted: %s", objToUpdate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[UpdateBarChildByName]: context canceled: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateBarChildByName]: context canceled: %s", objToUpdate.GetName())
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[UpdateBarChildByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
-				log.Debugf("Trigger BarChild Delete: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateBarChildByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
+				logger.Debugf("Trigger BarChild Delete: %s", objToUpdate.GetName())
 				delErr := group.DeleteBarChildByName(newCtx, objToUpdate.GetName())
 				if delErr != nil {
-					log.Debugf("Error occur while deleting BarChild: %+v", objToUpdate.GetName())
+					logger.Debugf("Error occur while deleting BarChild: %+v", objToUpdate.GetName())
 					return nil, delErr
 				}
-				log.Debugf("BarChild Deleted: %s", objToUpdate.GetName())
+				logger.Debugf("BarChild Deleted: %s", objToUpdate.GetName())
 				return nil, err
 			}
 		} else {
-			log.Debugf("[UpdateBarChildByName] Patch BarChild Success :%s", objToUpdate.GetName())
+			logger.Debugf("[UpdateBarChildByName] Patch BarChild Success :%s", objToUpdate.GetName())
 			if s, ok := subscriptionMap.Load("barchilds.gns.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[UpdateBarChildByName] %s stored in wr-cache", objToUpdate.GetName())
+				logger.Debugf("[UpdateBarChildByName] %s stored in wr-cache", objToUpdate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
 	}
-	log.Debugf("[UpdateBarChildByName] Executed Successfully %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateBarChildByName] Executed Successfully %s", objToUpdate.GetName())
 	return &GnsBarChild{
 		client:   group.client,
 		BarChild: result,
@@ -8525,6 +8556,7 @@ func (obj *GnsBarChild) Update(ctx context.Context) error {
 
 func (obj *GnsBarChild) GetParent(ctx context.Context) (result *GnsGns, err error) {
 	hashedName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", obj.Labels, obj.Labels["gnses.gns.tsm.tanzu.vmware.com"])
+	logger.Debugf("[GetParent] Get parent of GnsBarChild name %s [labels %#v] of parent type gnses.gns.tsm.tanzu.vmware.com and name %s", obj.Name, obj.Labels, hashedName)
 	return obj.client.Gns().GetGnsByName(ctx, hashedName)
 }
 
@@ -8561,23 +8593,25 @@ func (c *barchildGnsTsmV1Chainer) IsSubscribed() bool {
 }
 
 func (c *barchildGnsTsmV1Chainer) addCallback(obj *GnsBarChild) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["gnses.gns.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[addCallback] received for barchilds.gns.tsm.tanzu.vmware.com name %s displayName %s parent gnses.gns.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "barchilds.gns.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "barchilds.gns.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *barchildGnsTsmV1Chainer) deleteCallback(obj *GnsBarChild) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["gnses.gns.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[deleteCallback] received for barchilds.gns.tsm.tanzu.vmware.com name %s displayName %s parent gnses.gns.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "barchilds.gns.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "barchilds.gns.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *barchildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsBarChild), updateCB func(oldObj, newObj *GnsBarChild), deleteCB func(obj *GnsBarChild)) (cache.ResourceEventHandlerRegistration, error) {
@@ -8607,6 +8641,7 @@ func (c *barchildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsBarChi
 				client:   c.client,
 				BarChild: obj.(*basegnstsmtanzuvmwarecomv1.BarChild),
 			}
+			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for barchilds.gns.tsm.tanzu.vmware.com name %s", nc.BarChild.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -8628,10 +8663,10 @@ func (c *barchildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsBarChi
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if !IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "barchilds.gns.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "barchilds.gns.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "barchilds.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "barchilds.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			addCB(nc)
@@ -8646,6 +8681,7 @@ func (c *barchildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsBarChi
 				client:   c.client,
 				BarChild: newObj.(*basegnstsmtanzuvmwarecomv1.BarChild),
 			}
+			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for barchilds.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.BarChild.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
 		},
 
@@ -8654,6 +8690,7 @@ func (c *barchildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsBarChi
 				client:   c.client,
 				BarChild: obj.(*basegnstsmtanzuvmwarecomv1.BarChild),
 			}
+			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for barchilds.gns.tsm.tanzu.vmware.com name %s", nc.BarChild.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -8677,11 +8714,11 @@ func (c *barchildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsBarChi
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "barchilds.gns.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "barchilds.gns.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "barchilds.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "barchilds.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			deleteCB(nc)
@@ -8691,7 +8728,7 @@ func (c *barchildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsBarChi
 }
 
 func (c *barchildGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsBarChild)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterAddCallback] Received for GnsBarChild")
+	logger.Debugf("[RegisterAddCallback] Received for GnsBarChild")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -8719,6 +8756,7 @@ func (c *barchildGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsBarChild
 				client:   c.client,
 				BarChild: obj.(*basegnstsmtanzuvmwarecomv1.BarChild),
 			}
+			logger.Debugf("[RegisterAddCallback] Got Add event for barchilds.gns.tsm.tanzu.vmware.com name %s", nc.BarChild.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -8741,11 +8779,11 @@ func (c *barchildGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsBarChild
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if !IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "barchilds.gns.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "barchilds.gns.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "barchilds.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "barchilds.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -8756,7 +8794,7 @@ func (c *barchildGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsBarChild
 }
 
 func (c *barchildGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *GnsBarChild)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterUpdateCallback] Received for GnsBarChild")
+	logger.Debugf("[RegisterUpdateCallback] Received for GnsBarChild")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -8788,6 +8826,7 @@ func (c *barchildGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newOb
 				client:   c.client,
 				BarChild: newObj.(*basegnstsmtanzuvmwarecomv1.BarChild),
 			}
+			logger.Debugf("[RegisterUpdateCallback] Got Update event for barchilds.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.BarChild.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
 		},
 	})
@@ -8796,7 +8835,7 @@ func (c *barchildGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newOb
 }
 
 func (c *barchildGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsBarChild)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterDeleteCallback] Received for GnsBarChild")
+	logger.Debugf("[RegisterDeleteCallback] Received for GnsBarChild")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -8824,6 +8863,7 @@ func (c *barchildGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsBarCh
 				client:   c.client,
 				BarChild: obj.(*basegnstsmtanzuvmwarecomv1.BarChild),
 			}
+			logger.Debugf("[RegisterDeleteCallback] Got Delete event for barchilds.gns.tsm.tanzu.vmware.com name %s", nc.BarChild.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -8849,10 +8889,10 @@ func (c *barchildGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsBarCh
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "barchilds.gns.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "barchilds.gns.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "barchilds.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "barchilds.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -8883,11 +8923,11 @@ func (group *GnsTsmV1) GetIgnoreChildByName(ctx context.Context, hashedName stri
 		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
 		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
-			log.Debugf("[GetIgnoreChildByName] Object: %s exists in cache", hashedName)
+			logger.Debugf("[GetIgnoreChildByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*basegnstsmtanzuvmwarecomv1.IgnoreChild)
 			subsCacheVersion, subsCacheVersionErr := strconv.Atoi(resultCache.ResourceVersion)
 			if subsCacheVersionErr != nil {
-				log.Fatalf("[GetIgnoreChildByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
+				logger.Fatalf("[GetIgnoreChildByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
 			}
 
 			writeCacheVersion := 0
@@ -8895,7 +8935,7 @@ func (group *GnsTsmV1) GetIgnoreChildByName(ctx context.Context, hashedName stri
 			if inWrCache {
 				writeCacheVersion, writeCacheVersionErr = strconv.Atoi(resWrCache.(*basegnstsmtanzuvmwarecomv1.IgnoreChild).ResourceVersion)
 				if writeCacheVersionErr != nil {
-					log.Fatalf("[GetIgnoreChildByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
+					logger.Fatalf("[GetIgnoreChildByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
 				}
 			}
 
@@ -8928,22 +8968,22 @@ func (group *GnsTsmV1) GetIgnoreChildByName(ctx context.Context, hashedName stri
 				IgnoreChild: result,
 			}, nil
 		} else if errors.IsNotFound(err) {
-			log.Debugf("[GetIgnoreChildByName]: object %v not found", hashedName)
+			logger.Debugf("[GetIgnoreChildByName]: object %v not found", hashedName)
 			return nil, err
 		} else {
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on Get IgnoreChilds: %s", hashedName)
+					logger.Errorf("Max retry exceed on Get IgnoreChilds: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[GetIgnoreChildByName]: %+v", err)
+				logger.Errorf("[GetIgnoreChildByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[GetIgnoreChildByName]: %+v", err)
+				logger.Errorf("[GetIgnoreChildByName]: %+v", err)
 				return nil, err
 			}
 		}
@@ -8953,31 +8993,31 @@ func (group *GnsTsmV1) GetIgnoreChildByName(ctx context.Context, hashedName stri
 // ForceReadIgnoreChildByName read object directly from the database under the hashedName which is a hash of display
 // name and parents names. Use it when you know hashed name of object.
 func (group *GnsTsmV1) ForceReadIgnoreChildByName(ctx context.Context, hashedName string) (*GnsIgnoreChild, error) {
-	log.Debugf("[ForceReadIgnoreChildByName] Received object :%s to read from DB", hashedName)
+	logger.Debugf("[ForceReadIgnoreChildByName] Received object :%s to read from DB", hashedName)
 	retryCount := 0
 	for {
 		result, err := group.client.baseClient.
 			GnsTsmV1().
 			IgnoreChilds().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[ForceReadIgnoreChildByName] Failed to Get IgnoreChilds: %+v", err)
+			logger.Errorf("[ForceReadIgnoreChildByName] Failed to Get IgnoreChilds: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Errorf("[Retry Count: %d ] %+v", retryCount, err)
+				logger.Errorf("[Retry Count: %d ] %+v", retryCount, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max Retry exceed on Get IgnoreChilds: %s", hashedName)
+					logger.Errorf("Max Retry exceed on Get IgnoreChilds: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[ForceReadIgnoreChildByName]: %+v", err)
+				logger.Errorf("[ForceReadIgnoreChildByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[ForceReadIgnoreChildByName]: %+v", err)
+				logger.Errorf("[ForceReadIgnoreChildByName]: %+v", err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[ForceReadIgnoreChildByName] Executed Successfully :%s", hashedName)
+			logger.Debugf("[ForceReadIgnoreChildByName] Executed Successfully :%s", hashedName)
 			return &GnsIgnoreChild{
 				client:      group.client,
 				IgnoreChild: result,
@@ -8989,7 +9029,7 @@ func (group *GnsTsmV1) ForceReadIgnoreChildByName(ctx context.Context, hashedNam
 // DeleteIgnoreChildByName deletes object stored in the database under the hashedName which is a hash of
 // display name and parents names. Use it when you know hashed name of object.
 func (group *GnsTsmV1) DeleteIgnoreChildByName(ctx context.Context, hashedName string) (err error) {
-	log.Debugf("[DeleteIgnoreChildByName] Received objectToDelete: %s", hashedName)
+	logger.Debugf("[DeleteIgnoreChildByName] Received objectToDelete: %s", hashedName)
 	var (
 		retryCount int
 		result     *basegnstsmtanzuvmwarecomv1.IgnoreChild
@@ -9001,23 +9041,23 @@ func (group *GnsTsmV1) DeleteIgnoreChildByName(ctx context.Context, hashedName s
 			GnsTsmV1().
 			IgnoreChilds().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[DeleteIgnoreChildByName] Failed to get IgnoreChilds: %+v", err)
+			logger.Errorf("[DeleteIgnoreChildByName] Failed to get IgnoreChilds: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on get IgnoreChilds: %s", hashedName)
+					logger.Errorf("Max retry exceed on get IgnoreChilds: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteIgnoreChildByName] context canceled: %s", hashedName)
+				logger.Errorf("[DeleteIgnoreChildByName] context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteIgnoreChildByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteIgnoreChildByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteIgnoreChildByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteIgnoreChildByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -9035,23 +9075,23 @@ func (group *GnsTsmV1) DeleteIgnoreChildByName(ctx context.Context, hashedName s
 			GnsTsmV1().
 			IgnoreChilds().Delete(ctx, hashedName, metav1.DeleteOptions{})
 		if err != nil {
-			log.Errorf("[DeleteIgnoreChildByName] failed to delete IgnoreChilds: %+v", err)
+			logger.Errorf("[DeleteIgnoreChildByName] failed to delete IgnoreChilds: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on delete IgnoreChilds: %s", hashedName)
+					logger.Errorf("Max retry exceed on delete IgnoreChilds: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteIgnoreChildByName]: context canceled: %s", hashedName)
+				logger.Errorf("[DeleteIgnoreChildByName]: context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteIgnoreChildByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteIgnoreChildByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteIgnoreChildByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteIgnoreChildByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -9063,7 +9103,7 @@ func (group *GnsTsmV1) DeleteIgnoreChildByName(ctx context.Context, hashedName s
 	}
 	// Get Parent Node and check if gvk present before patch
 
-	log.Debugf("[DeleteIgnoreChildByName] Get parent details for object: %s", hashedName)
+	logger.Debugf("[DeleteIgnoreChildByName] Get parent details for object: %s", hashedName)
 	// var patch Patch
 	parents := result.GetLabels()
 	if parents == nil {
@@ -9071,16 +9111,16 @@ func (group *GnsTsmV1) DeleteIgnoreChildByName(ctx context.Context, hashedName s
 	}
 	parentName, ok := parents["gnses.gns.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	if result.GetLabels() != nil {
-		if parents[common.IS_NAME_HASHED_LABEL] == "true" {
+		if parents[common.IsNameHashedLabel] == "true" {
 			parentName = helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", parents, parentName)
 		}
 	} else {
 		parentName = helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", parents, parentName)
 	}
-	RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentName, "ignorechilds.gns.tsm.tanzu.vmware.com", hashedName)
+	group.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentName, "ignorechilds.gns.tsm.tanzu.vmware.com", hashedName)
 
 	return nil
 }
@@ -9089,12 +9129,12 @@ func (group *GnsTsmV1) DeleteIgnoreChildByName(ctx context.Context, hashedName s
 // Use it directly ONLY when objToCreate.Name is hashed name of the object.
 func (group *GnsTsmV1) CreateIgnoreChildByName(ctx context.Context,
 	objToCreate *basegnstsmtanzuvmwarecomv1.IgnoreChild) (*GnsIgnoreChild, error) {
-	log.Debugf("[CreateIgnoreChildByName] Received objToCreate: %s", objToCreate.GetName())
+	logger.Debugf("[CreateIgnoreChildByName] Received objToCreate: %s", objToCreate.GetName())
 	if objToCreate.GetLabels() == nil {
 		objToCreate.Labels = make(map[string]string)
 	}
-	if _, ok := objToCreate.Labels[common.DISPLAY_NAME_LABEL]; !ok {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
+	if _, ok := objToCreate.Labels[common.DisplayNameLabel]; !ok {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
 	}
 
 	var (
@@ -9108,33 +9148,33 @@ func (group *GnsTsmV1) CreateIgnoreChildByName(ctx context.Context,
 			GnsTsmV1().
 			IgnoreChilds().Create(ctx, objToCreate, metav1.CreateOptions{})
 		if err != nil {
-			log.Errorf("[CreateIgnoreChildByName] Failed to create IgnoreChild: %s, error: %+v", objToCreate.GetName(), err)
+			logger.Errorf("[CreateIgnoreChildByName] Failed to create IgnoreChild: %s, error: %+v", objToCreate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on create IgnoreChild: %s", objToCreate.GetName())
+					logger.Errorf("Max retry exceed on create IgnoreChild: %s", objToCreate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[CreateIgnoreChildByName] context canceled while creating IgnoreChild: %s", objToCreate.GetName())
+				logger.Errorf("[CreateIgnoreChildByName] context canceled while creating IgnoreChild: %s", objToCreate.GetName())
 				return nil, context.Canceled
 			} else if errors.IsAlreadyExists(err) {
-				log.Debugf("[CreateIgnoreChildByName] IgnoreChild: %s already exists, error: %+v", objToCreate.GetName(), err)
+				logger.Debugf("[CreateIgnoreChildByName] IgnoreChild: %s already exists, error: %+v", objToCreate.GetName(), err)
 				result, err = group.client.baseClient.GnsTsmV1().IgnoreChilds().Get(ctx, objToCreate.GetName(), metav1.GetOptions{})
 				if err != nil {
-					log.Fatalf("[CreateIgnoreChildByName] Unable to Get IgnoreChild %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
+					logger.Fatalf("[CreateIgnoreChildByName] Unable to Get IgnoreChild %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
 				}
 				break
 			} else {
-				log.Errorf("[CreateIgnoreChildByName] found unexpected error while creating IgnoreChild: %s, error: %+v", objToCreate.GetName(), err)
+				logger.Errorf("[CreateIgnoreChildByName] found unexpected error while creating IgnoreChild: %s, error: %+v", objToCreate.GetName(), err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[CreateIgnoreChildByName] IgnoreChild: %s created successfully", objToCreate.GetName())
+			logger.Debugf("[CreateIgnoreChildByName] IgnoreChild: %s created successfully", objToCreate.GetName())
 			if s, ok := subscriptionMap.Load("ignorechilds.gns.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[CreateIgnoreChildByName] IgnoreChild: %s stored in wr-cache", objToCreate.GetName())
+				logger.Debugf("[CreateIgnoreChildByName] IgnoreChild: %s stored in wr-cache", objToCreate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
@@ -9143,13 +9183,13 @@ func (group *GnsTsmV1) CreateIgnoreChildByName(ctx context.Context,
 
 	parentName, ok := objToCreate.GetLabels()["gnses.gns.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	parentHashedName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", objToCreate.GetLabels(), parentName)
 
-	AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashedName, "ignorechilds.gns.tsm.tanzu.vmware.com", objToCreate.Name)
+	group.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashedName, "ignorechilds.gns.tsm.tanzu.vmware.com", objToCreate.Name)
 
-	log.Debugf("[CreateIgnoreChildByName] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[CreateIgnoreChildByName] Executed Successfully: %s", objToCreate.GetName())
 	return &GnsIgnoreChild{
 		client:      group.client,
 		IgnoreChild: result,
@@ -9160,7 +9200,7 @@ func (group *GnsTsmV1) CreateIgnoreChildByName(ctx context.Context,
 // display name and parents names.
 func (group *GnsTsmV1) UpdateIgnoreChildByName(ctx context.Context,
 	objToUpdate *basegnstsmtanzuvmwarecomv1.IgnoreChild) (*GnsIgnoreChild, error) {
-	log.Debugf("[UpdateIgnoreChildByName] Received objToUpdate: %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateIgnoreChildByName] Received objToUpdate: %s", objToUpdate.GetName())
 
 	var patch Patch
 
@@ -9186,8 +9226,8 @@ func (group *GnsTsmV1) UpdateIgnoreChildByName(ctx context.Context,
 			for _, k := range parentsList {
 				objToUpdate.Labels[k] = current.Labels[k]
 			}
-			objToUpdate.Labels[common.IS_NAME_HASHED_LABEL] = current.Labels[common.IS_NAME_HASHED_LABEL]
-			objToUpdate.Labels[common.DISPLAY_NAME_LABEL] = current.Labels[common.DISPLAY_NAME_LABEL]
+			objToUpdate.Labels[common.IsNameHashedLabel] = current.Labels[common.IsNameHashedLabel]
+			objToUpdate.Labels[common.DisplayNameLabel] = current.Labels[common.DisplayNameLabel]
 			patch = append(patch, PatchOp{
 				Op:    "replace",
 				Path:  "/metadata/labels",
@@ -9239,46 +9279,46 @@ func (group *GnsTsmV1) UpdateIgnoreChildByName(ctx context.Context,
 			GnsTsmV1().
 			IgnoreChilds().Patch(newCtx, objToUpdate.GetName(), types.JSONPatchType, marshaled, metav1.PatchOptions{}, "")
 		if err != nil {
-			log.Errorf("[UpdateIgnoreChildByName] Failed to patch IgnoreChild %s with error: %+v", objToUpdate.GetName(), err)
+			logger.Errorf("[UpdateIgnoreChildByName] Failed to patch IgnoreChild %s with error: %+v", objToUpdate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
-					log.Debugf("Trigger IgnoreChild Delete: %s", objToUpdate.GetName())
+					logger.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
+					logger.Debugf("Trigger IgnoreChild Delete: %s", objToUpdate.GetName())
 					delErr := group.DeleteIgnoreChildByName(newCtx, objToUpdate.GetName())
 					if delErr != nil {
-						log.Debugf("Error occur while deleting IgnoreChild: %s", objToUpdate.GetName())
+						logger.Debugf("Error occur while deleting IgnoreChild: %s", objToUpdate.GetName())
 						return nil, delErr
 					}
-					log.Debugf("IgnoreChild deleted: %s", objToUpdate.GetName())
+					logger.Debugf("IgnoreChild deleted: %s", objToUpdate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[UpdateIgnoreChildByName]: context canceled: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateIgnoreChildByName]: context canceled: %s", objToUpdate.GetName())
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[UpdateIgnoreChildByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
-				log.Debugf("Trigger IgnoreChild Delete: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateIgnoreChildByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
+				logger.Debugf("Trigger IgnoreChild Delete: %s", objToUpdate.GetName())
 				delErr := group.DeleteIgnoreChildByName(newCtx, objToUpdate.GetName())
 				if delErr != nil {
-					log.Debugf("Error occur while deleting IgnoreChild: %+v", objToUpdate.GetName())
+					logger.Debugf("Error occur while deleting IgnoreChild: %+v", objToUpdate.GetName())
 					return nil, delErr
 				}
-				log.Debugf("IgnoreChild Deleted: %s", objToUpdate.GetName())
+				logger.Debugf("IgnoreChild Deleted: %s", objToUpdate.GetName())
 				return nil, err
 			}
 		} else {
-			log.Debugf("[UpdateIgnoreChildByName] Patch IgnoreChild Success :%s", objToUpdate.GetName())
+			logger.Debugf("[UpdateIgnoreChildByName] Patch IgnoreChild Success :%s", objToUpdate.GetName())
 			if s, ok := subscriptionMap.Load("ignorechilds.gns.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[UpdateIgnoreChildByName] %s stored in wr-cache", objToUpdate.GetName())
+				logger.Debugf("[UpdateIgnoreChildByName] %s stored in wr-cache", objToUpdate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
 	}
-	log.Debugf("[UpdateIgnoreChildByName] Executed Successfully %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateIgnoreChildByName] Executed Successfully %s", objToUpdate.GetName())
 	return &GnsIgnoreChild{
 		client:      group.client,
 		IgnoreChild: result,
@@ -9344,6 +9384,7 @@ func (obj *GnsIgnoreChild) Update(ctx context.Context) error {
 
 func (obj *GnsIgnoreChild) GetParent(ctx context.Context) (result *GnsGns, err error) {
 	hashedName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", obj.Labels, obj.Labels["gnses.gns.tsm.tanzu.vmware.com"])
+	logger.Debugf("[GetParent] Get parent of GnsIgnoreChild name %s [labels %#v] of parent type gnses.gns.tsm.tanzu.vmware.com and name %s", obj.Name, obj.Labels, hashedName)
 	return obj.client.Gns().GetGnsByName(ctx, hashedName)
 }
 
@@ -9380,23 +9421,25 @@ func (c *ignorechildGnsTsmV1Chainer) IsSubscribed() bool {
 }
 
 func (c *ignorechildGnsTsmV1Chainer) addCallback(obj *GnsIgnoreChild) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["gnses.gns.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[addCallback] received for ignorechilds.gns.tsm.tanzu.vmware.com name %s displayName %s parent gnses.gns.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "ignorechilds.gns.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "ignorechilds.gns.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *ignorechildGnsTsmV1Chainer) deleteCallback(obj *GnsIgnoreChild) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["gnses.gns.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[deleteCallback] received for ignorechilds.gns.tsm.tanzu.vmware.com name %s displayName %s parent gnses.gns.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "ignorechilds.gns.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "ignorechilds.gns.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *ignorechildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsIgnoreChild), updateCB func(oldObj, newObj *GnsIgnoreChild), deleteCB func(obj *GnsIgnoreChild)) (cache.ResourceEventHandlerRegistration, error) {
@@ -9426,6 +9469,7 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsIgn
 				client:      c.client,
 				IgnoreChild: obj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild),
 			}
+			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for ignorechilds.gns.tsm.tanzu.vmware.com name %s", nc.IgnoreChild.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -9447,10 +9491,10 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsIgn
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if !IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "ignorechilds.gns.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "ignorechilds.gns.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "ignorechilds.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "ignorechilds.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			addCB(nc)
@@ -9465,6 +9509,7 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsIgn
 				client:      c.client,
 				IgnoreChild: newObj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild),
 			}
+			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for ignorechilds.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.IgnoreChild.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
 		},
 
@@ -9473,6 +9518,7 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsIgn
 				client:      c.client,
 				IgnoreChild: obj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild),
 			}
+			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for ignorechilds.gns.tsm.tanzu.vmware.com name %s", nc.IgnoreChild.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -9496,11 +9542,11 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsIgn
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "ignorechilds.gns.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "ignorechilds.gns.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "ignorechilds.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "ignorechilds.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			deleteCB(nc)
@@ -9510,7 +9556,7 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsIgn
 }
 
 func (c *ignorechildGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsIgnoreChild)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterAddCallback] Received for GnsIgnoreChild")
+	logger.Debugf("[RegisterAddCallback] Received for GnsIgnoreChild")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -9538,6 +9584,7 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsIgnor
 				client:      c.client,
 				IgnoreChild: obj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild),
 			}
+			logger.Debugf("[RegisterAddCallback] Got Add event for ignorechilds.gns.tsm.tanzu.vmware.com name %s", nc.IgnoreChild.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -9560,11 +9607,11 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsIgnor
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if !IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "ignorechilds.gns.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "ignorechilds.gns.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "ignorechilds.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "ignorechilds.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -9575,7 +9622,7 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsIgnor
 }
 
 func (c *ignorechildGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *GnsIgnoreChild)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterUpdateCallback] Received for GnsIgnoreChild")
+	logger.Debugf("[RegisterUpdateCallback] Received for GnsIgnoreChild")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -9607,6 +9654,7 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, ne
 				client:      c.client,
 				IgnoreChild: newObj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild),
 			}
+			logger.Debugf("[RegisterUpdateCallback] Got Update event for ignorechilds.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.IgnoreChild.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
 		},
 	})
@@ -9615,7 +9663,7 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, ne
 }
 
 func (c *ignorechildGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsIgnoreChild)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterDeleteCallback] Received for GnsIgnoreChild")
+	logger.Debugf("[RegisterDeleteCallback] Received for GnsIgnoreChild")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -9643,6 +9691,7 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsIg
 				client:      c.client,
 				IgnoreChild: obj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild),
 			}
+			logger.Debugf("[RegisterDeleteCallback] Got Delete event for ignorechilds.gns.tsm.tanzu.vmware.com name %s", nc.IgnoreChild.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -9668,10 +9717,10 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsIg
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "ignorechilds.gns.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "ignorechilds.gns.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "ignorechilds.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "ignorechilds.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -9702,11 +9751,11 @@ func (group *GnsTsmV1) GetDnsByName(ctx context.Context, hashedName string) (*Gn
 		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
 		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
-			log.Debugf("[GetDnsByName] Object: %s exists in cache", hashedName)
+			logger.Debugf("[GetDnsByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*basegnstsmtanzuvmwarecomv1.Dns)
 			subsCacheVersion, subsCacheVersionErr := strconv.Atoi(resultCache.ResourceVersion)
 			if subsCacheVersionErr != nil {
-				log.Fatalf("[GetDnsByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
+				logger.Fatalf("[GetDnsByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
 			}
 
 			writeCacheVersion := 0
@@ -9714,7 +9763,7 @@ func (group *GnsTsmV1) GetDnsByName(ctx context.Context, hashedName string) (*Gn
 			if inWrCache {
 				writeCacheVersion, writeCacheVersionErr = strconv.Atoi(resWrCache.(*basegnstsmtanzuvmwarecomv1.Dns).ResourceVersion)
 				if writeCacheVersionErr != nil {
-					log.Fatalf("[GetDnsByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
+					logger.Fatalf("[GetDnsByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
 				}
 			}
 
@@ -9747,22 +9796,22 @@ func (group *GnsTsmV1) GetDnsByName(ctx context.Context, hashedName string) (*Gn
 				Dns:    result,
 			}, nil
 		} else if errors.IsNotFound(err) {
-			log.Debugf("[GetDnsByName]: object %v not found", hashedName)
+			logger.Debugf("[GetDnsByName]: object %v not found", hashedName)
 			return nil, err
 		} else {
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on Get Dnses: %s", hashedName)
+					logger.Errorf("Max retry exceed on Get Dnses: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[GetDnsByName]: %+v", err)
+				logger.Errorf("[GetDnsByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[GetDnsByName]: %+v", err)
+				logger.Errorf("[GetDnsByName]: %+v", err)
 				return nil, err
 			}
 		}
@@ -9772,31 +9821,31 @@ func (group *GnsTsmV1) GetDnsByName(ctx context.Context, hashedName string) (*Gn
 // ForceReadDnsByName read object directly from the database under the hashedName which is a hash of display
 // name and parents names. Use it when you know hashed name of object.
 func (group *GnsTsmV1) ForceReadDnsByName(ctx context.Context, hashedName string) (*GnsDns, error) {
-	log.Debugf("[ForceReadDnsByName] Received object :%s to read from DB", hashedName)
+	logger.Debugf("[ForceReadDnsByName] Received object :%s to read from DB", hashedName)
 	retryCount := 0
 	for {
 		result, err := group.client.baseClient.
 			GnsTsmV1().
 			Dnses().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[ForceReadDnsByName] Failed to Get Dnses: %+v", err)
+			logger.Errorf("[ForceReadDnsByName] Failed to Get Dnses: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Errorf("[Retry Count: %d ] %+v", retryCount, err)
+				logger.Errorf("[Retry Count: %d ] %+v", retryCount, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max Retry exceed on Get Dnses: %s", hashedName)
+					logger.Errorf("Max Retry exceed on Get Dnses: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[ForceReadDnsByName]: %+v", err)
+				logger.Errorf("[ForceReadDnsByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[ForceReadDnsByName]: %+v", err)
+				logger.Errorf("[ForceReadDnsByName]: %+v", err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[ForceReadDnsByName] Executed Successfully :%s", hashedName)
+			logger.Debugf("[ForceReadDnsByName] Executed Successfully :%s", hashedName)
 			return &GnsDns{
 				client: group.client,
 				Dns:    result,
@@ -9808,7 +9857,7 @@ func (group *GnsTsmV1) ForceReadDnsByName(ctx context.Context, hashedName string
 // DeleteDnsByName deletes object stored in the database under the hashedName which is a hash of
 // display name and parents names. Use it when you know hashed name of object.
 func (group *GnsTsmV1) DeleteDnsByName(ctx context.Context, hashedName string) (err error) {
-	log.Debugf("[DeleteDnsByName] Received objectToDelete: %s", hashedName)
+	logger.Debugf("[DeleteDnsByName] Received objectToDelete: %s", hashedName)
 	var (
 		retryCount int
 		result     *basegnstsmtanzuvmwarecomv1.Dns
@@ -9820,23 +9869,23 @@ func (group *GnsTsmV1) DeleteDnsByName(ctx context.Context, hashedName string) (
 			GnsTsmV1().
 			Dnses().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[DeleteDnsByName] Failed to get Dnses: %+v", err)
+			logger.Errorf("[DeleteDnsByName] Failed to get Dnses: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on get Dnses: %s", hashedName)
+					logger.Errorf("Max retry exceed on get Dnses: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteDnsByName] context canceled: %s", hashedName)
+				logger.Errorf("[DeleteDnsByName] context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteDnsByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteDnsByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteDnsByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteDnsByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -9854,23 +9903,23 @@ func (group *GnsTsmV1) DeleteDnsByName(ctx context.Context, hashedName string) (
 			GnsTsmV1().
 			Dnses().Delete(ctx, hashedName, metav1.DeleteOptions{})
 		if err != nil {
-			log.Errorf("[DeleteDnsByName] failed to delete Dnses: %+v", err)
+			logger.Errorf("[DeleteDnsByName] failed to delete Dnses: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on delete Dnses: %s", hashedName)
+					logger.Errorf("Max retry exceed on delete Dnses: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteDnsByName]: context canceled: %s", hashedName)
+				logger.Errorf("[DeleteDnsByName]: context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteDnsByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteDnsByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteDnsByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteDnsByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -9882,7 +9931,7 @@ func (group *GnsTsmV1) DeleteDnsByName(ctx context.Context, hashedName string) (
 	}
 	// Get Parent Node and check if gvk present before patch
 
-	log.Debugf("[DeleteDnsByName] Get parent details for object: %s", hashedName)
+	logger.Debugf("[DeleteDnsByName] Get parent details for object: %s", hashedName)
 	// var patch Patch
 	parents := result.GetLabels()
 	if parents == nil {
@@ -9890,16 +9939,16 @@ func (group *GnsTsmV1) DeleteDnsByName(ctx context.Context, hashedName string) (
 	}
 	parentName, ok := parents["configs.config.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	if result.GetLabels() != nil {
-		if parents[common.IS_NAME_HASHED_LABEL] == "true" {
+		if parents[common.IsNameHashedLabel] == "true" {
 			parentName = helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", parents, parentName)
 		}
 	} else {
 		parentName = helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", parents, parentName)
 	}
-	RemoveChild("configs.config.tsm.tanzu.vmware.com", parentName, "dnses.gns.tsm.tanzu.vmware.com", hashedName)
+	group.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parentName, "dnses.gns.tsm.tanzu.vmware.com", hashedName)
 
 	return nil
 }
@@ -9908,18 +9957,18 @@ func (group *GnsTsmV1) DeleteDnsByName(ctx context.Context, hashedName string) (
 // Use it directly ONLY when objToCreate.Name is hashed name of the object.
 func (group *GnsTsmV1) CreateDnsByName(ctx context.Context,
 	objToCreate *basegnstsmtanzuvmwarecomv1.Dns) (*GnsDns, error) {
-	log.Debugf("[CreateDnsByName] Received objToCreate: %s", objToCreate.GetName())
+	logger.Debugf("[CreateDnsByName] Received objToCreate: %s", objToCreate.GetName())
 	if objToCreate.GetLabels() == nil {
 		objToCreate.Labels = make(map[string]string)
 	}
-	if _, ok := objToCreate.Labels[common.DISPLAY_NAME_LABEL]; !ok {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
+	if _, ok := objToCreate.Labels[common.DisplayNameLabel]; !ok {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
 	}
-	if objToCreate.Labels[common.DISPLAY_NAME_LABEL] == "" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = helper.DEFAULT_KEY
+	if objToCreate.Labels[common.DisplayNameLabel] == "" {
+		objToCreate.Labels[common.DisplayNameLabel] = helper.DefaultKey
 	}
-	if objToCreate.Labels[common.DISPLAY_NAME_LABEL] != helper.DEFAULT_KEY {
-		return nil, NewSingletonNameError(objToCreate.Labels[common.DISPLAY_NAME_LABEL])
+	if objToCreate.Labels[common.DisplayNameLabel] != helper.DefaultKey {
+		return nil, NewSingletonNameError(objToCreate.Labels[common.DisplayNameLabel])
 	}
 
 	var (
@@ -9933,33 +9982,33 @@ func (group *GnsTsmV1) CreateDnsByName(ctx context.Context,
 			GnsTsmV1().
 			Dnses().Create(ctx, objToCreate, metav1.CreateOptions{})
 		if err != nil {
-			log.Errorf("[CreateDnsByName] Failed to create Dns: %s, error: %+v", objToCreate.GetName(), err)
+			logger.Errorf("[CreateDnsByName] Failed to create Dns: %s, error: %+v", objToCreate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on create Dns: %s", objToCreate.GetName())
+					logger.Errorf("Max retry exceed on create Dns: %s", objToCreate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[CreateDnsByName] context canceled while creating Dns: %s", objToCreate.GetName())
+				logger.Errorf("[CreateDnsByName] context canceled while creating Dns: %s", objToCreate.GetName())
 				return nil, context.Canceled
 			} else if errors.IsAlreadyExists(err) {
-				log.Debugf("[CreateDnsByName] Dns: %s already exists, error: %+v", objToCreate.GetName(), err)
+				logger.Debugf("[CreateDnsByName] Dns: %s already exists, error: %+v", objToCreate.GetName(), err)
 				result, err = group.client.baseClient.GnsTsmV1().Dnses().Get(ctx, objToCreate.GetName(), metav1.GetOptions{})
 				if err != nil {
-					log.Fatalf("[CreateDnsByName] Unable to Get Dns %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
+					logger.Fatalf("[CreateDnsByName] Unable to Get Dns %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
 				}
 				break
 			} else {
-				log.Errorf("[CreateDnsByName] found unexpected error while creating Dns: %s, error: %+v", objToCreate.GetName(), err)
+				logger.Errorf("[CreateDnsByName] found unexpected error while creating Dns: %s, error: %+v", objToCreate.GetName(), err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[CreateDnsByName] Dns: %s created successfully", objToCreate.GetName())
+			logger.Debugf("[CreateDnsByName] Dns: %s created successfully", objToCreate.GetName())
 			if s, ok := subscriptionMap.Load("dnses.gns.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[CreateDnsByName] Dns: %s stored in wr-cache", objToCreate.GetName())
+				logger.Debugf("[CreateDnsByName] Dns: %s stored in wr-cache", objToCreate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
@@ -9968,13 +10017,13 @@ func (group *GnsTsmV1) CreateDnsByName(ctx context.Context,
 
 	parentName, ok := objToCreate.GetLabels()["configs.config.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	parentHashedName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", objToCreate.GetLabels(), parentName)
 
-	AddChild("configs.config.tsm.tanzu.vmware.com", parentHashedName, "dnses.gns.tsm.tanzu.vmware.com", objToCreate.Name)
+	group.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parentHashedName, "dnses.gns.tsm.tanzu.vmware.com", objToCreate.Name)
 
-	log.Debugf("[CreateDnsByName] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[CreateDnsByName] Executed Successfully: %s", objToCreate.GetName())
 	return &GnsDns{
 		client: group.client,
 		Dns:    result,
@@ -9985,9 +10034,9 @@ func (group *GnsTsmV1) CreateDnsByName(ctx context.Context,
 // display name and parents names.
 func (group *GnsTsmV1) UpdateDnsByName(ctx context.Context,
 	objToUpdate *basegnstsmtanzuvmwarecomv1.Dns) (*GnsDns, error) {
-	log.Debugf("[UpdateDnsByName] Received objToUpdate: %s", objToUpdate.GetName())
-	if objToUpdate.Labels[common.DISPLAY_NAME_LABEL] != helper.DEFAULT_KEY {
-		return nil, NewSingletonNameError(objToUpdate.Labels[common.DISPLAY_NAME_LABEL])
+	logger.Debugf("[UpdateDnsByName] Received objToUpdate: %s", objToUpdate.GetName())
+	if objToUpdate.Labels[common.DisplayNameLabel] != helper.DefaultKey {
+		return nil, NewSingletonNameError(objToUpdate.Labels[common.DisplayNameLabel])
 	}
 
 	var patch Patch
@@ -10014,8 +10063,8 @@ func (group *GnsTsmV1) UpdateDnsByName(ctx context.Context,
 			for _, k := range parentsList {
 				objToUpdate.Labels[k] = current.Labels[k]
 			}
-			objToUpdate.Labels[common.IS_NAME_HASHED_LABEL] = current.Labels[common.IS_NAME_HASHED_LABEL]
-			objToUpdate.Labels[common.DISPLAY_NAME_LABEL] = current.Labels[common.DISPLAY_NAME_LABEL]
+			objToUpdate.Labels[common.IsNameHashedLabel] = current.Labels[common.IsNameHashedLabel]
+			objToUpdate.Labels[common.DisplayNameLabel] = current.Labels[common.DisplayNameLabel]
 			patch = append(patch, PatchOp{
 				Op:    "replace",
 				Path:  "/metadata/labels",
@@ -10044,46 +10093,46 @@ func (group *GnsTsmV1) UpdateDnsByName(ctx context.Context,
 			GnsTsmV1().
 			Dnses().Patch(newCtx, objToUpdate.GetName(), types.JSONPatchType, marshaled, metav1.PatchOptions{}, "")
 		if err != nil {
-			log.Errorf("[UpdateDnsByName] Failed to patch Dns %s with error: %+v", objToUpdate.GetName(), err)
+			logger.Errorf("[UpdateDnsByName] Failed to patch Dns %s with error: %+v", objToUpdate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
-					log.Debugf("Trigger Dns Delete: %s", objToUpdate.GetName())
+					logger.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
+					logger.Debugf("Trigger Dns Delete: %s", objToUpdate.GetName())
 					delErr := group.DeleteDnsByName(newCtx, objToUpdate.GetName())
 					if delErr != nil {
-						log.Debugf("Error occur while deleting Dns: %s", objToUpdate.GetName())
+						logger.Debugf("Error occur while deleting Dns: %s", objToUpdate.GetName())
 						return nil, delErr
 					}
-					log.Debugf("Dns deleted: %s", objToUpdate.GetName())
+					logger.Debugf("Dns deleted: %s", objToUpdate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[UpdateDnsByName]: context canceled: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateDnsByName]: context canceled: %s", objToUpdate.GetName())
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[UpdateDnsByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
-				log.Debugf("Trigger Dns Delete: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateDnsByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
+				logger.Debugf("Trigger Dns Delete: %s", objToUpdate.GetName())
 				delErr := group.DeleteDnsByName(newCtx, objToUpdate.GetName())
 				if delErr != nil {
-					log.Debugf("Error occur while deleting Dns: %+v", objToUpdate.GetName())
+					logger.Debugf("Error occur while deleting Dns: %+v", objToUpdate.GetName())
 					return nil, delErr
 				}
-				log.Debugf("Dns Deleted: %s", objToUpdate.GetName())
+				logger.Debugf("Dns Deleted: %s", objToUpdate.GetName())
 				return nil, err
 			}
 		} else {
-			log.Debugf("[UpdateDnsByName] Patch Dns Success :%s", objToUpdate.GetName())
+			logger.Debugf("[UpdateDnsByName] Patch Dns Success :%s", objToUpdate.GetName())
 			if s, ok := subscriptionMap.Load("dnses.gns.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[UpdateDnsByName] %s stored in wr-cache", objToUpdate.GetName())
+				logger.Debugf("[UpdateDnsByName] %s stored in wr-cache", objToUpdate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
 	}
-	log.Debugf("[UpdateDnsByName] Executed Successfully %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateDnsByName] Executed Successfully %s", objToUpdate.GetName())
 	return &GnsDns{
 		client: group.client,
 		Dns:    result,
@@ -10149,6 +10198,7 @@ func (obj *GnsDns) Update(ctx context.Context) error {
 
 func (obj *GnsDns) GetParent(ctx context.Context) (result *ConfigConfig, err error) {
 	hashedName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", obj.Labels, obj.Labels["configs.config.tsm.tanzu.vmware.com"])
+	logger.Debugf("[GetParent] Get parent of GnsDns name %s [labels %#v] of parent type configs.config.tsm.tanzu.vmware.com and name %s", obj.Name, obj.Labels, hashedName)
 	return obj.client.Config().GetConfigByName(ctx, hashedName)
 }
 
@@ -10185,23 +10235,25 @@ func (c *dnsGnsTsmV1Chainer) IsSubscribed() bool {
 }
 
 func (c *dnsGnsTsmV1Chainer) addCallback(obj *GnsDns) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["configs.config.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[addCallback] received for dnses.gns.tsm.tanzu.vmware.com name %s displayName %s parent configs.config.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	AddChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "dnses.gns.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "dnses.gns.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *dnsGnsTsmV1Chainer) deleteCallback(obj *GnsDns) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["configs.config.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[deleteCallback] received for dnses.gns.tsm.tanzu.vmware.com name %s displayName %s parent configs.config.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	RemoveChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "dnses.gns.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "dnses.gns.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *dnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsDns), updateCB func(oldObj, newObj *GnsDns), deleteCB func(obj *GnsDns)) (cache.ResourceEventHandlerRegistration, error) {
@@ -10231,6 +10283,7 @@ func (c *dnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsDns), updat
 				client: c.client,
 				Dns:    obj.(*basegnstsmtanzuvmwarecomv1.Dns),
 			}
+			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for dnses.gns.tsm.tanzu.vmware.com name %s", nc.Dns.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -10252,10 +10305,10 @@ func (c *dnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsDns), updat
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if !IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "dnses.gns.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "dnses.gns.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "dnses.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "dnses.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			addCB(nc)
@@ -10270,6 +10323,7 @@ func (c *dnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsDns), updat
 				client: c.client,
 				Dns:    newObj.(*basegnstsmtanzuvmwarecomv1.Dns),
 			}
+			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for dnses.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Dns.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
 		},
 
@@ -10278,6 +10332,7 @@ func (c *dnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsDns), updat
 				client: c.client,
 				Dns:    obj.(*basegnstsmtanzuvmwarecomv1.Dns),
 			}
+			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for dnses.gns.tsm.tanzu.vmware.com name %s", nc.Dns.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -10301,11 +10356,11 @@ func (c *dnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsDns), updat
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "dnses.gns.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "dnses.gns.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "dnses.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "dnses.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			deleteCB(nc)
@@ -10315,7 +10370,7 @@ func (c *dnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsDns), updat
 }
 
 func (c *dnsGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsDns)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterAddCallback] Received for GnsDns")
+	logger.Debugf("[RegisterAddCallback] Received for GnsDns")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -10343,6 +10398,7 @@ func (c *dnsGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsDns)) (cache.
 				client: c.client,
 				Dns:    obj.(*basegnstsmtanzuvmwarecomv1.Dns),
 			}
+			logger.Debugf("[RegisterAddCallback] Got Add event for dnses.gns.tsm.tanzu.vmware.com name %s", nc.Dns.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -10365,11 +10421,11 @@ func (c *dnsGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsDns)) (cache.
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if !IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "dnses.gns.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "dnses.gns.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "dnses.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "dnses.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -10380,7 +10436,7 @@ func (c *dnsGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsDns)) (cache.
 }
 
 func (c *dnsGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *GnsDns)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterUpdateCallback] Received for GnsDns")
+	logger.Debugf("[RegisterUpdateCallback] Received for GnsDns")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -10412,6 +10468,7 @@ func (c *dnsGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *Gn
 				client: c.client,
 				Dns:    newObj.(*basegnstsmtanzuvmwarecomv1.Dns),
 			}
+			logger.Debugf("[RegisterUpdateCallback] Got Update event for dnses.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Dns.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
 		},
 	})
@@ -10420,7 +10477,7 @@ func (c *dnsGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *Gn
 }
 
 func (c *dnsGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsDns)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterDeleteCallback] Received for GnsDns")
+	logger.Debugf("[RegisterDeleteCallback] Received for GnsDns")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -10448,6 +10505,7 @@ func (c *dnsGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsDns)) (cac
 				client: c.client,
 				Dns:    obj.(*basegnstsmtanzuvmwarecomv1.Dns),
 			}
+			logger.Debugf("[RegisterDeleteCallback] Got Delete event for dnses.gns.tsm.tanzu.vmware.com name %s", nc.Dns.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -10473,10 +10531,10 @@ func (c *dnsGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsDns)) (cac
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "dnses.gns.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "dnses.gns.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "dnses.gns.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "dnses.gns.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -10507,11 +10565,11 @@ func (group *OptionalparentpathparamTsmV1) GetOptionalParentPathParamByName(ctx 
 		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
 		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
-			log.Debugf("[GetOptionalParentPathParamByName] Object: %s exists in cache", hashedName)
+			logger.Debugf("[GetOptionalParentPathParamByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam)
 			subsCacheVersion, subsCacheVersionErr := strconv.Atoi(resultCache.ResourceVersion)
 			if subsCacheVersionErr != nil {
-				log.Fatalf("[GetOptionalParentPathParamByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
+				logger.Fatalf("[GetOptionalParentPathParamByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
 			}
 
 			writeCacheVersion := 0
@@ -10519,7 +10577,7 @@ func (group *OptionalparentpathparamTsmV1) GetOptionalParentPathParamByName(ctx 
 			if inWrCache {
 				writeCacheVersion, writeCacheVersionErr = strconv.Atoi(resWrCache.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam).ResourceVersion)
 				if writeCacheVersionErr != nil {
-					log.Fatalf("[GetOptionalParentPathParamByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
+					logger.Fatalf("[GetOptionalParentPathParamByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
 				}
 			}
 
@@ -10552,22 +10610,22 @@ func (group *OptionalparentpathparamTsmV1) GetOptionalParentPathParamByName(ctx 
 				OptionalParentPathParam: result,
 			}, nil
 		} else if errors.IsNotFound(err) {
-			log.Debugf("[GetOptionalParentPathParamByName]: object %v not found", hashedName)
+			logger.Debugf("[GetOptionalParentPathParamByName]: object %v not found", hashedName)
 			return nil, err
 		} else {
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on Get OptionalParentPathParams: %s", hashedName)
+					logger.Errorf("Max retry exceed on Get OptionalParentPathParams: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[GetOptionalParentPathParamByName]: %+v", err)
+				logger.Errorf("[GetOptionalParentPathParamByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[GetOptionalParentPathParamByName]: %+v", err)
+				logger.Errorf("[GetOptionalParentPathParamByName]: %+v", err)
 				return nil, err
 			}
 		}
@@ -10577,31 +10635,31 @@ func (group *OptionalparentpathparamTsmV1) GetOptionalParentPathParamByName(ctx 
 // ForceReadOptionalParentPathParamByName read object directly from the database under the hashedName which is a hash of display
 // name and parents names. Use it when you know hashed name of object.
 func (group *OptionalparentpathparamTsmV1) ForceReadOptionalParentPathParamByName(ctx context.Context, hashedName string) (*OptionalparentpathparamOptionalParentPathParam, error) {
-	log.Debugf("[ForceReadOptionalParentPathParamByName] Received object :%s to read from DB", hashedName)
+	logger.Debugf("[ForceReadOptionalParentPathParamByName] Received object :%s to read from DB", hashedName)
 	retryCount := 0
 	for {
 		result, err := group.client.baseClient.
 			OptionalparentpathparamTsmV1().
 			OptionalParentPathParams().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[ForceReadOptionalParentPathParamByName] Failed to Get OptionalParentPathParams: %+v", err)
+			logger.Errorf("[ForceReadOptionalParentPathParamByName] Failed to Get OptionalParentPathParams: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Errorf("[Retry Count: %d ] %+v", retryCount, err)
+				logger.Errorf("[Retry Count: %d ] %+v", retryCount, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max Retry exceed on Get OptionalParentPathParams: %s", hashedName)
+					logger.Errorf("Max Retry exceed on Get OptionalParentPathParams: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[ForceReadOptionalParentPathParamByName]: %+v", err)
+				logger.Errorf("[ForceReadOptionalParentPathParamByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[ForceReadOptionalParentPathParamByName]: %+v", err)
+				logger.Errorf("[ForceReadOptionalParentPathParamByName]: %+v", err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[ForceReadOptionalParentPathParamByName] Executed Successfully :%s", hashedName)
+			logger.Debugf("[ForceReadOptionalParentPathParamByName] Executed Successfully :%s", hashedName)
 			return &OptionalparentpathparamOptionalParentPathParam{
 				client:                  group.client,
 				OptionalParentPathParam: result,
@@ -10613,7 +10671,7 @@ func (group *OptionalparentpathparamTsmV1) ForceReadOptionalParentPathParamByNam
 // DeleteOptionalParentPathParamByName deletes object stored in the database under the hashedName which is a hash of
 // display name and parents names. Use it when you know hashed name of object.
 func (group *OptionalparentpathparamTsmV1) DeleteOptionalParentPathParamByName(ctx context.Context, hashedName string) (err error) {
-	log.Debugf("[DeleteOptionalParentPathParamByName] Received objectToDelete: %s", hashedName)
+	logger.Debugf("[DeleteOptionalParentPathParamByName] Received objectToDelete: %s", hashedName)
 	var (
 		retryCount int
 		result     *baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam
@@ -10625,23 +10683,23 @@ func (group *OptionalparentpathparamTsmV1) DeleteOptionalParentPathParamByName(c
 			OptionalparentpathparamTsmV1().
 			OptionalParentPathParams().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[DeleteOptionalParentPathParamByName] Failed to get OptionalParentPathParams: %+v", err)
+			logger.Errorf("[DeleteOptionalParentPathParamByName] Failed to get OptionalParentPathParams: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on get OptionalParentPathParams: %s", hashedName)
+					logger.Errorf("Max retry exceed on get OptionalParentPathParams: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteOptionalParentPathParamByName] context canceled: %s", hashedName)
+				logger.Errorf("[DeleteOptionalParentPathParamByName] context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteOptionalParentPathParamByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteOptionalParentPathParamByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteOptionalParentPathParamByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteOptionalParentPathParamByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -10659,23 +10717,23 @@ func (group *OptionalparentpathparamTsmV1) DeleteOptionalParentPathParamByName(c
 			OptionalparentpathparamTsmV1().
 			OptionalParentPathParams().Delete(ctx, hashedName, metav1.DeleteOptions{})
 		if err != nil {
-			log.Errorf("[DeleteOptionalParentPathParamByName] failed to delete OptionalParentPathParams: %+v", err)
+			logger.Errorf("[DeleteOptionalParentPathParamByName] failed to delete OptionalParentPathParams: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on delete OptionalParentPathParams: %s", hashedName)
+					logger.Errorf("Max retry exceed on delete OptionalParentPathParams: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteOptionalParentPathParamByName]: context canceled: %s", hashedName)
+				logger.Errorf("[DeleteOptionalParentPathParamByName]: context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteOptionalParentPathParamByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteOptionalParentPathParamByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteOptionalParentPathParamByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteOptionalParentPathParamByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -10687,7 +10745,7 @@ func (group *OptionalparentpathparamTsmV1) DeleteOptionalParentPathParamByName(c
 	}
 	// Get Parent Node and check if gvk present before patch
 
-	log.Debugf("[DeleteOptionalParentPathParamByName] Get parent details for object: %s", hashedName)
+	logger.Debugf("[DeleteOptionalParentPathParamByName] Get parent details for object: %s", hashedName)
 	// var patch Patch
 	parents := result.GetLabels()
 	if parents == nil {
@@ -10695,16 +10753,16 @@ func (group *OptionalparentpathparamTsmV1) DeleteOptionalParentPathParamByName(c
 	}
 	parentName, ok := parents["gnses.gns.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	if result.GetLabels() != nil {
-		if parents[common.IS_NAME_HASHED_LABEL] == "true" {
+		if parents[common.IsNameHashedLabel] == "true" {
 			parentName = helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", parents, parentName)
 		}
 	} else {
 		parentName = helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", parents, parentName)
 	}
-	RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentName, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", hashedName)
+	group.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentName, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", hashedName)
 
 	return nil
 }
@@ -10713,12 +10771,12 @@ func (group *OptionalparentpathparamTsmV1) DeleteOptionalParentPathParamByName(c
 // Use it directly ONLY when objToCreate.Name is hashed name of the object.
 func (group *OptionalparentpathparamTsmV1) CreateOptionalParentPathParamByName(ctx context.Context,
 	objToCreate *baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam) (*OptionalparentpathparamOptionalParentPathParam, error) {
-	log.Debugf("[CreateOptionalParentPathParamByName] Received objToCreate: %s", objToCreate.GetName())
+	logger.Debugf("[CreateOptionalParentPathParamByName] Received objToCreate: %s", objToCreate.GetName())
 	if objToCreate.GetLabels() == nil {
 		objToCreate.Labels = make(map[string]string)
 	}
-	if _, ok := objToCreate.Labels[common.DISPLAY_NAME_LABEL]; !ok {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
+	if _, ok := objToCreate.Labels[common.DisplayNameLabel]; !ok {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
 	}
 
 	var (
@@ -10732,33 +10790,33 @@ func (group *OptionalparentpathparamTsmV1) CreateOptionalParentPathParamByName(c
 			OptionalparentpathparamTsmV1().
 			OptionalParentPathParams().Create(ctx, objToCreate, metav1.CreateOptions{})
 		if err != nil {
-			log.Errorf("[CreateOptionalParentPathParamByName] Failed to create OptionalParentPathParam: %s, error: %+v", objToCreate.GetName(), err)
+			logger.Errorf("[CreateOptionalParentPathParamByName] Failed to create OptionalParentPathParam: %s, error: %+v", objToCreate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on create OptionalParentPathParam: %s", objToCreate.GetName())
+					logger.Errorf("Max retry exceed on create OptionalParentPathParam: %s", objToCreate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[CreateOptionalParentPathParamByName] context canceled while creating OptionalParentPathParam: %s", objToCreate.GetName())
+				logger.Errorf("[CreateOptionalParentPathParamByName] context canceled while creating OptionalParentPathParam: %s", objToCreate.GetName())
 				return nil, context.Canceled
 			} else if errors.IsAlreadyExists(err) {
-				log.Debugf("[CreateOptionalParentPathParamByName] OptionalParentPathParam: %s already exists, error: %+v", objToCreate.GetName(), err)
+				logger.Debugf("[CreateOptionalParentPathParamByName] OptionalParentPathParam: %s already exists, error: %+v", objToCreate.GetName(), err)
 				result, err = group.client.baseClient.OptionalparentpathparamTsmV1().OptionalParentPathParams().Get(ctx, objToCreate.GetName(), metav1.GetOptions{})
 				if err != nil {
-					log.Fatalf("[CreateOptionalParentPathParamByName] Unable to Get OptionalParentPathParam %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
+					logger.Fatalf("[CreateOptionalParentPathParamByName] Unable to Get OptionalParentPathParam %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
 				}
 				break
 			} else {
-				log.Errorf("[CreateOptionalParentPathParamByName] found unexpected error while creating OptionalParentPathParam: %s, error: %+v", objToCreate.GetName(), err)
+				logger.Errorf("[CreateOptionalParentPathParamByName] found unexpected error while creating OptionalParentPathParam: %s, error: %+v", objToCreate.GetName(), err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[CreateOptionalParentPathParamByName] OptionalParentPathParam: %s created successfully", objToCreate.GetName())
+			logger.Debugf("[CreateOptionalParentPathParamByName] OptionalParentPathParam: %s created successfully", objToCreate.GetName())
 			if s, ok := subscriptionMap.Load("optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[CreateOptionalParentPathParamByName] OptionalParentPathParam: %s stored in wr-cache", objToCreate.GetName())
+				logger.Debugf("[CreateOptionalParentPathParamByName] OptionalParentPathParam: %s stored in wr-cache", objToCreate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
@@ -10767,13 +10825,13 @@ func (group *OptionalparentpathparamTsmV1) CreateOptionalParentPathParamByName(c
 
 	parentName, ok := objToCreate.GetLabels()["gnses.gns.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	parentHashedName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", objToCreate.GetLabels(), parentName)
 
-	AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashedName, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", objToCreate.Name)
+	group.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashedName, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", objToCreate.Name)
 
-	log.Debugf("[CreateOptionalParentPathParamByName] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[CreateOptionalParentPathParamByName] Executed Successfully: %s", objToCreate.GetName())
 	return &OptionalparentpathparamOptionalParentPathParam{
 		client:                  group.client,
 		OptionalParentPathParam: result,
@@ -10784,7 +10842,7 @@ func (group *OptionalparentpathparamTsmV1) CreateOptionalParentPathParamByName(c
 // display name and parents names.
 func (group *OptionalparentpathparamTsmV1) UpdateOptionalParentPathParamByName(ctx context.Context,
 	objToUpdate *baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam) (*OptionalparentpathparamOptionalParentPathParam, error) {
-	log.Debugf("[UpdateOptionalParentPathParamByName] Received objToUpdate: %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateOptionalParentPathParamByName] Received objToUpdate: %s", objToUpdate.GetName())
 
 	var patch Patch
 
@@ -10810,8 +10868,8 @@ func (group *OptionalparentpathparamTsmV1) UpdateOptionalParentPathParamByName(c
 			for _, k := range parentsList {
 				objToUpdate.Labels[k] = current.Labels[k]
 			}
-			objToUpdate.Labels[common.IS_NAME_HASHED_LABEL] = current.Labels[common.IS_NAME_HASHED_LABEL]
-			objToUpdate.Labels[common.DISPLAY_NAME_LABEL] = current.Labels[common.DISPLAY_NAME_LABEL]
+			objToUpdate.Labels[common.IsNameHashedLabel] = current.Labels[common.IsNameHashedLabel]
+			objToUpdate.Labels[common.DisplayNameLabel] = current.Labels[common.DisplayNameLabel]
 			patch = append(patch, PatchOp{
 				Op:    "replace",
 				Path:  "/metadata/labels",
@@ -10840,46 +10898,46 @@ func (group *OptionalparentpathparamTsmV1) UpdateOptionalParentPathParamByName(c
 			OptionalparentpathparamTsmV1().
 			OptionalParentPathParams().Patch(newCtx, objToUpdate.GetName(), types.JSONPatchType, marshaled, metav1.PatchOptions{}, "")
 		if err != nil {
-			log.Errorf("[UpdateOptionalParentPathParamByName] Failed to patch OptionalParentPathParam %s with error: %+v", objToUpdate.GetName(), err)
+			logger.Errorf("[UpdateOptionalParentPathParamByName] Failed to patch OptionalParentPathParam %s with error: %+v", objToUpdate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
-					log.Debugf("Trigger OptionalParentPathParam Delete: %s", objToUpdate.GetName())
+					logger.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
+					logger.Debugf("Trigger OptionalParentPathParam Delete: %s", objToUpdate.GetName())
 					delErr := group.DeleteOptionalParentPathParamByName(newCtx, objToUpdate.GetName())
 					if delErr != nil {
-						log.Debugf("Error occur while deleting OptionalParentPathParam: %s", objToUpdate.GetName())
+						logger.Debugf("Error occur while deleting OptionalParentPathParam: %s", objToUpdate.GetName())
 						return nil, delErr
 					}
-					log.Debugf("OptionalParentPathParam deleted: %s", objToUpdate.GetName())
+					logger.Debugf("OptionalParentPathParam deleted: %s", objToUpdate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[UpdateOptionalParentPathParamByName]: context canceled: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateOptionalParentPathParamByName]: context canceled: %s", objToUpdate.GetName())
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[UpdateOptionalParentPathParamByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
-				log.Debugf("Trigger OptionalParentPathParam Delete: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateOptionalParentPathParamByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
+				logger.Debugf("Trigger OptionalParentPathParam Delete: %s", objToUpdate.GetName())
 				delErr := group.DeleteOptionalParentPathParamByName(newCtx, objToUpdate.GetName())
 				if delErr != nil {
-					log.Debugf("Error occur while deleting OptionalParentPathParam: %+v", objToUpdate.GetName())
+					logger.Debugf("Error occur while deleting OptionalParentPathParam: %+v", objToUpdate.GetName())
 					return nil, delErr
 				}
-				log.Debugf("OptionalParentPathParam Deleted: %s", objToUpdate.GetName())
+				logger.Debugf("OptionalParentPathParam Deleted: %s", objToUpdate.GetName())
 				return nil, err
 			}
 		} else {
-			log.Debugf("[UpdateOptionalParentPathParamByName] Patch OptionalParentPathParam Success :%s", objToUpdate.GetName())
+			logger.Debugf("[UpdateOptionalParentPathParamByName] Patch OptionalParentPathParam Success :%s", objToUpdate.GetName())
 			if s, ok := subscriptionMap.Load("optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[UpdateOptionalParentPathParamByName] %s stored in wr-cache", objToUpdate.GetName())
+				logger.Debugf("[UpdateOptionalParentPathParamByName] %s stored in wr-cache", objToUpdate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
 	}
-	log.Debugf("[UpdateOptionalParentPathParamByName] Executed Successfully %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateOptionalParentPathParamByName] Executed Successfully %s", objToUpdate.GetName())
 	return &OptionalparentpathparamOptionalParentPathParam{
 		client:                  group.client,
 		OptionalParentPathParam: result,
@@ -10945,6 +11003,7 @@ func (obj *OptionalparentpathparamOptionalParentPathParam) Update(ctx context.Co
 
 func (obj *OptionalparentpathparamOptionalParentPathParam) GetParent(ctx context.Context) (result *GnsGns, err error) {
 	hashedName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", obj.Labels, obj.Labels["gnses.gns.tsm.tanzu.vmware.com"])
+	logger.Debugf("[GetParent] Get parent of OptionalparentpathparamOptionalParentPathParam name %s [labels %#v] of parent type gnses.gns.tsm.tanzu.vmware.com and name %s", obj.Name, obj.Labels, hashedName)
 	return obj.client.Gns().GetGnsByName(ctx, hashedName)
 }
 
@@ -10981,23 +11040,25 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) IsSubscribe
 }
 
 func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) addCallback(obj *OptionalparentpathparamOptionalParentPathParam) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["gnses.gns.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[addCallback] received for optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com name %s displayName %s parent gnses.gns.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) deleteCallback(obj *OptionalparentpathparamOptionalParentPathParam) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["gnses.gns.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[deleteCallback] received for optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com name %s displayName %s parent gnses.gns.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterEventHandler(addCB func(obj *OptionalparentpathparamOptionalParentPathParam), updateCB func(oldObj, newObj *OptionalparentpathparamOptionalParentPathParam), deleteCB func(obj *OptionalparentpathparamOptionalParentPathParam)) (cache.ResourceEventHandlerRegistration, error) {
@@ -11027,6 +11088,7 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterEve
 				client:                  c.client,
 				OptionalParentPathParam: obj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam),
 			}
+			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com name %s", nc.OptionalParentPathParam.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -11048,10 +11110,10 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterEve
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if !IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			addCB(nc)
@@ -11066,6 +11128,7 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterEve
 				client:                  c.client,
 				OptionalParentPathParam: newObj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam),
 			}
+			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.OptionalParentPathParam.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
 		},
 
@@ -11074,6 +11137,7 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterEve
 				client:                  c.client,
 				OptionalParentPathParam: obj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam),
 			}
+			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com name %s", nc.OptionalParentPathParam.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -11097,11 +11161,11 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterEve
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			deleteCB(nc)
@@ -11111,7 +11175,7 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterEve
 }
 
 func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterAddCallback(cbfn func(obj *OptionalparentpathparamOptionalParentPathParam)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterAddCallback] Received for OptionalparentpathparamOptionalParentPathParam")
+	logger.Debugf("[RegisterAddCallback] Received for OptionalparentpathparamOptionalParentPathParam")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -11139,6 +11203,7 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterAdd
 				client:                  c.client,
 				OptionalParentPathParam: obj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam),
 			}
+			logger.Debugf("[RegisterAddCallback] Got Add event for optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com name %s", nc.OptionalParentPathParam.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -11161,11 +11226,11 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterAdd
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if !IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -11176,7 +11241,7 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterAdd
 }
 
 func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *OptionalparentpathparamOptionalParentPathParam)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterUpdateCallback] Received for OptionalparentpathparamOptionalParentPathParam")
+	logger.Debugf("[RegisterUpdateCallback] Received for OptionalparentpathparamOptionalParentPathParam")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -11208,6 +11273,7 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterUpd
 				client:                  c.client,
 				OptionalParentPathParam: newObj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam),
 			}
+			logger.Debugf("[RegisterUpdateCallback] Got Update event for optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.OptionalParentPathParam.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
 		},
 	})
@@ -11216,7 +11282,7 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterUpd
 }
 
 func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *OptionalparentpathparamOptionalParentPathParam)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterDeleteCallback] Received for OptionalparentpathparamOptionalParentPathParam")
+	logger.Debugf("[RegisterDeleteCallback] Received for OptionalparentpathparamOptionalParentPathParam")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -11244,6 +11310,7 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterDel
 				client:                  c.client,
 				OptionalParentPathParam: obj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam),
 			}
+			logger.Debugf("[RegisterDeleteCallback] Got Delete event for optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com name %s", nc.OptionalParentPathParam.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -11269,10 +11336,10 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterDel
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -11303,11 +11370,11 @@ func (group *ServicegroupTsmV1) GetSvcGroupByName(ctx context.Context, hashedNam
 		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
 		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
-			log.Debugf("[GetSvcGroupByName] Object: %s exists in cache", hashedName)
+			logger.Debugf("[GetSvcGroupByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup)
 			subsCacheVersion, subsCacheVersionErr := strconv.Atoi(resultCache.ResourceVersion)
 			if subsCacheVersionErr != nil {
-				log.Fatalf("[GetSvcGroupByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
+				logger.Fatalf("[GetSvcGroupByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
 			}
 
 			writeCacheVersion := 0
@@ -11315,7 +11382,7 @@ func (group *ServicegroupTsmV1) GetSvcGroupByName(ctx context.Context, hashedNam
 			if inWrCache {
 				writeCacheVersion, writeCacheVersionErr = strconv.Atoi(resWrCache.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup).ResourceVersion)
 				if writeCacheVersionErr != nil {
-					log.Fatalf("[GetSvcGroupByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
+					logger.Fatalf("[GetSvcGroupByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
 				}
 			}
 
@@ -11348,22 +11415,22 @@ func (group *ServicegroupTsmV1) GetSvcGroupByName(ctx context.Context, hashedNam
 				SvcGroup: result,
 			}, nil
 		} else if errors.IsNotFound(err) {
-			log.Debugf("[GetSvcGroupByName]: object %v not found", hashedName)
+			logger.Debugf("[GetSvcGroupByName]: object %v not found", hashedName)
 			return nil, err
 		} else {
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on Get SvcGroups: %s", hashedName)
+					logger.Errorf("Max retry exceed on Get SvcGroups: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[GetSvcGroupByName]: %+v", err)
+				logger.Errorf("[GetSvcGroupByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[GetSvcGroupByName]: %+v", err)
+				logger.Errorf("[GetSvcGroupByName]: %+v", err)
 				return nil, err
 			}
 		}
@@ -11373,31 +11440,31 @@ func (group *ServicegroupTsmV1) GetSvcGroupByName(ctx context.Context, hashedNam
 // ForceReadSvcGroupByName read object directly from the database under the hashedName which is a hash of display
 // name and parents names. Use it when you know hashed name of object.
 func (group *ServicegroupTsmV1) ForceReadSvcGroupByName(ctx context.Context, hashedName string) (*ServicegroupSvcGroup, error) {
-	log.Debugf("[ForceReadSvcGroupByName] Received object :%s to read from DB", hashedName)
+	logger.Debugf("[ForceReadSvcGroupByName] Received object :%s to read from DB", hashedName)
 	retryCount := 0
 	for {
 		result, err := group.client.baseClient.
 			ServicegroupTsmV1().
 			SvcGroups().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[ForceReadSvcGroupByName] Failed to Get SvcGroups: %+v", err)
+			logger.Errorf("[ForceReadSvcGroupByName] Failed to Get SvcGroups: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Errorf("[Retry Count: %d ] %+v", retryCount, err)
+				logger.Errorf("[Retry Count: %d ] %+v", retryCount, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max Retry exceed on Get SvcGroups: %s", hashedName)
+					logger.Errorf("Max Retry exceed on Get SvcGroups: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[ForceReadSvcGroupByName]: %+v", err)
+				logger.Errorf("[ForceReadSvcGroupByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[ForceReadSvcGroupByName]: %+v", err)
+				logger.Errorf("[ForceReadSvcGroupByName]: %+v", err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[ForceReadSvcGroupByName] Executed Successfully :%s", hashedName)
+			logger.Debugf("[ForceReadSvcGroupByName] Executed Successfully :%s", hashedName)
 			return &ServicegroupSvcGroup{
 				client:   group.client,
 				SvcGroup: result,
@@ -11409,7 +11476,7 @@ func (group *ServicegroupTsmV1) ForceReadSvcGroupByName(ctx context.Context, has
 // DeleteSvcGroupByName deletes object stored in the database under the hashedName which is a hash of
 // display name and parents names. Use it when you know hashed name of object.
 func (group *ServicegroupTsmV1) DeleteSvcGroupByName(ctx context.Context, hashedName string) (err error) {
-	log.Debugf("[DeleteSvcGroupByName] Received objectToDelete: %s", hashedName)
+	logger.Debugf("[DeleteSvcGroupByName] Received objectToDelete: %s", hashedName)
 	var (
 		retryCount int
 		result     *baseservicegrouptsmtanzuvmwarecomv1.SvcGroup
@@ -11421,23 +11488,23 @@ func (group *ServicegroupTsmV1) DeleteSvcGroupByName(ctx context.Context, hashed
 			ServicegroupTsmV1().
 			SvcGroups().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[DeleteSvcGroupByName] Failed to get SvcGroups: %+v", err)
+			logger.Errorf("[DeleteSvcGroupByName] Failed to get SvcGroups: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on get SvcGroups: %s", hashedName)
+					logger.Errorf("Max retry exceed on get SvcGroups: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteSvcGroupByName] context canceled: %s", hashedName)
+				logger.Errorf("[DeleteSvcGroupByName] context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteSvcGroupByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteSvcGroupByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteSvcGroupByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteSvcGroupByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -11455,23 +11522,23 @@ func (group *ServicegroupTsmV1) DeleteSvcGroupByName(ctx context.Context, hashed
 			ServicegroupTsmV1().
 			SvcGroups().Delete(ctx, hashedName, metav1.DeleteOptions{})
 		if err != nil {
-			log.Errorf("[DeleteSvcGroupByName] failed to delete SvcGroups: %+v", err)
+			logger.Errorf("[DeleteSvcGroupByName] failed to delete SvcGroups: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on delete SvcGroups: %s", hashedName)
+					logger.Errorf("Max retry exceed on delete SvcGroups: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteSvcGroupByName]: context canceled: %s", hashedName)
+				logger.Errorf("[DeleteSvcGroupByName]: context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteSvcGroupByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteSvcGroupByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteSvcGroupByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteSvcGroupByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -11483,7 +11550,7 @@ func (group *ServicegroupTsmV1) DeleteSvcGroupByName(ctx context.Context, hashed
 	}
 	// Get Parent Node and check if gvk present before patch
 
-	log.Debugf("[DeleteSvcGroupByName] Get parent details for object: %s", hashedName)
+	logger.Debugf("[DeleteSvcGroupByName] Get parent details for object: %s", hashedName)
 	// var patch Patch
 	parents := result.GetLabels()
 	if parents == nil {
@@ -11491,16 +11558,16 @@ func (group *ServicegroupTsmV1) DeleteSvcGroupByName(ctx context.Context, hashed
 	}
 	parentName, ok := parents["gnses.gns.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	if result.GetLabels() != nil {
-		if parents[common.IS_NAME_HASHED_LABEL] == "true" {
+		if parents[common.IsNameHashedLabel] == "true" {
 			parentName = helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", parents, parentName)
 		}
 	} else {
 		parentName = helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", parents, parentName)
 	}
-	RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentName, "svcgroups.servicegroup.tsm.tanzu.vmware.com", hashedName)
+	group.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentName, "svcgroups.servicegroup.tsm.tanzu.vmware.com", hashedName)
 
 	return nil
 }
@@ -11509,12 +11576,12 @@ func (group *ServicegroupTsmV1) DeleteSvcGroupByName(ctx context.Context, hashed
 // Use it directly ONLY when objToCreate.Name is hashed name of the object.
 func (group *ServicegroupTsmV1) CreateSvcGroupByName(ctx context.Context,
 	objToCreate *baseservicegrouptsmtanzuvmwarecomv1.SvcGroup) (*ServicegroupSvcGroup, error) {
-	log.Debugf("[CreateSvcGroupByName] Received objToCreate: %s", objToCreate.GetName())
+	logger.Debugf("[CreateSvcGroupByName] Received objToCreate: %s", objToCreate.GetName())
 	if objToCreate.GetLabels() == nil {
 		objToCreate.Labels = make(map[string]string)
 	}
-	if _, ok := objToCreate.Labels[common.DISPLAY_NAME_LABEL]; !ok {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
+	if _, ok := objToCreate.Labels[common.DisplayNameLabel]; !ok {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
 	}
 
 	var (
@@ -11528,33 +11595,33 @@ func (group *ServicegroupTsmV1) CreateSvcGroupByName(ctx context.Context,
 			ServicegroupTsmV1().
 			SvcGroups().Create(ctx, objToCreate, metav1.CreateOptions{})
 		if err != nil {
-			log.Errorf("[CreateSvcGroupByName] Failed to create SvcGroup: %s, error: %+v", objToCreate.GetName(), err)
+			logger.Errorf("[CreateSvcGroupByName] Failed to create SvcGroup: %s, error: %+v", objToCreate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on create SvcGroup: %s", objToCreate.GetName())
+					logger.Errorf("Max retry exceed on create SvcGroup: %s", objToCreate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[CreateSvcGroupByName] context canceled while creating SvcGroup: %s", objToCreate.GetName())
+				logger.Errorf("[CreateSvcGroupByName] context canceled while creating SvcGroup: %s", objToCreate.GetName())
 				return nil, context.Canceled
 			} else if errors.IsAlreadyExists(err) {
-				log.Debugf("[CreateSvcGroupByName] SvcGroup: %s already exists, error: %+v", objToCreate.GetName(), err)
+				logger.Debugf("[CreateSvcGroupByName] SvcGroup: %s already exists, error: %+v", objToCreate.GetName(), err)
 				result, err = group.client.baseClient.ServicegroupTsmV1().SvcGroups().Get(ctx, objToCreate.GetName(), metav1.GetOptions{})
 				if err != nil {
-					log.Fatalf("[CreateSvcGroupByName] Unable to Get SvcGroup %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
+					logger.Fatalf("[CreateSvcGroupByName] Unable to Get SvcGroup %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
 				}
 				break
 			} else {
-				log.Errorf("[CreateSvcGroupByName] found unexpected error while creating SvcGroup: %s, error: %+v", objToCreate.GetName(), err)
+				logger.Errorf("[CreateSvcGroupByName] found unexpected error while creating SvcGroup: %s, error: %+v", objToCreate.GetName(), err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[CreateSvcGroupByName] SvcGroup: %s created successfully", objToCreate.GetName())
+			logger.Debugf("[CreateSvcGroupByName] SvcGroup: %s created successfully", objToCreate.GetName())
 			if s, ok := subscriptionMap.Load("svcgroups.servicegroup.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[CreateSvcGroupByName] SvcGroup: %s stored in wr-cache", objToCreate.GetName())
+				logger.Debugf("[CreateSvcGroupByName] SvcGroup: %s stored in wr-cache", objToCreate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
@@ -11563,13 +11630,13 @@ func (group *ServicegroupTsmV1) CreateSvcGroupByName(ctx context.Context,
 
 	parentName, ok := objToCreate.GetLabels()["gnses.gns.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	parentHashedName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", objToCreate.GetLabels(), parentName)
 
-	AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashedName, "svcgroups.servicegroup.tsm.tanzu.vmware.com", objToCreate.Name)
+	group.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashedName, "svcgroups.servicegroup.tsm.tanzu.vmware.com", objToCreate.Name)
 
-	log.Debugf("[CreateSvcGroupByName] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[CreateSvcGroupByName] Executed Successfully: %s", objToCreate.GetName())
 	return &ServicegroupSvcGroup{
 		client:   group.client,
 		SvcGroup: result,
@@ -11580,7 +11647,7 @@ func (group *ServicegroupTsmV1) CreateSvcGroupByName(ctx context.Context,
 // display name and parents names.
 func (group *ServicegroupTsmV1) UpdateSvcGroupByName(ctx context.Context,
 	objToUpdate *baseservicegrouptsmtanzuvmwarecomv1.SvcGroup) (*ServicegroupSvcGroup, error) {
-	log.Debugf("[UpdateSvcGroupByName] Received objToUpdate: %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateSvcGroupByName] Received objToUpdate: %s", objToUpdate.GetName())
 
 	var patch Patch
 
@@ -11606,8 +11673,8 @@ func (group *ServicegroupTsmV1) UpdateSvcGroupByName(ctx context.Context,
 			for _, k := range parentsList {
 				objToUpdate.Labels[k] = current.Labels[k]
 			}
-			objToUpdate.Labels[common.IS_NAME_HASHED_LABEL] = current.Labels[common.IS_NAME_HASHED_LABEL]
-			objToUpdate.Labels[common.DISPLAY_NAME_LABEL] = current.Labels[common.DISPLAY_NAME_LABEL]
+			objToUpdate.Labels[common.IsNameHashedLabel] = current.Labels[common.IsNameHashedLabel]
+			objToUpdate.Labels[common.DisplayNameLabel] = current.Labels[common.DisplayNameLabel]
 			patch = append(patch, PatchOp{
 				Op:    "replace",
 				Path:  "/metadata/labels",
@@ -11701,46 +11768,46 @@ func (group *ServicegroupTsmV1) UpdateSvcGroupByName(ctx context.Context,
 			ServicegroupTsmV1().
 			SvcGroups().Patch(newCtx, objToUpdate.GetName(), types.JSONPatchType, marshaled, metav1.PatchOptions{}, "")
 		if err != nil {
-			log.Errorf("[UpdateSvcGroupByName] Failed to patch SvcGroup %s with error: %+v", objToUpdate.GetName(), err)
+			logger.Errorf("[UpdateSvcGroupByName] Failed to patch SvcGroup %s with error: %+v", objToUpdate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
-					log.Debugf("Trigger SvcGroup Delete: %s", objToUpdate.GetName())
+					logger.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
+					logger.Debugf("Trigger SvcGroup Delete: %s", objToUpdate.GetName())
 					delErr := group.DeleteSvcGroupByName(newCtx, objToUpdate.GetName())
 					if delErr != nil {
-						log.Debugf("Error occur while deleting SvcGroup: %s", objToUpdate.GetName())
+						logger.Debugf("Error occur while deleting SvcGroup: %s", objToUpdate.GetName())
 						return nil, delErr
 					}
-					log.Debugf("SvcGroup deleted: %s", objToUpdate.GetName())
+					logger.Debugf("SvcGroup deleted: %s", objToUpdate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[UpdateSvcGroupByName]: context canceled: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateSvcGroupByName]: context canceled: %s", objToUpdate.GetName())
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[UpdateSvcGroupByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
-				log.Debugf("Trigger SvcGroup Delete: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateSvcGroupByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
+				logger.Debugf("Trigger SvcGroup Delete: %s", objToUpdate.GetName())
 				delErr := group.DeleteSvcGroupByName(newCtx, objToUpdate.GetName())
 				if delErr != nil {
-					log.Debugf("Error occur while deleting SvcGroup: %+v", objToUpdate.GetName())
+					logger.Debugf("Error occur while deleting SvcGroup: %+v", objToUpdate.GetName())
 					return nil, delErr
 				}
-				log.Debugf("SvcGroup Deleted: %s", objToUpdate.GetName())
+				logger.Debugf("SvcGroup Deleted: %s", objToUpdate.GetName())
 				return nil, err
 			}
 		} else {
-			log.Debugf("[UpdateSvcGroupByName] Patch SvcGroup Success :%s", objToUpdate.GetName())
+			logger.Debugf("[UpdateSvcGroupByName] Patch SvcGroup Success :%s", objToUpdate.GetName())
 			if s, ok := subscriptionMap.Load("svcgroups.servicegroup.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[UpdateSvcGroupByName] %s stored in wr-cache", objToUpdate.GetName())
+				logger.Debugf("[UpdateSvcGroupByName] %s stored in wr-cache", objToUpdate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
 	}
-	log.Debugf("[UpdateSvcGroupByName] Executed Successfully %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateSvcGroupByName] Executed Successfully %s", objToUpdate.GetName())
 	return &ServicegroupSvcGroup{
 		client:   group.client,
 		SvcGroup: result,
@@ -11806,6 +11873,7 @@ func (obj *ServicegroupSvcGroup) Update(ctx context.Context) error {
 
 func (obj *ServicegroupSvcGroup) GetParent(ctx context.Context) (result *GnsGns, err error) {
 	hashedName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", obj.Labels, obj.Labels["gnses.gns.tsm.tanzu.vmware.com"])
+	logger.Debugf("[GetParent] Get parent of ServicegroupSvcGroup name %s [labels %#v] of parent type gnses.gns.tsm.tanzu.vmware.com and name %s", obj.Name, obj.Labels, hashedName)
 	return obj.client.Gns().GetGnsByName(ctx, hashedName)
 }
 
@@ -11842,23 +11910,25 @@ func (c *svcgroupServicegroupTsmV1Chainer) IsSubscribed() bool {
 }
 
 func (c *svcgroupServicegroupTsmV1Chainer) addCallback(obj *ServicegroupSvcGroup) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["gnses.gns.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[addCallback] received for svcgroups.servicegroup.tsm.tanzu.vmware.com name %s displayName %s parent gnses.gns.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "svcgroups.servicegroup.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "svcgroups.servicegroup.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *svcgroupServicegroupTsmV1Chainer) deleteCallback(obj *ServicegroupSvcGroup) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["gnses.gns.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[deleteCallback] received for svcgroups.servicegroup.tsm.tanzu.vmware.com name %s displayName %s parent gnses.gns.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "svcgroups.servicegroup.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "svcgroups.servicegroup.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *svcgroupServicegroupTsmV1Chainer) RegisterEventHandler(addCB func(obj *ServicegroupSvcGroup), updateCB func(oldObj, newObj *ServicegroupSvcGroup), deleteCB func(obj *ServicegroupSvcGroup)) (cache.ResourceEventHandlerRegistration, error) {
@@ -11888,6 +11958,7 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterEventHandler(addCB func(obj *
 				client:   c.client,
 				SvcGroup: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup),
 			}
+			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for svcgroups.servicegroup.tsm.tanzu.vmware.com name %s", nc.SvcGroup.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -11909,10 +11980,10 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterEventHandler(addCB func(obj *
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if !IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			addCB(nc)
@@ -11927,6 +11998,7 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterEventHandler(addCB func(obj *
 				client:   c.client,
 				SvcGroup: newObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup),
 			}
+			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for svcgroups.servicegroup.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.SvcGroup.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
 		},
 
@@ -11935,6 +12007,7 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterEventHandler(addCB func(obj *
 				client:   c.client,
 				SvcGroup: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup),
 			}
+			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for svcgroups.servicegroup.tsm.tanzu.vmware.com name %s", nc.SvcGroup.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -11958,11 +12031,11 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterEventHandler(addCB func(obj *
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			deleteCB(nc)
@@ -11972,7 +12045,7 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterEventHandler(addCB func(obj *
 }
 
 func (c *svcgroupServicegroupTsmV1Chainer) RegisterAddCallback(cbfn func(obj *ServicegroupSvcGroup)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterAddCallback] Received for ServicegroupSvcGroup")
+	logger.Debugf("[RegisterAddCallback] Received for ServicegroupSvcGroup")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -12000,6 +12073,7 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Se
 				client:   c.client,
 				SvcGroup: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup),
 			}
+			logger.Debugf("[RegisterAddCallback] Got Add event for svcgroups.servicegroup.tsm.tanzu.vmware.com name %s", nc.SvcGroup.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -12022,11 +12096,11 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Se
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if !IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -12037,7 +12111,7 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Se
 }
 
 func (c *svcgroupServicegroupTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *ServicegroupSvcGroup)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterUpdateCallback] Received for ServicegroupSvcGroup")
+	logger.Debugf("[RegisterUpdateCallback] Received for ServicegroupSvcGroup")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -12069,6 +12143,7 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldO
 				client:   c.client,
 				SvcGroup: newObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup),
 			}
+			logger.Debugf("[RegisterUpdateCallback] Got Update event for svcgroups.servicegroup.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.SvcGroup.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
 		},
 	})
@@ -12077,7 +12152,7 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldO
 }
 
 func (c *svcgroupServicegroupTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *ServicegroupSvcGroup)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterDeleteCallback] Received for ServicegroupSvcGroup")
+	logger.Debugf("[RegisterDeleteCallback] Received for ServicegroupSvcGroup")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -12105,6 +12180,7 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj 
 				client:   c.client,
 				SvcGroup: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup),
 			}
+			logger.Debugf("[RegisterDeleteCallback] Got Delete event for svcgroups.servicegroup.tsm.tanzu.vmware.com name %s", nc.SvcGroup.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -12130,10 +12206,10 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj 
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "svcgroups.servicegroup.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -12164,11 +12240,11 @@ func (group *ServicegroupTsmV1) GetSvcGroupLinkInfoByName(ctx context.Context, h
 		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
 		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
-			log.Debugf("[GetSvcGroupLinkInfoByName] Object: %s exists in cache", hashedName)
+			logger.Debugf("[GetSvcGroupLinkInfoByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo)
 			subsCacheVersion, subsCacheVersionErr := strconv.Atoi(resultCache.ResourceVersion)
 			if subsCacheVersionErr != nil {
-				log.Fatalf("[GetSvcGroupLinkInfoByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
+				logger.Fatalf("[GetSvcGroupLinkInfoByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
 			}
 
 			writeCacheVersion := 0
@@ -12176,7 +12252,7 @@ func (group *ServicegroupTsmV1) GetSvcGroupLinkInfoByName(ctx context.Context, h
 			if inWrCache {
 				writeCacheVersion, writeCacheVersionErr = strconv.Atoi(resWrCache.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo).ResourceVersion)
 				if writeCacheVersionErr != nil {
-					log.Fatalf("[GetSvcGroupLinkInfoByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
+					logger.Fatalf("[GetSvcGroupLinkInfoByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
 				}
 			}
 
@@ -12209,22 +12285,22 @@ func (group *ServicegroupTsmV1) GetSvcGroupLinkInfoByName(ctx context.Context, h
 				SvcGroupLinkInfo: result,
 			}, nil
 		} else if errors.IsNotFound(err) {
-			log.Debugf("[GetSvcGroupLinkInfoByName]: object %v not found", hashedName)
+			logger.Debugf("[GetSvcGroupLinkInfoByName]: object %v not found", hashedName)
 			return nil, err
 		} else {
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on Get SvcGroupLinkInfos: %s", hashedName)
+					logger.Errorf("Max retry exceed on Get SvcGroupLinkInfos: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[GetSvcGroupLinkInfoByName]: %+v", err)
+				logger.Errorf("[GetSvcGroupLinkInfoByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[GetSvcGroupLinkInfoByName]: %+v", err)
+				logger.Errorf("[GetSvcGroupLinkInfoByName]: %+v", err)
 				return nil, err
 			}
 		}
@@ -12234,31 +12310,31 @@ func (group *ServicegroupTsmV1) GetSvcGroupLinkInfoByName(ctx context.Context, h
 // ForceReadSvcGroupLinkInfoByName read object directly from the database under the hashedName which is a hash of display
 // name and parents names. Use it when you know hashed name of object.
 func (group *ServicegroupTsmV1) ForceReadSvcGroupLinkInfoByName(ctx context.Context, hashedName string) (*ServicegroupSvcGroupLinkInfo, error) {
-	log.Debugf("[ForceReadSvcGroupLinkInfoByName] Received object :%s to read from DB", hashedName)
+	logger.Debugf("[ForceReadSvcGroupLinkInfoByName] Received object :%s to read from DB", hashedName)
 	retryCount := 0
 	for {
 		result, err := group.client.baseClient.
 			ServicegroupTsmV1().
 			SvcGroupLinkInfos().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[ForceReadSvcGroupLinkInfoByName] Failed to Get SvcGroupLinkInfos: %+v", err)
+			logger.Errorf("[ForceReadSvcGroupLinkInfoByName] Failed to Get SvcGroupLinkInfos: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Errorf("[Retry Count: %d ] %+v", retryCount, err)
+				logger.Errorf("[Retry Count: %d ] %+v", retryCount, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max Retry exceed on Get SvcGroupLinkInfos: %s", hashedName)
+					logger.Errorf("Max Retry exceed on Get SvcGroupLinkInfos: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[ForceReadSvcGroupLinkInfoByName]: %+v", err)
+				logger.Errorf("[ForceReadSvcGroupLinkInfoByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[ForceReadSvcGroupLinkInfoByName]: %+v", err)
+				logger.Errorf("[ForceReadSvcGroupLinkInfoByName]: %+v", err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[ForceReadSvcGroupLinkInfoByName] Executed Successfully :%s", hashedName)
+			logger.Debugf("[ForceReadSvcGroupLinkInfoByName] Executed Successfully :%s", hashedName)
 			return &ServicegroupSvcGroupLinkInfo{
 				client:           group.client,
 				SvcGroupLinkInfo: result,
@@ -12270,7 +12346,7 @@ func (group *ServicegroupTsmV1) ForceReadSvcGroupLinkInfoByName(ctx context.Cont
 // DeleteSvcGroupLinkInfoByName deletes object stored in the database under the hashedName which is a hash of
 // display name and parents names. Use it when you know hashed name of object.
 func (group *ServicegroupTsmV1) DeleteSvcGroupLinkInfoByName(ctx context.Context, hashedName string) (err error) {
-	log.Debugf("[DeleteSvcGroupLinkInfoByName] Received objectToDelete: %s", hashedName)
+	logger.Debugf("[DeleteSvcGroupLinkInfoByName] Received objectToDelete: %s", hashedName)
 	var (
 		retryCount int
 		result     *baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo
@@ -12282,23 +12358,23 @@ func (group *ServicegroupTsmV1) DeleteSvcGroupLinkInfoByName(ctx context.Context
 			ServicegroupTsmV1().
 			SvcGroupLinkInfos().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[DeleteSvcGroupLinkInfoByName] Failed to get SvcGroupLinkInfos: %+v", err)
+			logger.Errorf("[DeleteSvcGroupLinkInfoByName] Failed to get SvcGroupLinkInfos: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on get SvcGroupLinkInfos: %s", hashedName)
+					logger.Errorf("Max retry exceed on get SvcGroupLinkInfos: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteSvcGroupLinkInfoByName] context canceled: %s", hashedName)
+				logger.Errorf("[DeleteSvcGroupLinkInfoByName] context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteSvcGroupLinkInfoByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteSvcGroupLinkInfoByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteSvcGroupLinkInfoByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteSvcGroupLinkInfoByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -12316,23 +12392,23 @@ func (group *ServicegroupTsmV1) DeleteSvcGroupLinkInfoByName(ctx context.Context
 			ServicegroupTsmV1().
 			SvcGroupLinkInfos().Delete(ctx, hashedName, metav1.DeleteOptions{})
 		if err != nil {
-			log.Errorf("[DeleteSvcGroupLinkInfoByName] failed to delete SvcGroupLinkInfos: %+v", err)
+			logger.Errorf("[DeleteSvcGroupLinkInfoByName] failed to delete SvcGroupLinkInfos: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on delete SvcGroupLinkInfos: %s", hashedName)
+					logger.Errorf("Max retry exceed on delete SvcGroupLinkInfos: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteSvcGroupLinkInfoByName]: context canceled: %s", hashedName)
+				logger.Errorf("[DeleteSvcGroupLinkInfoByName]: context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteSvcGroupLinkInfoByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteSvcGroupLinkInfoByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteSvcGroupLinkInfoByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteSvcGroupLinkInfoByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -12344,7 +12420,7 @@ func (group *ServicegroupTsmV1) DeleteSvcGroupLinkInfoByName(ctx context.Context
 	}
 	// Get Parent Node and check if gvk present before patch
 
-	log.Debugf("[DeleteSvcGroupLinkInfoByName] Get parent details for object: %s", hashedName)
+	logger.Debugf("[DeleteSvcGroupLinkInfoByName] Get parent details for object: %s", hashedName)
 	// var patch Patch
 	parents := result.GetLabels()
 	if parents == nil {
@@ -12352,16 +12428,16 @@ func (group *ServicegroupTsmV1) DeleteSvcGroupLinkInfoByName(ctx context.Context
 	}
 	parentName, ok := parents["configs.config.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	if result.GetLabels() != nil {
-		if parents[common.IS_NAME_HASHED_LABEL] == "true" {
+		if parents[common.IsNameHashedLabel] == "true" {
 			parentName = helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", parents, parentName)
 		}
 	} else {
 		parentName = helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", parents, parentName)
 	}
-	RemoveChild("configs.config.tsm.tanzu.vmware.com", parentName, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", hashedName)
+	group.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parentName, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", hashedName)
 
 	return nil
 }
@@ -12370,12 +12446,12 @@ func (group *ServicegroupTsmV1) DeleteSvcGroupLinkInfoByName(ctx context.Context
 // Use it directly ONLY when objToCreate.Name is hashed name of the object.
 func (group *ServicegroupTsmV1) CreateSvcGroupLinkInfoByName(ctx context.Context,
 	objToCreate *baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo) (*ServicegroupSvcGroupLinkInfo, error) {
-	log.Debugf("[CreateSvcGroupLinkInfoByName] Received objToCreate: %s", objToCreate.GetName())
+	logger.Debugf("[CreateSvcGroupLinkInfoByName] Received objToCreate: %s", objToCreate.GetName())
 	if objToCreate.GetLabels() == nil {
 		objToCreate.Labels = make(map[string]string)
 	}
-	if _, ok := objToCreate.Labels[common.DISPLAY_NAME_LABEL]; !ok {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
+	if _, ok := objToCreate.Labels[common.DisplayNameLabel]; !ok {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
 	}
 
 	var (
@@ -12389,33 +12465,33 @@ func (group *ServicegroupTsmV1) CreateSvcGroupLinkInfoByName(ctx context.Context
 			ServicegroupTsmV1().
 			SvcGroupLinkInfos().Create(ctx, objToCreate, metav1.CreateOptions{})
 		if err != nil {
-			log.Errorf("[CreateSvcGroupLinkInfoByName] Failed to create SvcGroupLinkInfo: %s, error: %+v", objToCreate.GetName(), err)
+			logger.Errorf("[CreateSvcGroupLinkInfoByName] Failed to create SvcGroupLinkInfo: %s, error: %+v", objToCreate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on create SvcGroupLinkInfo: %s", objToCreate.GetName())
+					logger.Errorf("Max retry exceed on create SvcGroupLinkInfo: %s", objToCreate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[CreateSvcGroupLinkInfoByName] context canceled while creating SvcGroupLinkInfo: %s", objToCreate.GetName())
+				logger.Errorf("[CreateSvcGroupLinkInfoByName] context canceled while creating SvcGroupLinkInfo: %s", objToCreate.GetName())
 				return nil, context.Canceled
 			} else if errors.IsAlreadyExists(err) {
-				log.Debugf("[CreateSvcGroupLinkInfoByName] SvcGroupLinkInfo: %s already exists, error: %+v", objToCreate.GetName(), err)
+				logger.Debugf("[CreateSvcGroupLinkInfoByName] SvcGroupLinkInfo: %s already exists, error: %+v", objToCreate.GetName(), err)
 				result, err = group.client.baseClient.ServicegroupTsmV1().SvcGroupLinkInfos().Get(ctx, objToCreate.GetName(), metav1.GetOptions{})
 				if err != nil {
-					log.Fatalf("[CreateSvcGroupLinkInfoByName] Unable to Get SvcGroupLinkInfo %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
+					logger.Fatalf("[CreateSvcGroupLinkInfoByName] Unable to Get SvcGroupLinkInfo %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
 				}
 				break
 			} else {
-				log.Errorf("[CreateSvcGroupLinkInfoByName] found unexpected error while creating SvcGroupLinkInfo: %s, error: %+v", objToCreate.GetName(), err)
+				logger.Errorf("[CreateSvcGroupLinkInfoByName] found unexpected error while creating SvcGroupLinkInfo: %s, error: %+v", objToCreate.GetName(), err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[CreateSvcGroupLinkInfoByName] SvcGroupLinkInfo: %s created successfully", objToCreate.GetName())
+			logger.Debugf("[CreateSvcGroupLinkInfoByName] SvcGroupLinkInfo: %s created successfully", objToCreate.GetName())
 			if s, ok := subscriptionMap.Load("svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[CreateSvcGroupLinkInfoByName] SvcGroupLinkInfo: %s stored in wr-cache", objToCreate.GetName())
+				logger.Debugf("[CreateSvcGroupLinkInfoByName] SvcGroupLinkInfo: %s stored in wr-cache", objToCreate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
@@ -12424,13 +12500,13 @@ func (group *ServicegroupTsmV1) CreateSvcGroupLinkInfoByName(ctx context.Context
 
 	parentName, ok := objToCreate.GetLabels()["configs.config.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	parentHashedName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", objToCreate.GetLabels(), parentName)
 
-	AddChild("configs.config.tsm.tanzu.vmware.com", parentHashedName, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", objToCreate.Name)
+	group.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parentHashedName, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", objToCreate.Name)
 
-	log.Debugf("[CreateSvcGroupLinkInfoByName] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[CreateSvcGroupLinkInfoByName] Executed Successfully: %s", objToCreate.GetName())
 	return &ServicegroupSvcGroupLinkInfo{
 		client:           group.client,
 		SvcGroupLinkInfo: result,
@@ -12441,7 +12517,7 @@ func (group *ServicegroupTsmV1) CreateSvcGroupLinkInfoByName(ctx context.Context
 // display name and parents names.
 func (group *ServicegroupTsmV1) UpdateSvcGroupLinkInfoByName(ctx context.Context,
 	objToUpdate *baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo) (*ServicegroupSvcGroupLinkInfo, error) {
-	log.Debugf("[UpdateSvcGroupLinkInfoByName] Received objToUpdate: %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateSvcGroupLinkInfoByName] Received objToUpdate: %s", objToUpdate.GetName())
 
 	var patch Patch
 
@@ -12467,8 +12543,8 @@ func (group *ServicegroupTsmV1) UpdateSvcGroupLinkInfoByName(ctx context.Context
 			for _, k := range parentsList {
 				objToUpdate.Labels[k] = current.Labels[k]
 			}
-			objToUpdate.Labels[common.IS_NAME_HASHED_LABEL] = current.Labels[common.IS_NAME_HASHED_LABEL]
-			objToUpdate.Labels[common.DISPLAY_NAME_LABEL] = current.Labels[common.DISPLAY_NAME_LABEL]
+			objToUpdate.Labels[common.IsNameHashedLabel] = current.Labels[common.IsNameHashedLabel]
+			objToUpdate.Labels[common.DisplayNameLabel] = current.Labels[common.DisplayNameLabel]
 			patch = append(patch, PatchOp{
 				Op:    "replace",
 				Path:  "/metadata/labels",
@@ -12583,46 +12659,46 @@ func (group *ServicegroupTsmV1) UpdateSvcGroupLinkInfoByName(ctx context.Context
 			ServicegroupTsmV1().
 			SvcGroupLinkInfos().Patch(newCtx, objToUpdate.GetName(), types.JSONPatchType, marshaled, metav1.PatchOptions{}, "")
 		if err != nil {
-			log.Errorf("[UpdateSvcGroupLinkInfoByName] Failed to patch SvcGroupLinkInfo %s with error: %+v", objToUpdate.GetName(), err)
+			logger.Errorf("[UpdateSvcGroupLinkInfoByName] Failed to patch SvcGroupLinkInfo %s with error: %+v", objToUpdate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
-					log.Debugf("Trigger SvcGroupLinkInfo Delete: %s", objToUpdate.GetName())
+					logger.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
+					logger.Debugf("Trigger SvcGroupLinkInfo Delete: %s", objToUpdate.GetName())
 					delErr := group.DeleteSvcGroupLinkInfoByName(newCtx, objToUpdate.GetName())
 					if delErr != nil {
-						log.Debugf("Error occur while deleting SvcGroupLinkInfo: %s", objToUpdate.GetName())
+						logger.Debugf("Error occur while deleting SvcGroupLinkInfo: %s", objToUpdate.GetName())
 						return nil, delErr
 					}
-					log.Debugf("SvcGroupLinkInfo deleted: %s", objToUpdate.GetName())
+					logger.Debugf("SvcGroupLinkInfo deleted: %s", objToUpdate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[UpdateSvcGroupLinkInfoByName]: context canceled: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateSvcGroupLinkInfoByName]: context canceled: %s", objToUpdate.GetName())
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[UpdateSvcGroupLinkInfoByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
-				log.Debugf("Trigger SvcGroupLinkInfo Delete: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateSvcGroupLinkInfoByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
+				logger.Debugf("Trigger SvcGroupLinkInfo Delete: %s", objToUpdate.GetName())
 				delErr := group.DeleteSvcGroupLinkInfoByName(newCtx, objToUpdate.GetName())
 				if delErr != nil {
-					log.Debugf("Error occur while deleting SvcGroupLinkInfo: %+v", objToUpdate.GetName())
+					logger.Debugf("Error occur while deleting SvcGroupLinkInfo: %+v", objToUpdate.GetName())
 					return nil, delErr
 				}
-				log.Debugf("SvcGroupLinkInfo Deleted: %s", objToUpdate.GetName())
+				logger.Debugf("SvcGroupLinkInfo Deleted: %s", objToUpdate.GetName())
 				return nil, err
 			}
 		} else {
-			log.Debugf("[UpdateSvcGroupLinkInfoByName] Patch SvcGroupLinkInfo Success :%s", objToUpdate.GetName())
+			logger.Debugf("[UpdateSvcGroupLinkInfoByName] Patch SvcGroupLinkInfo Success :%s", objToUpdate.GetName())
 			if s, ok := subscriptionMap.Load("svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[UpdateSvcGroupLinkInfoByName] %s stored in wr-cache", objToUpdate.GetName())
+				logger.Debugf("[UpdateSvcGroupLinkInfoByName] %s stored in wr-cache", objToUpdate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
 	}
-	log.Debugf("[UpdateSvcGroupLinkInfoByName] Executed Successfully %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateSvcGroupLinkInfoByName] Executed Successfully %s", objToUpdate.GetName())
 	return &ServicegroupSvcGroupLinkInfo{
 		client:           group.client,
 		SvcGroupLinkInfo: result,
@@ -12688,6 +12764,7 @@ func (obj *ServicegroupSvcGroupLinkInfo) Update(ctx context.Context) error {
 
 func (obj *ServicegroupSvcGroupLinkInfo) GetParent(ctx context.Context) (result *ConfigConfig, err error) {
 	hashedName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", obj.Labels, obj.Labels["configs.config.tsm.tanzu.vmware.com"])
+	logger.Debugf("[GetParent] Get parent of ServicegroupSvcGroupLinkInfo name %s [labels %#v] of parent type configs.config.tsm.tanzu.vmware.com and name %s", obj.Name, obj.Labels, hashedName)
 	return obj.client.Config().GetConfigByName(ctx, hashedName)
 }
 
@@ -12724,23 +12801,25 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) IsSubscribed() bool {
 }
 
 func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) addCallback(obj *ServicegroupSvcGroupLinkInfo) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["configs.config.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[addCallback] received for svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com name %s displayName %s parent configs.config.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	AddChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) deleteCallback(obj *ServicegroupSvcGroupLinkInfo) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["configs.config.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[deleteCallback] received for svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com name %s displayName %s parent configs.config.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	RemoveChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterEventHandler(addCB func(obj *ServicegroupSvcGroupLinkInfo), updateCB func(oldObj, newObj *ServicegroupSvcGroupLinkInfo), deleteCB func(obj *ServicegroupSvcGroupLinkInfo)) (cache.ResourceEventHandlerRegistration, error) {
@@ -12770,6 +12849,7 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterEventHandler(addCB fu
 				client:           c.client,
 				SvcGroupLinkInfo: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo),
 			}
+			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com name %s", nc.SvcGroupLinkInfo.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -12791,10 +12871,10 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterEventHandler(addCB fu
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if !IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			addCB(nc)
@@ -12809,6 +12889,7 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterEventHandler(addCB fu
 				client:           c.client,
 				SvcGroupLinkInfo: newObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo),
 			}
+			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.SvcGroupLinkInfo.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
 		},
 
@@ -12817,6 +12898,7 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterEventHandler(addCB fu
 				client:           c.client,
 				SvcGroupLinkInfo: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo),
 			}
+			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com name %s", nc.SvcGroupLinkInfo.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -12840,11 +12922,11 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterEventHandler(addCB fu
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			deleteCB(nc)
@@ -12854,7 +12936,7 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterEventHandler(addCB fu
 }
 
 func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterAddCallback(cbfn func(obj *ServicegroupSvcGroupLinkInfo)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterAddCallback] Received for ServicegroupSvcGroupLinkInfo")
+	logger.Debugf("[RegisterAddCallback] Received for ServicegroupSvcGroupLinkInfo")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -12882,6 +12964,7 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterAddCallback(cbfn func
 				client:           c.client,
 				SvcGroupLinkInfo: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo),
 			}
+			logger.Debugf("[RegisterAddCallback] Got Add event for svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com name %s", nc.SvcGroupLinkInfo.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -12904,11 +12987,11 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterAddCallback(cbfn func
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if !IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -12919,7 +13002,7 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterAddCallback(cbfn func
 }
 
 func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *ServicegroupSvcGroupLinkInfo)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterUpdateCallback] Received for ServicegroupSvcGroupLinkInfo")
+	logger.Debugf("[RegisterUpdateCallback] Received for ServicegroupSvcGroupLinkInfo")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -12951,6 +13034,7 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterUpdateCallback(cbfn f
 				client:           c.client,
 				SvcGroupLinkInfo: newObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo),
 			}
+			logger.Debugf("[RegisterUpdateCallback] Got Update event for svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.SvcGroupLinkInfo.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
 		},
 	})
@@ -12959,7 +13043,7 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterUpdateCallback(cbfn f
 }
 
 func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *ServicegroupSvcGroupLinkInfo)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterDeleteCallback] Received for ServicegroupSvcGroupLinkInfo")
+	logger.Debugf("[RegisterDeleteCallback] Received for ServicegroupSvcGroupLinkInfo")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -12987,6 +13071,7 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterDeleteCallback(cbfn f
 				client:           c.client,
 				SvcGroupLinkInfo: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo),
 			}
+			logger.Debugf("[RegisterDeleteCallback] Got Delete event for svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com name %s", nc.SvcGroupLinkInfo.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -13012,10 +13097,10 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterDeleteCallback(cbfn f
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -13046,11 +13131,11 @@ func (group *PolicypkgTsmV1) GetAccessControlPolicyByName(ctx context.Context, h
 		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
 		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
-			log.Debugf("[GetAccessControlPolicyByName] Object: %s exists in cache", hashedName)
+			logger.Debugf("[GetAccessControlPolicyByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy)
 			subsCacheVersion, subsCacheVersionErr := strconv.Atoi(resultCache.ResourceVersion)
 			if subsCacheVersionErr != nil {
-				log.Fatalf("[GetAccessControlPolicyByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
+				logger.Fatalf("[GetAccessControlPolicyByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
 			}
 
 			writeCacheVersion := 0
@@ -13058,7 +13143,7 @@ func (group *PolicypkgTsmV1) GetAccessControlPolicyByName(ctx context.Context, h
 			if inWrCache {
 				writeCacheVersion, writeCacheVersionErr = strconv.Atoi(resWrCache.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy).ResourceVersion)
 				if writeCacheVersionErr != nil {
-					log.Fatalf("[GetAccessControlPolicyByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
+					logger.Fatalf("[GetAccessControlPolicyByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
 				}
 			}
 
@@ -13091,22 +13176,22 @@ func (group *PolicypkgTsmV1) GetAccessControlPolicyByName(ctx context.Context, h
 				AccessControlPolicy: result,
 			}, nil
 		} else if errors.IsNotFound(err) {
-			log.Debugf("[GetAccessControlPolicyByName]: object %v not found", hashedName)
+			logger.Debugf("[GetAccessControlPolicyByName]: object %v not found", hashedName)
 			return nil, err
 		} else {
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on Get AccessControlPolicies: %s", hashedName)
+					logger.Errorf("Max retry exceed on Get AccessControlPolicies: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[GetAccessControlPolicyByName]: %+v", err)
+				logger.Errorf("[GetAccessControlPolicyByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[GetAccessControlPolicyByName]: %+v", err)
+				logger.Errorf("[GetAccessControlPolicyByName]: %+v", err)
 				return nil, err
 			}
 		}
@@ -13116,31 +13201,31 @@ func (group *PolicypkgTsmV1) GetAccessControlPolicyByName(ctx context.Context, h
 // ForceReadAccessControlPolicyByName read object directly from the database under the hashedName which is a hash of display
 // name and parents names. Use it when you know hashed name of object.
 func (group *PolicypkgTsmV1) ForceReadAccessControlPolicyByName(ctx context.Context, hashedName string) (*PolicypkgAccessControlPolicy, error) {
-	log.Debugf("[ForceReadAccessControlPolicyByName] Received object :%s to read from DB", hashedName)
+	logger.Debugf("[ForceReadAccessControlPolicyByName] Received object :%s to read from DB", hashedName)
 	retryCount := 0
 	for {
 		result, err := group.client.baseClient.
 			PolicypkgTsmV1().
 			AccessControlPolicies().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[ForceReadAccessControlPolicyByName] Failed to Get AccessControlPolicies: %+v", err)
+			logger.Errorf("[ForceReadAccessControlPolicyByName] Failed to Get AccessControlPolicies: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Errorf("[Retry Count: %d ] %+v", retryCount, err)
+				logger.Errorf("[Retry Count: %d ] %+v", retryCount, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max Retry exceed on Get AccessControlPolicies: %s", hashedName)
+					logger.Errorf("Max Retry exceed on Get AccessControlPolicies: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[ForceReadAccessControlPolicyByName]: %+v", err)
+				logger.Errorf("[ForceReadAccessControlPolicyByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[ForceReadAccessControlPolicyByName]: %+v", err)
+				logger.Errorf("[ForceReadAccessControlPolicyByName]: %+v", err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[ForceReadAccessControlPolicyByName] Executed Successfully :%s", hashedName)
+			logger.Debugf("[ForceReadAccessControlPolicyByName] Executed Successfully :%s", hashedName)
 			return &PolicypkgAccessControlPolicy{
 				client:              group.client,
 				AccessControlPolicy: result,
@@ -13152,7 +13237,7 @@ func (group *PolicypkgTsmV1) ForceReadAccessControlPolicyByName(ctx context.Cont
 // DeleteAccessControlPolicyByName deletes object stored in the database under the hashedName which is a hash of
 // display name and parents names. Use it when you know hashed name of object.
 func (group *PolicypkgTsmV1) DeleteAccessControlPolicyByName(ctx context.Context, hashedName string) (err error) {
-	log.Debugf("[DeleteAccessControlPolicyByName] Received objectToDelete: %s", hashedName)
+	logger.Debugf("[DeleteAccessControlPolicyByName] Received objectToDelete: %s", hashedName)
 	var (
 		retryCount int
 		result     *basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy
@@ -13164,23 +13249,23 @@ func (group *PolicypkgTsmV1) DeleteAccessControlPolicyByName(ctx context.Context
 			PolicypkgTsmV1().
 			AccessControlPolicies().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[DeleteAccessControlPolicyByName] Failed to get AccessControlPolicies: %+v", err)
+			logger.Errorf("[DeleteAccessControlPolicyByName] Failed to get AccessControlPolicies: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on get AccessControlPolicies: %s", hashedName)
+					logger.Errorf("Max retry exceed on get AccessControlPolicies: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteAccessControlPolicyByName] context canceled: %s", hashedName)
+				logger.Errorf("[DeleteAccessControlPolicyByName] context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteAccessControlPolicyByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteAccessControlPolicyByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteAccessControlPolicyByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteAccessControlPolicyByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -13192,12 +13277,12 @@ func (group *PolicypkgTsmV1) DeleteAccessControlPolicyByName(ctx context.Context
 		return err
 	}
 
-	for _, child := range GetChildren("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", hashedName, "acpconfigs.policypkg.tsm.tanzu.vmware.com") {
+	for _, child := range group.client.children.GetChildren("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", hashedName, "acpconfigs.policypkg.tsm.tanzu.vmware.com") {
 		err := group.client.Policypkg().DeleteACPConfigByName(ctx, child)
 		if err != nil && errors.IsNotFound(err) == false {
 			return err
 		}
-		RemoveChild("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", hashedName, "acpconfigs.policypkg.tsm.tanzu.vmware.com", child)
+		group.client.children.RemoveChild("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", hashedName, "acpconfigs.policypkg.tsm.tanzu.vmware.com", child)
 	}
 
 	retryCount = 0
@@ -13206,23 +13291,23 @@ func (group *PolicypkgTsmV1) DeleteAccessControlPolicyByName(ctx context.Context
 			PolicypkgTsmV1().
 			AccessControlPolicies().Delete(ctx, hashedName, metav1.DeleteOptions{})
 		if err != nil {
-			log.Errorf("[DeleteAccessControlPolicyByName] failed to delete AccessControlPolicies: %+v", err)
+			logger.Errorf("[DeleteAccessControlPolicyByName] failed to delete AccessControlPolicies: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on delete AccessControlPolicies: %s", hashedName)
+					logger.Errorf("Max retry exceed on delete AccessControlPolicies: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteAccessControlPolicyByName]: context canceled: %s", hashedName)
+				logger.Errorf("[DeleteAccessControlPolicyByName]: context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteAccessControlPolicyByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteAccessControlPolicyByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteAccessControlPolicyByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteAccessControlPolicyByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -13234,7 +13319,7 @@ func (group *PolicypkgTsmV1) DeleteAccessControlPolicyByName(ctx context.Context
 	}
 	// Get Parent Node and check if gvk present before patch
 
-	log.Debugf("[DeleteAccessControlPolicyByName] Get parent details for object: %s", hashedName)
+	logger.Debugf("[DeleteAccessControlPolicyByName] Get parent details for object: %s", hashedName)
 	// var patch Patch
 	parents := result.GetLabels()
 	if parents == nil {
@@ -13242,16 +13327,16 @@ func (group *PolicypkgTsmV1) DeleteAccessControlPolicyByName(ctx context.Context
 	}
 	parentName, ok := parents["gnses.gns.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	if result.GetLabels() != nil {
-		if parents[common.IS_NAME_HASHED_LABEL] == "true" {
+		if parents[common.IsNameHashedLabel] == "true" {
 			parentName = helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", parents, parentName)
 		}
 	} else {
 		parentName = helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", parents, parentName)
 	}
-	RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentName, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", hashedName)
+	group.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentName, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", hashedName)
 
 	return nil
 }
@@ -13260,12 +13345,12 @@ func (group *PolicypkgTsmV1) DeleteAccessControlPolicyByName(ctx context.Context
 // Use it directly ONLY when objToCreate.Name is hashed name of the object.
 func (group *PolicypkgTsmV1) CreateAccessControlPolicyByName(ctx context.Context,
 	objToCreate *basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy) (*PolicypkgAccessControlPolicy, error) {
-	log.Debugf("[CreateAccessControlPolicyByName] Received objToCreate: %s", objToCreate.GetName())
+	logger.Debugf("[CreateAccessControlPolicyByName] Received objToCreate: %s", objToCreate.GetName())
 	if objToCreate.GetLabels() == nil {
 		objToCreate.Labels = make(map[string]string)
 	}
-	if _, ok := objToCreate.Labels[common.DISPLAY_NAME_LABEL]; !ok {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
+	if _, ok := objToCreate.Labels[common.DisplayNameLabel]; !ok {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
 	}
 
 	objToCreate.Spec.PolicyConfigsGvk = nil
@@ -13281,33 +13366,33 @@ func (group *PolicypkgTsmV1) CreateAccessControlPolicyByName(ctx context.Context
 			PolicypkgTsmV1().
 			AccessControlPolicies().Create(ctx, objToCreate, metav1.CreateOptions{})
 		if err != nil {
-			log.Errorf("[CreateAccessControlPolicyByName] Failed to create AccessControlPolicy: %s, error: %+v", objToCreate.GetName(), err)
+			logger.Errorf("[CreateAccessControlPolicyByName] Failed to create AccessControlPolicy: %s, error: %+v", objToCreate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on create AccessControlPolicy: %s", objToCreate.GetName())
+					logger.Errorf("Max retry exceed on create AccessControlPolicy: %s", objToCreate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[CreateAccessControlPolicyByName] context canceled while creating AccessControlPolicy: %s", objToCreate.GetName())
+				logger.Errorf("[CreateAccessControlPolicyByName] context canceled while creating AccessControlPolicy: %s", objToCreate.GetName())
 				return nil, context.Canceled
 			} else if errors.IsAlreadyExists(err) {
-				log.Debugf("[CreateAccessControlPolicyByName] AccessControlPolicy: %s already exists, error: %+v", objToCreate.GetName(), err)
+				logger.Debugf("[CreateAccessControlPolicyByName] AccessControlPolicy: %s already exists, error: %+v", objToCreate.GetName(), err)
 				result, err = group.client.baseClient.PolicypkgTsmV1().AccessControlPolicies().Get(ctx, objToCreate.GetName(), metav1.GetOptions{})
 				if err != nil {
-					log.Fatalf("[CreateAccessControlPolicyByName] Unable to Get AccessControlPolicy %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
+					logger.Fatalf("[CreateAccessControlPolicyByName] Unable to Get AccessControlPolicy %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
 				}
 				break
 			} else {
-				log.Errorf("[CreateAccessControlPolicyByName] found unexpected error while creating AccessControlPolicy: %s, error: %+v", objToCreate.GetName(), err)
+				logger.Errorf("[CreateAccessControlPolicyByName] found unexpected error while creating AccessControlPolicy: %s, error: %+v", objToCreate.GetName(), err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[CreateAccessControlPolicyByName] AccessControlPolicy: %s created successfully", objToCreate.GetName())
+			logger.Debugf("[CreateAccessControlPolicyByName] AccessControlPolicy: %s created successfully", objToCreate.GetName())
 			if s, ok := subscriptionMap.Load("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[CreateAccessControlPolicyByName] AccessControlPolicy: %s stored in wr-cache", objToCreate.GetName())
+				logger.Debugf("[CreateAccessControlPolicyByName] AccessControlPolicy: %s stored in wr-cache", objToCreate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
@@ -13316,13 +13401,13 @@ func (group *PolicypkgTsmV1) CreateAccessControlPolicyByName(ctx context.Context
 
 	parentName, ok := objToCreate.GetLabels()["gnses.gns.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	parentHashedName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", objToCreate.GetLabels(), parentName)
 
-	AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashedName, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", objToCreate.Name)
+	group.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashedName, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", objToCreate.Name)
 
-	log.Debugf("[CreateAccessControlPolicyByName] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[CreateAccessControlPolicyByName] Executed Successfully: %s", objToCreate.GetName())
 	return &PolicypkgAccessControlPolicy{
 		client:              group.client,
 		AccessControlPolicy: result,
@@ -13333,7 +13418,7 @@ func (group *PolicypkgTsmV1) CreateAccessControlPolicyByName(ctx context.Context
 // display name and parents names.
 func (group *PolicypkgTsmV1) UpdateAccessControlPolicyByName(ctx context.Context,
 	objToUpdate *basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy) (*PolicypkgAccessControlPolicy, error) {
-	log.Debugf("[UpdateAccessControlPolicyByName] Received objToUpdate: %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateAccessControlPolicyByName] Received objToUpdate: %s", objToUpdate.GetName())
 
 	var patch Patch
 
@@ -13359,8 +13444,8 @@ func (group *PolicypkgTsmV1) UpdateAccessControlPolicyByName(ctx context.Context
 			for _, k := range parentsList {
 				objToUpdate.Labels[k] = current.Labels[k]
 			}
-			objToUpdate.Labels[common.IS_NAME_HASHED_LABEL] = current.Labels[common.IS_NAME_HASHED_LABEL]
-			objToUpdate.Labels[common.DISPLAY_NAME_LABEL] = current.Labels[common.DISPLAY_NAME_LABEL]
+			objToUpdate.Labels[common.IsNameHashedLabel] = current.Labels[common.IsNameHashedLabel]
+			objToUpdate.Labels[common.DisplayNameLabel] = current.Labels[common.DisplayNameLabel]
 			patch = append(patch, PatchOp{
 				Op:    "replace",
 				Path:  "/metadata/labels",
@@ -13389,46 +13474,46 @@ func (group *PolicypkgTsmV1) UpdateAccessControlPolicyByName(ctx context.Context
 			PolicypkgTsmV1().
 			AccessControlPolicies().Patch(newCtx, objToUpdate.GetName(), types.JSONPatchType, marshaled, metav1.PatchOptions{}, "")
 		if err != nil {
-			log.Errorf("[UpdateAccessControlPolicyByName] Failed to patch AccessControlPolicy %s with error: %+v", objToUpdate.GetName(), err)
+			logger.Errorf("[UpdateAccessControlPolicyByName] Failed to patch AccessControlPolicy %s with error: %+v", objToUpdate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
-					log.Debugf("Trigger AccessControlPolicy Delete: %s", objToUpdate.GetName())
+					logger.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
+					logger.Debugf("Trigger AccessControlPolicy Delete: %s", objToUpdate.GetName())
 					delErr := group.DeleteAccessControlPolicyByName(newCtx, objToUpdate.GetName())
 					if delErr != nil {
-						log.Debugf("Error occur while deleting AccessControlPolicy: %s", objToUpdate.GetName())
+						logger.Debugf("Error occur while deleting AccessControlPolicy: %s", objToUpdate.GetName())
 						return nil, delErr
 					}
-					log.Debugf("AccessControlPolicy deleted: %s", objToUpdate.GetName())
+					logger.Debugf("AccessControlPolicy deleted: %s", objToUpdate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[UpdateAccessControlPolicyByName]: context canceled: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateAccessControlPolicyByName]: context canceled: %s", objToUpdate.GetName())
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[UpdateAccessControlPolicyByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
-				log.Debugf("Trigger AccessControlPolicy Delete: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateAccessControlPolicyByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
+				logger.Debugf("Trigger AccessControlPolicy Delete: %s", objToUpdate.GetName())
 				delErr := group.DeleteAccessControlPolicyByName(newCtx, objToUpdate.GetName())
 				if delErr != nil {
-					log.Debugf("Error occur while deleting AccessControlPolicy: %+v", objToUpdate.GetName())
+					logger.Debugf("Error occur while deleting AccessControlPolicy: %+v", objToUpdate.GetName())
 					return nil, delErr
 				}
-				log.Debugf("AccessControlPolicy Deleted: %s", objToUpdate.GetName())
+				logger.Debugf("AccessControlPolicy Deleted: %s", objToUpdate.GetName())
 				return nil, err
 			}
 		} else {
-			log.Debugf("[UpdateAccessControlPolicyByName] Patch AccessControlPolicy Success :%s", objToUpdate.GetName())
+			logger.Debugf("[UpdateAccessControlPolicyByName] Patch AccessControlPolicy Success :%s", objToUpdate.GetName())
 			if s, ok := subscriptionMap.Load("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[UpdateAccessControlPolicyByName] %s stored in wr-cache", objToUpdate.GetName())
+				logger.Debugf("[UpdateAccessControlPolicyByName] %s stored in wr-cache", objToUpdate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
 	}
-	log.Debugf("[UpdateAccessControlPolicyByName] Executed Successfully %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateAccessControlPolicyByName] Executed Successfully %s", objToUpdate.GetName())
 	return &PolicypkgAccessControlPolicy{
 		client:              group.client,
 		AccessControlPolicy: result,
@@ -13494,6 +13579,7 @@ func (obj *PolicypkgAccessControlPolicy) Update(ctx context.Context) error {
 
 func (obj *PolicypkgAccessControlPolicy) GetParent(ctx context.Context) (result *GnsGns, err error) {
 	hashedName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", obj.Labels, obj.Labels["gnses.gns.tsm.tanzu.vmware.com"])
+	logger.Debugf("[GetParent] Get parent of PolicypkgAccessControlPolicy name %s [labels %#v] of parent type gnses.gns.tsm.tanzu.vmware.com and name %s", obj.Name, obj.Labels, hashedName)
 	return obj.client.Gns().GetGnsByName(ctx, hashedName)
 }
 
@@ -13504,6 +13590,7 @@ type PolicypkgAccessControlPolicyPolicyConfigs struct {
 
 func (n *PolicypkgAccessControlPolicyPolicyConfigs) Next(ctx context.Context) (*PolicypkgACPConfig, error) {
 	for index, child := range n.PolicyConfigs {
+		logger.Debugf("[PolicypkgAccessControlPolicyPolicyConfigs Next] Get next PolicyConfigs with name %s", child.Name)
 		obj, err := n.client.Policypkg().GetACPConfigByName(ctx, child.Name)
 		if err == nil {
 			if index == len(n.PolicyConfigs)-1 {
@@ -13525,7 +13612,7 @@ func (n *PolicypkgAccessControlPolicyPolicyConfigs) Next(ctx context.Context) (*
 func (obj *PolicypkgAccessControlPolicy) GetAllPolicyConfigsIter(ctx context.Context) (
 	result PolicypkgAccessControlPolicyPolicyConfigs) {
 	result.client = obj.client
-	for _, v := range GetChildren("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", obj.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com") {
+	for _, v := range obj.client.children.GetChildren("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", obj.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com") {
 		result.PolicyConfigs = append(result.PolicyConfigs, basepolicypkgtsmtanzuvmwarecomv1.Child{
 			Group: "policypkg.tsm.tanzu.vmware.com",
 			Kind:  "ACPConfig",
@@ -13538,7 +13625,8 @@ func (obj *PolicypkgAccessControlPolicy) GetAllPolicyConfigsIter(ctx context.Con
 // GetAllPolicyConfigs returns all children of a given type
 func (obj *PolicypkgAccessControlPolicy) GetAllPolicyConfigs(ctx context.Context) (
 	result []*PolicypkgACPConfig, err error) {
-	for _, v := range GetChildren("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", obj.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com") {
+	for _, v := range obj.client.children.GetChildren("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", obj.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com") {
+		logger.Debugf("[PolicypkgAccessControlPolicy GetAllPolicyConfigs] Get next PolicyConfigs with name %s", v)
 		l, err := obj.client.Policypkg().GetACPConfigByName(ctx, v)
 		if err != nil {
 			return nil, err
@@ -13558,10 +13646,13 @@ func (obj *PolicypkgAccessControlPolicy) GetPolicyConfigs(ctx context.Context,
 	}
 	parentLabels["accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"] = obj.DisplayName()
 	childHashName := helper.GetHashedName("acpconfigs.policypkg.tsm.tanzu.vmware.com", parentLabels, displayName)
-	if IsChildExists("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", obj.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", childHashName) == false {
+	logger.Debugf("[GetPolicyConfigs] in PolicypkgAccessControlPolicy with name %s, displayName %s, parentLabels %#v", childHashName, displayName, parentLabels)
+	if obj.client.children.IsChildExists("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", obj.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", childHashName) == false {
+		logger.Debugf("[GetPolicyConfigs] ChildNotFound PolicyConfigs with name %s, displayName %s ", childHashName, displayName)
 		return nil, NewChildNotFound(obj.DisplayName(), "Policypkg.AccessControlPolicy", "PolicyConfigs", displayName)
 	}
 
+	logger.Debugf("[GetPolicyConfigs] invoke GetACPConfigByName name %s, displayName %s", childHashName, displayName)
 	result, err = obj.client.Policypkg().GetACPConfigByName(ctx, childHashName)
 	return
 }
@@ -13571,7 +13662,7 @@ func (obj *PolicypkgAccessControlPolicy) GetPolicyConfigs(ctx context.Context,
 // nexus/display_name label and can be obtained using DisplayName() method.
 func (obj *PolicypkgAccessControlPolicy) AddPolicyConfigs(ctx context.Context,
 	objToCreate *basepolicypkgtsmtanzuvmwarecomv1.ACPConfig) (result *PolicypkgACPConfig, err error) {
-	log.Debugf("[AddPolicyConfigs] Received objToAdd: %s", objToCreate.GetName())
+	logger.Debugf("[AddPolicyConfigs] Received objToAdd: %s", objToCreate.GetName())
 	if objToCreate.Labels == nil {
 		objToCreate.Labels = map[string]string{}
 	}
@@ -13579,19 +13670,19 @@ func (obj *PolicypkgAccessControlPolicy) AddPolicyConfigs(ctx context.Context,
 		objToCreate.Labels[v] = obj.Labels[v]
 	}
 	objToCreate.Labels["accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"] = obj.DisplayName()
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName(objToCreate.CRDName(), objToCreate.Labels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
 	result, err = obj.client.Policypkg().CreateACPConfigByName(ctx, objToCreate)
-	log.Debugf("[AddPolicyConfigs] ACPConfig created successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddPolicyConfigs] ACPConfig created successfully: %s", objToCreate.GetName())
 	updatedObj, getErr := obj.client.Policypkg().GetAccessControlPolicyByName(ctx, obj.GetName())
 	if getErr == nil {
 		obj.AccessControlPolicy = updatedObj.AccessControlPolicy
 	}
-	log.Debugf("[AddPolicyConfigs] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[AddPolicyConfigs] Executed Successfully: %s", objToCreate.GetName())
 	return
 }
 
@@ -13599,7 +13690,7 @@ func (obj *PolicypkgAccessControlPolicy) AddPolicyConfigs(ctx context.Context,
 // and parents names and deletes it.
 
 func (obj *PolicypkgAccessControlPolicy) DeletePolicyConfigs(ctx context.Context, displayName string) (err error) {
-	log.Debugf("[ DeletePolicyConfigs] Received for ACPConfig object: %s to delete", displayName)
+	logger.Debugf("[ DeletePolicyConfigs] Received for ACPConfig object: %s to delete", displayName)
 
 	parentLabels := make(map[string]string)
 	for k, v := range obj.Labels {
@@ -13607,7 +13698,7 @@ func (obj *PolicypkgAccessControlPolicy) DeletePolicyConfigs(ctx context.Context
 	}
 	parentLabels["accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"] = obj.DisplayName()
 	childHashName := helper.GetHashedName("acpconfigs.policypkg.tsm.tanzu.vmware.com", parentLabels, displayName)
-	if IsChildExists("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", obj.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", childHashName) == false {
+	if obj.client.children.IsChildExists("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", obj.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", childHashName) == false {
 		return NewChildNotFound(obj.DisplayName(), "Policypkg.AccessControlPolicy", "PolicyConfigs", displayName)
 	}
 
@@ -13615,7 +13706,7 @@ func (obj *PolicypkgAccessControlPolicy) DeletePolicyConfigs(ctx context.Context
 	if err != nil {
 		return err
 	}
-	log.Debugf("[ DeletePolicyConfigs] ACPConfig object: %s deleted successfully", displayName)
+	logger.Debugf("[ DeletePolicyConfigs] ACPConfig object: %s deleted successfully", displayName)
 	updatedObj, err := obj.client.Policypkg().GetAccessControlPolicyByName(ctx, obj.GetName())
 	if err == nil {
 		obj.AccessControlPolicy = updatedObj.AccessControlPolicy
@@ -13656,23 +13747,25 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) IsSubscribed() bool {
 }
 
 func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) addCallback(obj *PolicypkgAccessControlPolicy) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["gnses.gns.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[addCallback] received for accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com name %s displayName %s parent gnses.gns.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) deleteCallback(obj *PolicypkgAccessControlPolicy) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["gnses.gns.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("gnses.gns.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[deleteCallback] received for accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com name %s displayName %s parent gnses.gns.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parentHashName, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *PolicypkgAccessControlPolicy), updateCB func(oldObj, newObj *PolicypkgAccessControlPolicy), deleteCB func(obj *PolicypkgAccessControlPolicy)) (cache.ResourceEventHandlerRegistration, error) {
@@ -13702,6 +13795,7 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB fu
 				client:              c.client,
 				AccessControlPolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy),
 			}
+			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com name %s", nc.AccessControlPolicy.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -13723,10 +13817,10 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB fu
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if !IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			addCB(nc)
@@ -13741,6 +13835,7 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB fu
 				client:              c.client,
 				AccessControlPolicy: newObj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy),
 			}
+			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.AccessControlPolicy.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
 		},
 
@@ -13749,6 +13844,7 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB fu
 				client:              c.client,
 				AccessControlPolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy),
 			}
+			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com name %s", nc.AccessControlPolicy.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -13772,11 +13868,11 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB fu
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			deleteCB(nc)
@@ -13786,7 +13882,7 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB fu
 }
 
 func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterAddCallback(cbfn func(obj *PolicypkgAccessControlPolicy)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterAddCallback] Received for PolicypkgAccessControlPolicy")
+	logger.Debugf("[RegisterAddCallback] Received for PolicypkgAccessControlPolicy")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -13814,6 +13910,7 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterAddCallback(cbfn func
 				client:              c.client,
 				AccessControlPolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy),
 			}
+			logger.Debugf("[RegisterAddCallback] Got Add event for accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com name %s", nc.AccessControlPolicy.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -13836,11 +13933,11 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterAddCallback(cbfn func
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if !IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -13851,7 +13948,7 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterAddCallback(cbfn func
 }
 
 func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *PolicypkgAccessControlPolicy)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterUpdateCallback] Received for PolicypkgAccessControlPolicy")
+	logger.Debugf("[RegisterUpdateCallback] Received for PolicypkgAccessControlPolicy")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -13883,6 +13980,7 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterUpdateCallback(cbfn f
 				client:              c.client,
 				AccessControlPolicy: newObj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy),
 			}
+			logger.Debugf("[RegisterUpdateCallback] Got Update event for accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.AccessControlPolicy.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
 		},
 	})
@@ -13891,7 +13989,7 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterUpdateCallback(cbfn f
 }
 
 func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *PolicypkgAccessControlPolicy)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterDeleteCallback] Received for PolicypkgAccessControlPolicy")
+	logger.Debugf("[RegisterDeleteCallback] Received for PolicypkgAccessControlPolicy")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -13919,6 +14017,7 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterDeleteCallback(cbfn f
 				client:              c.client,
 				AccessControlPolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy),
 			}
+			logger.Debugf("[RegisterDeleteCallback] Got Delete event for accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com name %s", nc.AccessControlPolicy.Name)
 
 			var parent *GnsGns
 			for i := 0; i < 600; i++ {
@@ -13944,10 +14043,10 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterDeleteCallback(cbfn f
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("gnses.gns.tsm.tanzu.vmware.com", parent.Name, "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -13970,6 +14069,7 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) PolicyConfigs(name string) *a
 // GetPolicyConfigs calculates hashed name of the object based on displayName and it's parents and returns the object
 func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) GetPolicyConfigs(ctx context.Context, displayName string) (result *PolicypkgACPConfig, err error) {
 	hashedName := helper.GetHashedName("acpconfigs.policypkg.tsm.tanzu.vmware.com", c.parentLabels, displayName)
+	logger.Debugf("[GetPolicyConfigs] using chainer for name %s, displayName %s, labels %#v", hashedName, displayName, c.parentLabels)
 	return c.client.Policypkg().GetACPConfigByName(ctx, hashedName)
 }
 
@@ -13984,9 +14084,9 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) AddPolicyConfigs(ctx context.
 	for k, v := range c.parentLabels {
 		objToCreate.Labels[k] = v
 	}
-	if objToCreate.Labels[common.IS_NAME_HASHED_LABEL] != "true" {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
-		objToCreate.Labels[common.IS_NAME_HASHED_LABEL] = "true"
+	if objToCreate.Labels[common.IsNameHashedLabel] != "true" {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
+		objToCreate.Labels[common.IsNameHashedLabel] = "true"
 		hashedName := helper.GetHashedName("acpconfigs.policypkg.tsm.tanzu.vmware.com", c.parentLabels, objToCreate.GetName())
 		objToCreate.Name = hashedName
 	}
@@ -13999,7 +14099,7 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) DeletePolicyConfigs(ctx conte
 	if c.parentLabels == nil {
 		c.parentLabels = map[string]string{}
 	}
-	c.parentLabels[common.IS_NAME_HASHED_LABEL] = "true"
+	c.parentLabels[common.IsNameHashedLabel] = "true"
 	hashedName := helper.GetHashedName("acpconfigs.policypkg.tsm.tanzu.vmware.com", c.parentLabels, name)
 	return c.client.Policypkg().DeleteACPConfigByName(ctx, hashedName)
 }
@@ -14025,11 +14125,11 @@ func (group *PolicypkgTsmV1) GetACPConfigByName(ctx context.Context, hashedName 
 		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
 		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
-			log.Debugf("[GetACPConfigByName] Object: %s exists in cache", hashedName)
+			logger.Debugf("[GetACPConfigByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig)
 			subsCacheVersion, subsCacheVersionErr := strconv.Atoi(resultCache.ResourceVersion)
 			if subsCacheVersionErr != nil {
-				log.Fatalf("[GetACPConfigByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
+				logger.Fatalf("[GetACPConfigByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
 			}
 
 			writeCacheVersion := 0
@@ -14037,7 +14137,7 @@ func (group *PolicypkgTsmV1) GetACPConfigByName(ctx context.Context, hashedName 
 			if inWrCache {
 				writeCacheVersion, writeCacheVersionErr = strconv.Atoi(resWrCache.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig).ResourceVersion)
 				if writeCacheVersionErr != nil {
-					log.Fatalf("[GetACPConfigByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
+					logger.Fatalf("[GetACPConfigByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
 				}
 			}
 
@@ -14070,22 +14170,22 @@ func (group *PolicypkgTsmV1) GetACPConfigByName(ctx context.Context, hashedName 
 				ACPConfig: result,
 			}, nil
 		} else if errors.IsNotFound(err) {
-			log.Debugf("[GetACPConfigByName]: object %v not found", hashedName)
+			logger.Debugf("[GetACPConfigByName]: object %v not found", hashedName)
 			return nil, err
 		} else {
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on Get ACPConfigs: %s", hashedName)
+					logger.Errorf("Max retry exceed on Get ACPConfigs: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[GetACPConfigByName]: %+v", err)
+				logger.Errorf("[GetACPConfigByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[GetACPConfigByName]: %+v", err)
+				logger.Errorf("[GetACPConfigByName]: %+v", err)
 				return nil, err
 			}
 		}
@@ -14095,31 +14195,31 @@ func (group *PolicypkgTsmV1) GetACPConfigByName(ctx context.Context, hashedName 
 // ForceReadACPConfigByName read object directly from the database under the hashedName which is a hash of display
 // name and parents names. Use it when you know hashed name of object.
 func (group *PolicypkgTsmV1) ForceReadACPConfigByName(ctx context.Context, hashedName string) (*PolicypkgACPConfig, error) {
-	log.Debugf("[ForceReadACPConfigByName] Received object :%s to read from DB", hashedName)
+	logger.Debugf("[ForceReadACPConfigByName] Received object :%s to read from DB", hashedName)
 	retryCount := 0
 	for {
 		result, err := group.client.baseClient.
 			PolicypkgTsmV1().
 			ACPConfigs().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[ForceReadACPConfigByName] Failed to Get ACPConfigs: %+v", err)
+			logger.Errorf("[ForceReadACPConfigByName] Failed to Get ACPConfigs: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Errorf("[Retry Count: %d ] %+v", retryCount, err)
+				logger.Errorf("[Retry Count: %d ] %+v", retryCount, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max Retry exceed on Get ACPConfigs: %s", hashedName)
+					logger.Errorf("Max Retry exceed on Get ACPConfigs: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[ForceReadACPConfigByName]: %+v", err)
+				logger.Errorf("[ForceReadACPConfigByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[ForceReadACPConfigByName]: %+v", err)
+				logger.Errorf("[ForceReadACPConfigByName]: %+v", err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[ForceReadACPConfigByName] Executed Successfully :%s", hashedName)
+			logger.Debugf("[ForceReadACPConfigByName] Executed Successfully :%s", hashedName)
 			return &PolicypkgACPConfig{
 				client:    group.client,
 				ACPConfig: result,
@@ -14131,7 +14231,7 @@ func (group *PolicypkgTsmV1) ForceReadACPConfigByName(ctx context.Context, hashe
 // DeleteACPConfigByName deletes object stored in the database under the hashedName which is a hash of
 // display name and parents names. Use it when you know hashed name of object.
 func (group *PolicypkgTsmV1) DeleteACPConfigByName(ctx context.Context, hashedName string) (err error) {
-	log.Debugf("[DeleteACPConfigByName] Received objectToDelete: %s", hashedName)
+	logger.Debugf("[DeleteACPConfigByName] Received objectToDelete: %s", hashedName)
 	var (
 		retryCount int
 		result     *basepolicypkgtsmtanzuvmwarecomv1.ACPConfig
@@ -14143,23 +14243,23 @@ func (group *PolicypkgTsmV1) DeleteACPConfigByName(ctx context.Context, hashedNa
 			PolicypkgTsmV1().
 			ACPConfigs().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[DeleteACPConfigByName] Failed to get ACPConfigs: %+v", err)
+			logger.Errorf("[DeleteACPConfigByName] Failed to get ACPConfigs: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on get ACPConfigs: %s", hashedName)
+					logger.Errorf("Max retry exceed on get ACPConfigs: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteACPConfigByName] context canceled: %s", hashedName)
+				logger.Errorf("[DeleteACPConfigByName] context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteACPConfigByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteACPConfigByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteACPConfigByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteACPConfigByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -14177,23 +14277,23 @@ func (group *PolicypkgTsmV1) DeleteACPConfigByName(ctx context.Context, hashedNa
 			PolicypkgTsmV1().
 			ACPConfigs().Delete(ctx, hashedName, metav1.DeleteOptions{})
 		if err != nil {
-			log.Errorf("[DeleteACPConfigByName] failed to delete ACPConfigs: %+v", err)
+			logger.Errorf("[DeleteACPConfigByName] failed to delete ACPConfigs: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on delete ACPConfigs: %s", hashedName)
+					logger.Errorf("Max retry exceed on delete ACPConfigs: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteACPConfigByName]: context canceled: %s", hashedName)
+				logger.Errorf("[DeleteACPConfigByName]: context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteACPConfigByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteACPConfigByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteACPConfigByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteACPConfigByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -14205,7 +14305,7 @@ func (group *PolicypkgTsmV1) DeleteACPConfigByName(ctx context.Context, hashedNa
 	}
 	// Get Parent Node and check if gvk present before patch
 
-	log.Debugf("[DeleteACPConfigByName] Get parent details for object: %s", hashedName)
+	logger.Debugf("[DeleteACPConfigByName] Get parent details for object: %s", hashedName)
 	// var patch Patch
 	parents := result.GetLabels()
 	if parents == nil {
@@ -14213,16 +14313,16 @@ func (group *PolicypkgTsmV1) DeleteACPConfigByName(ctx context.Context, hashedNa
 	}
 	parentName, ok := parents["accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	if result.GetLabels() != nil {
-		if parents[common.IS_NAME_HASHED_LABEL] == "true" {
+		if parents[common.IsNameHashedLabel] == "true" {
 			parentName = helper.GetHashedName("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parents, parentName)
 		}
 	} else {
 		parentName = helper.GetHashedName("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parents, parentName)
 	}
-	RemoveChild("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parentName, "acpconfigs.policypkg.tsm.tanzu.vmware.com", hashedName)
+	group.client.children.RemoveChild("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parentName, "acpconfigs.policypkg.tsm.tanzu.vmware.com", hashedName)
 
 	return nil
 }
@@ -14231,12 +14331,12 @@ func (group *PolicypkgTsmV1) DeleteACPConfigByName(ctx context.Context, hashedNa
 // Use it directly ONLY when objToCreate.Name is hashed name of the object.
 func (group *PolicypkgTsmV1) CreateACPConfigByName(ctx context.Context,
 	objToCreate *basepolicypkgtsmtanzuvmwarecomv1.ACPConfig) (*PolicypkgACPConfig, error) {
-	log.Debugf("[CreateACPConfigByName] Received objToCreate: %s", objToCreate.GetName())
+	logger.Debugf("[CreateACPConfigByName] Received objToCreate: %s", objToCreate.GetName())
 	if objToCreate.GetLabels() == nil {
 		objToCreate.Labels = make(map[string]string)
 	}
-	if _, ok := objToCreate.Labels[common.DISPLAY_NAME_LABEL]; !ok {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
+	if _, ok := objToCreate.Labels[common.DisplayNameLabel]; !ok {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
 	}
 
 	objToCreate.Spec.DestSvcGroupsGvk = nil
@@ -14253,33 +14353,33 @@ func (group *PolicypkgTsmV1) CreateACPConfigByName(ctx context.Context,
 			PolicypkgTsmV1().
 			ACPConfigs().Create(ctx, objToCreate, metav1.CreateOptions{})
 		if err != nil {
-			log.Errorf("[CreateACPConfigByName] Failed to create ACPConfig: %s, error: %+v", objToCreate.GetName(), err)
+			logger.Errorf("[CreateACPConfigByName] Failed to create ACPConfig: %s, error: %+v", objToCreate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on create ACPConfig: %s", objToCreate.GetName())
+					logger.Errorf("Max retry exceed on create ACPConfig: %s", objToCreate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[CreateACPConfigByName] context canceled while creating ACPConfig: %s", objToCreate.GetName())
+				logger.Errorf("[CreateACPConfigByName] context canceled while creating ACPConfig: %s", objToCreate.GetName())
 				return nil, context.Canceled
 			} else if errors.IsAlreadyExists(err) {
-				log.Debugf("[CreateACPConfigByName] ACPConfig: %s already exists, error: %+v", objToCreate.GetName(), err)
+				logger.Debugf("[CreateACPConfigByName] ACPConfig: %s already exists, error: %+v", objToCreate.GetName(), err)
 				result, err = group.client.baseClient.PolicypkgTsmV1().ACPConfigs().Get(ctx, objToCreate.GetName(), metav1.GetOptions{})
 				if err != nil {
-					log.Fatalf("[CreateACPConfigByName] Unable to Get ACPConfig %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
+					logger.Fatalf("[CreateACPConfigByName] Unable to Get ACPConfig %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
 				}
 				break
 			} else {
-				log.Errorf("[CreateACPConfigByName] found unexpected error while creating ACPConfig: %s, error: %+v", objToCreate.GetName(), err)
+				logger.Errorf("[CreateACPConfigByName] found unexpected error while creating ACPConfig: %s, error: %+v", objToCreate.GetName(), err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[CreateACPConfigByName] ACPConfig: %s created successfully", objToCreate.GetName())
+			logger.Debugf("[CreateACPConfigByName] ACPConfig: %s created successfully", objToCreate.GetName())
 			if s, ok := subscriptionMap.Load("acpconfigs.policypkg.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[CreateACPConfigByName] ACPConfig: %s stored in wr-cache", objToCreate.GetName())
+				logger.Debugf("[CreateACPConfigByName] ACPConfig: %s stored in wr-cache", objToCreate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
@@ -14288,13 +14388,13 @@ func (group *PolicypkgTsmV1) CreateACPConfigByName(ctx context.Context,
 
 	parentName, ok := objToCreate.GetLabels()["accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	parentHashedName := helper.GetHashedName("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", objToCreate.GetLabels(), parentName)
 
-	AddChild("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parentHashedName, "acpconfigs.policypkg.tsm.tanzu.vmware.com", objToCreate.Name)
+	group.client.children.AddChild("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parentHashedName, "acpconfigs.policypkg.tsm.tanzu.vmware.com", objToCreate.Name)
 
-	log.Debugf("[CreateACPConfigByName] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[CreateACPConfigByName] Executed Successfully: %s", objToCreate.GetName())
 	return &PolicypkgACPConfig{
 		client:    group.client,
 		ACPConfig: result,
@@ -14304,82 +14404,30 @@ func (group *PolicypkgTsmV1) CreateACPConfigByName(ctx context.Context,
 // SetACPConfigStatusByName sets user defined status
 func (group *PolicypkgTsmV1) SetACPConfigStatusByName(ctx context.Context,
 	objToUpdate *basepolicypkgtsmtanzuvmwarecomv1.ACPConfig, status *basepolicypkgtsmtanzuvmwarecomv1.ACPStatus) (*PolicypkgACPConfig, error) {
-	log.Debugf("[SetACPConfigStatusByName] Received objToUpdate:%s", objToUpdate.GetName())
-
-	gvr := schema.GroupVersionResource{
-		Group:    "policypkg.tsm.tanzu.vmware.com",
-		Version:  "v1",
-		Resource: strings.ToLower("ACPConfigs"),
+	if status == nil {
+		return nil, fmt.Errorf("status must not be nil")
 	}
-
-	hashedName := objToUpdate.ObjectMeta.Name
-	obj := basepolicypkgtsmtanzuvmwarecomv1.ACPConfig{}
-	obj.Kind = strings.ToLower("ACPConfigs")
-	obj.APIVersion = "policypkg.tsm.tanzu.vmware.com/v1"
-	obj.ObjectMeta = objToUpdate.ObjectMeta
-	obj.Status.Status = *status
-
-	var mapInterface map[string]interface{}
-	marshalledObj, _ := json.Marshal(&obj)
-	json.Unmarshal(marshalledObj, &mapInterface)
-
-	newCtx := context.TODO()
-	retryCount := 0
-	for {
-		_, err := group.client.DynamicClient.Resource(gvr).UpdateStatus(ctx, &unstructured.Unstructured{Object: mapInterface}, metav1.UpdateOptions{})
-		if err == nil {
-			log.Debugf("[SetACPConfigStatusByName] Updating status for ACPConfig node %s successful", hashedName)
-			break
-		}
-
-		log.Errorf("[SetACPConfigStatusByName] Updating status for ACPConfig node: %s failed with error %v. Retrying...", hashedName, err)
-
-		updatedObj, err := group.ForceReadACPConfigByName(newCtx, hashedName)
-		if err == nil {
-			obj.ObjectMeta = updatedObj.ObjectMeta
-			marshalledObj, _ := json.Marshal(&obj)
-			json.Unmarshal(marshalledObj, &mapInterface)
-		}
-
-		retryCount += 1
-		if retryCount == maxRetryCount1SecSleep {
-			log.Fatalf("[SetACPConfigStatusByName] Max retry exceeded for updating status for ACPConfig node: %s", hashedName)
-			return nil, err
-		}
-		time.Sleep(time.Second)
+	updatedStatus := objToUpdate.Status
+	updatedStatus.Status = *status
+	payload, err := json.Marshal(map[string]interface{}{"status": updatedStatus})
+	if err != nil {
+		return nil, err
 	}
-
-	/*
-		if s, ok := subscriptionMap.Load("acpconfigs.policypkg.tsm.tanzu.vmware.com"); ok {
-			resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
-			var objectToWrite *basepolicypkgtsmtanzuvmwarecomv1.ACPConfig
-			if inWrCache {
-				objectToWrite = resWrCache.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig)
-				objectToWrite.Status.Status = *status
-			} else {
-				// Object is not in write cache. Populate the write cache with last "known" object.
-				// TBD: Is this right ???
-				//      Can we expect ObjectToUpdate to the latest version of the object ?
-				//      What if we received the object spec but only want to update the status ?
-				//      Get on the object will return a object form cache if the cache has newer version.
-				// 		So proceeding with assumption that if newer version is available, user will get the newer version anyways.
-				objectToWrite = objToUpdate
-				objToUpdate.Status.Status = *status
-			}
-			s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), objectToWrite)
-		}
-	*/
-	return &PolicypkgACPConfig{
-		client:    group.client,
-		ACPConfig: objToUpdate, // TBD: To be fixed to return back the "result"
-	}, nil
+	result, err := group.client.baseClient.PolicypkgTsmV1().ACPConfigs().Patch(ctx, objToUpdate.Name, types.MergePatchType, payload, metav1.PatchOptions{}, "status")
+	if err != nil {
+		return nil, err
+	}
+	if sub, ok := subscriptionMap.Load("acpconfigs.policypkg.tsm.tanzu.vmware.com"); ok {
+		sub.(subscription).WriteCacheObjects.Store(result.Name, result)
+	}
+	return &PolicypkgACPConfig{client: group.client, ACPConfig: result}, nil
 }
 
 // UpdateACPConfigByName updates object stored in the database under the hashedName which is a hash of
 // display name and parents names.
 func (group *PolicypkgTsmV1) UpdateACPConfigByName(ctx context.Context,
 	objToUpdate *basepolicypkgtsmtanzuvmwarecomv1.ACPConfig) (*PolicypkgACPConfig, error) {
-	log.Debugf("[UpdateACPConfigByName] Received objToUpdate: %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateACPConfigByName] Received objToUpdate: %s", objToUpdate.GetName())
 
 	var patch Patch
 
@@ -14405,8 +14453,8 @@ func (group *PolicypkgTsmV1) UpdateACPConfigByName(ctx context.Context,
 			for _, k := range parentsList {
 				objToUpdate.Labels[k] = current.Labels[k]
 			}
-			objToUpdate.Labels[common.IS_NAME_HASHED_LABEL] = current.Labels[common.IS_NAME_HASHED_LABEL]
-			objToUpdate.Labels[common.DISPLAY_NAME_LABEL] = current.Labels[common.DISPLAY_NAME_LABEL]
+			objToUpdate.Labels[common.IsNameHashedLabel] = current.Labels[common.IsNameHashedLabel]
+			objToUpdate.Labels[common.DisplayNameLabel] = current.Labels[common.DisplayNameLabel]
 			patch = append(patch, PatchOp{
 				Op:    "replace",
 				Path:  "/metadata/labels",
@@ -14563,46 +14611,46 @@ func (group *PolicypkgTsmV1) UpdateACPConfigByName(ctx context.Context,
 			PolicypkgTsmV1().
 			ACPConfigs().Patch(newCtx, objToUpdate.GetName(), types.JSONPatchType, marshaled, metav1.PatchOptions{}, "")
 		if err != nil {
-			log.Errorf("[UpdateACPConfigByName] Failed to patch ACPConfig %s with error: %+v", objToUpdate.GetName(), err)
+			logger.Errorf("[UpdateACPConfigByName] Failed to patch ACPConfig %s with error: %+v", objToUpdate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
-					log.Debugf("Trigger ACPConfig Delete: %s", objToUpdate.GetName())
+					logger.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
+					logger.Debugf("Trigger ACPConfig Delete: %s", objToUpdate.GetName())
 					delErr := group.DeleteACPConfigByName(newCtx, objToUpdate.GetName())
 					if delErr != nil {
-						log.Debugf("Error occur while deleting ACPConfig: %s", objToUpdate.GetName())
+						logger.Debugf("Error occur while deleting ACPConfig: %s", objToUpdate.GetName())
 						return nil, delErr
 					}
-					log.Debugf("ACPConfig deleted: %s", objToUpdate.GetName())
+					logger.Debugf("ACPConfig deleted: %s", objToUpdate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[UpdateACPConfigByName]: context canceled: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateACPConfigByName]: context canceled: %s", objToUpdate.GetName())
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[UpdateACPConfigByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
-				log.Debugf("Trigger ACPConfig Delete: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateACPConfigByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
+				logger.Debugf("Trigger ACPConfig Delete: %s", objToUpdate.GetName())
 				delErr := group.DeleteACPConfigByName(newCtx, objToUpdate.GetName())
 				if delErr != nil {
-					log.Debugf("Error occur while deleting ACPConfig: %+v", objToUpdate.GetName())
+					logger.Debugf("Error occur while deleting ACPConfig: %+v", objToUpdate.GetName())
 					return nil, delErr
 				}
-				log.Debugf("ACPConfig Deleted: %s", objToUpdate.GetName())
+				logger.Debugf("ACPConfig Deleted: %s", objToUpdate.GetName())
 				return nil, err
 			}
 		} else {
-			log.Debugf("[UpdateACPConfigByName] Patch ACPConfig Success :%s", objToUpdate.GetName())
+			logger.Debugf("[UpdateACPConfigByName] Patch ACPConfig Success :%s", objToUpdate.GetName())
 			if s, ok := subscriptionMap.Load("acpconfigs.policypkg.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[UpdateACPConfigByName] %s stored in wr-cache", objToUpdate.GetName())
+				logger.Debugf("[UpdateACPConfigByName] %s stored in wr-cache", objToUpdate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
 	}
-	log.Debugf("[UpdateACPConfigByName] Executed Successfully %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateACPConfigByName] Executed Successfully %s", objToUpdate.GetName())
 	return &PolicypkgACPConfig{
 		client:    group.client,
 		ACPConfig: result,
@@ -14668,8 +14716,10 @@ func (obj *PolicypkgACPConfig) Update(ctx context.Context) error {
 
 // SetStatus sets user defined status
 func (obj *PolicypkgACPConfig) SetStatus(ctx context.Context, status *basepolicypkgtsmtanzuvmwarecomv1.ACPStatus) error {
+	logger.Debugf("[PolicypkgACPConfig SetStatus] Set status for object with name %s", obj.GetName())
 	result, err := obj.client.Policypkg().SetACPConfigStatusByName(ctx, obj.ACPConfig, status)
 	if err != nil {
+		logger.Errorf("[PolicypkgACPConfig SetStatus] Set status for object with name %s failed with error %v", obj.GetName(), err)
 		return err
 	}
 	obj.ACPConfig = result.ACPConfig
@@ -14687,8 +14737,10 @@ func (obj *PolicypkgACPConfig) GetStatus(ctx context.Context) (*basepolicypkgtsm
 
 // ClearStatus to clear user defined status
 func (obj *PolicypkgACPConfig) ClearStatus(ctx context.Context) error {
+	logger.Debugf("[PolicypkgACPConfig ClearStatus] Set status for object with name %s", obj.GetName())
 	result, err := obj.client.Policypkg().SetACPConfigStatusByName(ctx, obj.ACPConfig, &basepolicypkgtsmtanzuvmwarecomv1.ACPStatus{})
 	if err != nil {
+		logger.Errorf("[PolicypkgACPConfig ClearStatus] Clear status for object with name %s failed with error %v", obj.GetName(), err)
 		return err
 	}
 	obj.ACPConfig = result.ACPConfig
@@ -14697,6 +14749,7 @@ func (obj *PolicypkgACPConfig) ClearStatus(ctx context.Context) error {
 
 func (obj *PolicypkgACPConfig) GetParent(ctx context.Context) (result *PolicypkgAccessControlPolicy, err error) {
 	hashedName := helper.GetHashedName("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", obj.Labels, obj.Labels["accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"])
+	logger.Debugf("[GetParent] Get parent of PolicypkgACPConfig name %s [labels %#v] of parent type accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com and name %s", obj.Name, obj.Labels, hashedName)
 	return obj.client.Policypkg().GetAccessControlPolicyByName(ctx, hashedName)
 }
 
@@ -14861,23 +14914,25 @@ func (c *acpconfigPolicypkgTsmV1Chainer) IsSubscribed() bool {
 }
 
 func (c *acpconfigPolicypkgTsmV1Chainer) addCallback(obj *PolicypkgACPConfig) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[addCallback] received for acpconfigs.policypkg.tsm.tanzu.vmware.com name %s displayName %s parent accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	AddChild("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parentHashName, "acpconfigs.policypkg.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.AddChild("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parentHashName, "acpconfigs.policypkg.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *acpconfigPolicypkgTsmV1Chainer) deleteCallback(obj *PolicypkgACPConfig) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[deleteCallback] received for acpconfigs.policypkg.tsm.tanzu.vmware.com name %s displayName %s parent accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	RemoveChild("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parentHashName, "acpconfigs.policypkg.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.RemoveChild("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parentHashName, "acpconfigs.policypkg.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *acpconfigPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *PolicypkgACPConfig), updateCB func(oldObj, newObj *PolicypkgACPConfig), deleteCB func(obj *PolicypkgACPConfig)) (cache.ResourceEventHandlerRegistration, error) {
@@ -14907,6 +14962,7 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Po
 				client:    c.client,
 				ACPConfig: obj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig),
 			}
+			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for acpconfigs.policypkg.tsm.tanzu.vmware.com name %s", nc.ACPConfig.Name)
 
 			var parent *PolicypkgAccessControlPolicy
 			for i := 0; i < 600; i++ {
@@ -14928,10 +14984,10 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Po
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if !IsChildExists("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parent.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parent.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parent.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parent.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			addCB(nc)
@@ -14946,6 +15002,7 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Po
 				client:    c.client,
 				ACPConfig: newObj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig),
 			}
+			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for acpconfigs.policypkg.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.ACPConfig.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
 		},
 
@@ -14954,6 +15011,7 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Po
 				client:    c.client,
 				ACPConfig: obj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig),
 			}
+			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for acpconfigs.policypkg.tsm.tanzu.vmware.com name %s", nc.ACPConfig.Name)
 
 			var parent *PolicypkgAccessControlPolicy
 			for i := 0; i < 600; i++ {
@@ -14977,11 +15035,11 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Po
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if IsChildExists("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parent.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parent.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parent.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parent.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			deleteCB(nc)
@@ -14991,7 +15049,7 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Po
 }
 
 func (c *acpconfigPolicypkgTsmV1Chainer) RegisterAddCallback(cbfn func(obj *PolicypkgACPConfig)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterAddCallback] Received for PolicypkgACPConfig")
+	logger.Debugf("[RegisterAddCallback] Received for PolicypkgACPConfig")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -15019,6 +15077,7 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Poli
 				client:    c.client,
 				ACPConfig: obj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig),
 			}
+			logger.Debugf("[RegisterAddCallback] Got Add event for acpconfigs.policypkg.tsm.tanzu.vmware.com name %s", nc.ACPConfig.Name)
 
 			var parent *PolicypkgAccessControlPolicy
 			for i := 0; i < 600; i++ {
@@ -15041,11 +15100,11 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Poli
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if !IsChildExists("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parent.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parent.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parent.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parent.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -15056,7 +15115,7 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Poli
 }
 
 func (c *acpconfigPolicypkgTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *PolicypkgACPConfig)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterUpdateCallback] Received for PolicypkgACPConfig")
+	logger.Debugf("[RegisterUpdateCallback] Received for PolicypkgACPConfig")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -15088,6 +15147,7 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj
 				client:    c.client,
 				ACPConfig: newObj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig),
 			}
+			logger.Debugf("[RegisterUpdateCallback] Got Update event for acpconfigs.policypkg.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.ACPConfig.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
 		},
 	})
@@ -15096,7 +15156,7 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj
 }
 
 func (c *acpconfigPolicypkgTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *PolicypkgACPConfig)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterDeleteCallback] Received for PolicypkgACPConfig")
+	logger.Debugf("[RegisterDeleteCallback] Received for PolicypkgACPConfig")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -15124,6 +15184,7 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *P
 				client:    c.client,
 				ACPConfig: obj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig),
 			}
+			logger.Debugf("[RegisterDeleteCallback] Got Delete event for acpconfigs.policypkg.tsm.tanzu.vmware.com name %s", nc.ACPConfig.Name)
 
 			var parent *PolicypkgAccessControlPolicy
 			for i := 0; i < 600; i++ {
@@ -15149,10 +15210,10 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *P
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if IsChildExists("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parent.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parent.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parent.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com", parent.Name, "acpconfigs.policypkg.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -15165,11 +15226,13 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *P
 // ClearStatus to clear user defined status
 func (c *acpconfigPolicypkgTsmV1Chainer) ClearStatus(ctx context.Context) (err error) {
 	hashedName := helper.GetHashedName("acpconfigs.policypkg.tsm.tanzu.vmware.com", c.parentLabels, c.name)
+	logger.Debugf("[acpconfigPolicypkgTsmV1Chainer ClearStatus] Clear status for object with name %s", hashedName)
 	obj, err := c.client.Policypkg().GetACPConfigByName(ctx, hashedName)
 	if err != nil {
+		logger.Errorf("[acpconfigPolicypkgTsmV1Chainer ClearStatus] Clear status for object with name %s failed with error %v", hashedName, err)
 		return err
 	}
-	_, err = c.client.Policypkg().SetACPConfigStatusByName(ctx, obj.ACPConfig, nil)
+	_, err = c.client.Policypkg().SetACPConfigStatusByName(ctx, obj.ACPConfig, &basepolicypkgtsmtanzuvmwarecomv1.ACPStatus{})
 	return err
 }
 
@@ -15186,8 +15249,10 @@ func (c *acpconfigPolicypkgTsmV1Chainer) GetStatus(ctx context.Context) (result 
 // SetStatus sets user defined status
 func (c *acpconfigPolicypkgTsmV1Chainer) SetStatus(ctx context.Context, status *basepolicypkgtsmtanzuvmwarecomv1.ACPStatus) (err error) {
 	hashedName := helper.GetHashedName("acpconfigs.policypkg.tsm.tanzu.vmware.com", c.parentLabels, c.name)
+	logger.Debugf("[acpconfigPolicypkgTsmV1Chainer SetStatus] Set status for object with name %s", hashedName)
 	obj, err := c.client.Policypkg().GetACPConfigByName(ctx, hashedName)
 	if err != nil {
+		logger.Errorf("[acpconfigPolicypkgTsmV1Chainer SetStatus] Set status for object with name %s failed with error %v", hashedName, err)
 		return err
 	}
 	_, err = c.client.Policypkg().SetACPConfigStatusByName(ctx, obj.ACPConfig, status)
@@ -15215,11 +15280,11 @@ func (group *PolicypkgTsmV1) GetVMpolicyByName(ctx context.Context, hashedName s
 		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
 		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
-			log.Debugf("[GetVMpolicyByName] Object: %s exists in cache", hashedName)
+			logger.Debugf("[GetVMpolicyByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy)
 			subsCacheVersion, subsCacheVersionErr := strconv.Atoi(resultCache.ResourceVersion)
 			if subsCacheVersionErr != nil {
-				log.Fatalf("[GetVMpolicyByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
+				logger.Fatalf("[GetVMpolicyByName] Getting version of Object: %s failed with error %v", hashedName, subsCacheVersionErr)
 			}
 
 			writeCacheVersion := 0
@@ -15227,7 +15292,7 @@ func (group *PolicypkgTsmV1) GetVMpolicyByName(ctx context.Context, hashedName s
 			if inWrCache {
 				writeCacheVersion, writeCacheVersionErr = strconv.Atoi(resWrCache.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy).ResourceVersion)
 				if writeCacheVersionErr != nil {
-					log.Fatalf("[GetVMpolicyByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
+					logger.Fatalf("[GetVMpolicyByName] Getting version of Object: %s in write cache failed with error %v", hashedName, writeCacheVersionErr)
 				}
 			}
 
@@ -15260,22 +15325,22 @@ func (group *PolicypkgTsmV1) GetVMpolicyByName(ctx context.Context, hashedName s
 				VMpolicy: result,
 			}, nil
 		} else if errors.IsNotFound(err) {
-			log.Debugf("[GetVMpolicyByName]: object %v not found", hashedName)
+			logger.Debugf("[GetVMpolicyByName]: object %v not found", hashedName)
 			return nil, err
 		} else {
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on Get VMpolicies: %s", hashedName)
+					logger.Errorf("Max retry exceed on Get VMpolicies: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[GetVMpolicyByName]: %+v", err)
+				logger.Errorf("[GetVMpolicyByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[GetVMpolicyByName]: %+v", err)
+				logger.Errorf("[GetVMpolicyByName]: %+v", err)
 				return nil, err
 			}
 		}
@@ -15285,31 +15350,31 @@ func (group *PolicypkgTsmV1) GetVMpolicyByName(ctx context.Context, hashedName s
 // ForceReadVMpolicyByName read object directly from the database under the hashedName which is a hash of display
 // name and parents names. Use it when you know hashed name of object.
 func (group *PolicypkgTsmV1) ForceReadVMpolicyByName(ctx context.Context, hashedName string) (*PolicypkgVMpolicy, error) {
-	log.Debugf("[ForceReadVMpolicyByName] Received object :%s to read from DB", hashedName)
+	logger.Debugf("[ForceReadVMpolicyByName] Received object :%s to read from DB", hashedName)
 	retryCount := 0
 	for {
 		result, err := group.client.baseClient.
 			PolicypkgTsmV1().
 			VMpolicies().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[ForceReadVMpolicyByName] Failed to Get VMpolicies: %+v", err)
+			logger.Errorf("[ForceReadVMpolicyByName] Failed to Get VMpolicies: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Errorf("[Retry Count: %d ] %+v", retryCount, err)
+				logger.Errorf("[Retry Count: %d ] %+v", retryCount, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max Retry exceed on Get VMpolicies: %s", hashedName)
+					logger.Errorf("Max Retry exceed on Get VMpolicies: %s", hashedName)
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[ForceReadVMpolicyByName]: %+v", err)
+				logger.Errorf("[ForceReadVMpolicyByName]: %+v", err)
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[ForceReadVMpolicyByName]: %+v", err)
+				logger.Errorf("[ForceReadVMpolicyByName]: %+v", err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[ForceReadVMpolicyByName] Executed Successfully :%s", hashedName)
+			logger.Debugf("[ForceReadVMpolicyByName] Executed Successfully :%s", hashedName)
 			return &PolicypkgVMpolicy{
 				client:   group.client,
 				VMpolicy: result,
@@ -15321,7 +15386,7 @@ func (group *PolicypkgTsmV1) ForceReadVMpolicyByName(ctx context.Context, hashed
 // DeleteVMpolicyByName deletes object stored in the database under the hashedName which is a hash of
 // display name and parents names. Use it when you know hashed name of object.
 func (group *PolicypkgTsmV1) DeleteVMpolicyByName(ctx context.Context, hashedName string) (err error) {
-	log.Debugf("[DeleteVMpolicyByName] Received objectToDelete: %s", hashedName)
+	logger.Debugf("[DeleteVMpolicyByName] Received objectToDelete: %s", hashedName)
 	var (
 		retryCount int
 		result     *basepolicypkgtsmtanzuvmwarecomv1.VMpolicy
@@ -15333,23 +15398,23 @@ func (group *PolicypkgTsmV1) DeleteVMpolicyByName(ctx context.Context, hashedNam
 			PolicypkgTsmV1().
 			VMpolicies().Get(ctx, hashedName, metav1.GetOptions{})
 		if err != nil {
-			log.Errorf("[DeleteVMpolicyByName] Failed to get VMpolicies: %+v", err)
+			logger.Errorf("[DeleteVMpolicyByName] Failed to get VMpolicies: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on get VMpolicies: %s", hashedName)
+					logger.Errorf("Max retry exceed on get VMpolicies: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteVMpolicyByName] context canceled: %s", hashedName)
+				logger.Errorf("[DeleteVMpolicyByName] context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteVMpolicyByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteVMpolicyByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteVMpolicyByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteVMpolicyByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -15367,23 +15432,23 @@ func (group *PolicypkgTsmV1) DeleteVMpolicyByName(ctx context.Context, hashedNam
 			PolicypkgTsmV1().
 			VMpolicies().Delete(ctx, hashedName, metav1.DeleteOptions{})
 		if err != nil {
-			log.Errorf("[DeleteVMpolicyByName] failed to delete VMpolicies: %+v", err)
+			logger.Errorf("[DeleteVMpolicyByName] failed to delete VMpolicies: %+v", err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, hashedName, err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on delete VMpolicies: %s", hashedName)
+					logger.Errorf("Max retry exceed on delete VMpolicies: %s", hashedName)
 					return err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[DeleteVMpolicyByName]: context canceled: %s", hashedName)
+				logger.Errorf("[DeleteVMpolicyByName]: context canceled: %s", hashedName)
 				return context.Canceled
 			} else if errors.IsNotFound(err) {
-				log.Errorf("[DeleteVMpolicyByName] Object: %s not found", hashedName)
+				logger.Errorf("[DeleteVMpolicyByName] Object: %s not found", hashedName)
 				break
 			} else {
-				log.Errorf("[DeleteVMpolicyByName] Object: %s unexpected error: %+v", hashedName, err)
+				logger.Errorf("[DeleteVMpolicyByName] Object: %s unexpected error: %+v", hashedName, err)
 				return err
 			}
 		} else {
@@ -15395,7 +15460,7 @@ func (group *PolicypkgTsmV1) DeleteVMpolicyByName(ctx context.Context, hashedNam
 	}
 	// Get Parent Node and check if gvk present before patch
 
-	log.Debugf("[DeleteVMpolicyByName] Get parent details for object: %s", hashedName)
+	logger.Debugf("[DeleteVMpolicyByName] Get parent details for object: %s", hashedName)
 	// var patch Patch
 	parents := result.GetLabels()
 	if parents == nil {
@@ -15403,16 +15468,16 @@ func (group *PolicypkgTsmV1) DeleteVMpolicyByName(ctx context.Context, hashedNam
 	}
 	parentName, ok := parents["configs.config.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	if result.GetLabels() != nil {
-		if parents[common.IS_NAME_HASHED_LABEL] == "true" {
+		if parents[common.IsNameHashedLabel] == "true" {
 			parentName = helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", parents, parentName)
 		}
 	} else {
 		parentName = helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", parents, parentName)
 	}
-	RemoveChild("configs.config.tsm.tanzu.vmware.com", parentName, "vmpolicies.policypkg.tsm.tanzu.vmware.com", hashedName)
+	group.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parentName, "vmpolicies.policypkg.tsm.tanzu.vmware.com", hashedName)
 
 	return nil
 }
@@ -15421,12 +15486,12 @@ func (group *PolicypkgTsmV1) DeleteVMpolicyByName(ctx context.Context, hashedNam
 // Use it directly ONLY when objToCreate.Name is hashed name of the object.
 func (group *PolicypkgTsmV1) CreateVMpolicyByName(ctx context.Context,
 	objToCreate *basepolicypkgtsmtanzuvmwarecomv1.VMpolicy) (*PolicypkgVMpolicy, error) {
-	log.Debugf("[CreateVMpolicyByName] Received objToCreate: %s", objToCreate.GetName())
+	logger.Debugf("[CreateVMpolicyByName] Received objToCreate: %s", objToCreate.GetName())
 	if objToCreate.GetLabels() == nil {
 		objToCreate.Labels = make(map[string]string)
 	}
-	if _, ok := objToCreate.Labels[common.DISPLAY_NAME_LABEL]; !ok {
-		objToCreate.Labels[common.DISPLAY_NAME_LABEL] = objToCreate.GetName()
+	if _, ok := objToCreate.Labels[common.DisplayNameLabel]; !ok {
+		objToCreate.Labels[common.DisplayNameLabel] = objToCreate.GetName()
 	}
 
 	var (
@@ -15440,33 +15505,33 @@ func (group *PolicypkgTsmV1) CreateVMpolicyByName(ctx context.Context,
 			PolicypkgTsmV1().
 			VMpolicies().Create(ctx, objToCreate, metav1.CreateOptions{})
 		if err != nil {
-			log.Errorf("[CreateVMpolicyByName] Failed to create VMpolicy: %s, error: %+v", objToCreate.GetName(), err)
+			logger.Errorf("[CreateVMpolicyByName] Failed to create VMpolicy: %s, error: %+v", objToCreate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToCreate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on create VMpolicy: %s", objToCreate.GetName())
+					logger.Errorf("Max retry exceed on create VMpolicy: %s", objToCreate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[CreateVMpolicyByName] context canceled while creating VMpolicy: %s", objToCreate.GetName())
+				logger.Errorf("[CreateVMpolicyByName] context canceled while creating VMpolicy: %s", objToCreate.GetName())
 				return nil, context.Canceled
 			} else if errors.IsAlreadyExists(err) {
-				log.Debugf("[CreateVMpolicyByName] VMpolicy: %s already exists, error: %+v", objToCreate.GetName(), err)
+				logger.Debugf("[CreateVMpolicyByName] VMpolicy: %s already exists, error: %+v", objToCreate.GetName(), err)
 				result, err = group.client.baseClient.PolicypkgTsmV1().VMpolicies().Get(ctx, objToCreate.GetName(), metav1.GetOptions{})
 				if err != nil {
-					log.Fatalf("[CreateVMpolicyByName] Unable to Get VMpolicy %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
+					logger.Fatalf("[CreateVMpolicyByName] Unable to Get VMpolicy %s after it was flagged as already exists, error: %+v", objToCreate.GetName(), err)
 				}
 				break
 			} else {
-				log.Errorf("[CreateVMpolicyByName] found unexpected error while creating VMpolicy: %s, error: %+v", objToCreate.GetName(), err)
+				logger.Errorf("[CreateVMpolicyByName] found unexpected error while creating VMpolicy: %s, error: %+v", objToCreate.GetName(), err)
 				return nil, err
 			}
 		} else {
-			log.Debugf("[CreateVMpolicyByName] VMpolicy: %s created successfully", objToCreate.GetName())
+			logger.Debugf("[CreateVMpolicyByName] VMpolicy: %s created successfully", objToCreate.GetName())
 			if s, ok := subscriptionMap.Load("vmpolicies.policypkg.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[CreateVMpolicyByName] VMpolicy: %s stored in wr-cache", objToCreate.GetName())
+				logger.Debugf("[CreateVMpolicyByName] VMpolicy: %s stored in wr-cache", objToCreate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
@@ -15475,13 +15540,13 @@ func (group *PolicypkgTsmV1) CreateVMpolicyByName(ctx context.Context,
 
 	parentName, ok := objToCreate.GetLabels()["configs.config.tsm.tanzu.vmware.com"]
 	if !ok {
-		parentName = helper.DEFAULT_KEY
+		parentName = helper.DefaultKey
 	}
 	parentHashedName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", objToCreate.GetLabels(), parentName)
 
-	AddChild("configs.config.tsm.tanzu.vmware.com", parentHashedName, "vmpolicies.policypkg.tsm.tanzu.vmware.com", objToCreate.Name)
+	group.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parentHashedName, "vmpolicies.policypkg.tsm.tanzu.vmware.com", objToCreate.Name)
 
-	log.Debugf("[CreateVMpolicyByName] Executed Successfully: %s", objToCreate.GetName())
+	logger.Debugf("[CreateVMpolicyByName] Executed Successfully: %s", objToCreate.GetName())
 	return &PolicypkgVMpolicy{
 		client:   group.client,
 		VMpolicy: result,
@@ -15492,7 +15557,7 @@ func (group *PolicypkgTsmV1) CreateVMpolicyByName(ctx context.Context,
 // display name and parents names.
 func (group *PolicypkgTsmV1) UpdateVMpolicyByName(ctx context.Context,
 	objToUpdate *basepolicypkgtsmtanzuvmwarecomv1.VMpolicy) (*PolicypkgVMpolicy, error) {
-	log.Debugf("[UpdateVMpolicyByName] Received objToUpdate: %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateVMpolicyByName] Received objToUpdate: %s", objToUpdate.GetName())
 
 	var patch Patch
 
@@ -15518,8 +15583,8 @@ func (group *PolicypkgTsmV1) UpdateVMpolicyByName(ctx context.Context,
 			for _, k := range parentsList {
 				objToUpdate.Labels[k] = current.Labels[k]
 			}
-			objToUpdate.Labels[common.IS_NAME_HASHED_LABEL] = current.Labels[common.IS_NAME_HASHED_LABEL]
-			objToUpdate.Labels[common.DISPLAY_NAME_LABEL] = current.Labels[common.DISPLAY_NAME_LABEL]
+			objToUpdate.Labels[common.IsNameHashedLabel] = current.Labels[common.IsNameHashedLabel]
+			objToUpdate.Labels[common.DisplayNameLabel] = current.Labels[common.DisplayNameLabel]
 			patch = append(patch, PatchOp{
 				Op:    "replace",
 				Path:  "/metadata/labels",
@@ -15548,46 +15613,46 @@ func (group *PolicypkgTsmV1) UpdateVMpolicyByName(ctx context.Context,
 			PolicypkgTsmV1().
 			VMpolicies().Patch(newCtx, objToUpdate.GetName(), types.JSONPatchType, marshaled, metav1.PatchOptions{}, "")
 		if err != nil {
-			log.Errorf("[UpdateVMpolicyByName] Failed to patch VMpolicy %s with error: %+v", objToUpdate.GetName(), err)
+			logger.Errorf("[UpdateVMpolicyByName] Failed to patch VMpolicy %s with error: %+v", objToUpdate.GetName(), err)
 			if errors.IsTimeout(err) || customerrors.Is(err, context.DeadlineExceeded) {
-				log.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
+				logger.Debugf("[Retry count: (%d) obj: %s ] %+v", retryCount, objToUpdate.GetName(), err)
 				if retryCount == maxRetryCount {
-					log.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
-					log.Debugf("Trigger VMpolicy Delete: %s", objToUpdate.GetName())
+					logger.Errorf("Max retry exceed on patching: %s", objToUpdate.GetName())
+					logger.Debugf("Trigger VMpolicy Delete: %s", objToUpdate.GetName())
 					delErr := group.DeleteVMpolicyByName(newCtx, objToUpdate.GetName())
 					if delErr != nil {
-						log.Debugf("Error occur while deleting VMpolicy: %s", objToUpdate.GetName())
+						logger.Debugf("Error occur while deleting VMpolicy: %s", objToUpdate.GetName())
 						return nil, delErr
 					}
-					log.Debugf("VMpolicy deleted: %s", objToUpdate.GetName())
+					logger.Debugf("VMpolicy deleted: %s", objToUpdate.GetName())
 					return nil, err
 				}
 				retryCount += 1
 				time.Sleep(sleepTime * time.Second)
 			} else if customerrors.Is(err, context.Canceled) {
-				log.Errorf("[UpdateVMpolicyByName]: context canceled: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateVMpolicyByName]: context canceled: %s", objToUpdate.GetName())
 				return nil, context.Canceled
 			} else {
-				log.Errorf("[UpdateVMpolicyByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
-				log.Debugf("Trigger VMpolicy Delete: %s", objToUpdate.GetName())
+				logger.Errorf("[UpdateVMpolicyByName] Object: %s unexpected error: %+v", objToUpdate.GetName(), err)
+				logger.Debugf("Trigger VMpolicy Delete: %s", objToUpdate.GetName())
 				delErr := group.DeleteVMpolicyByName(newCtx, objToUpdate.GetName())
 				if delErr != nil {
-					log.Debugf("Error occur while deleting VMpolicy: %+v", objToUpdate.GetName())
+					logger.Debugf("Error occur while deleting VMpolicy: %+v", objToUpdate.GetName())
 					return nil, delErr
 				}
-				log.Debugf("VMpolicy Deleted: %s", objToUpdate.GetName())
+				logger.Debugf("VMpolicy Deleted: %s", objToUpdate.GetName())
 				return nil, err
 			}
 		} else {
-			log.Debugf("[UpdateVMpolicyByName] Patch VMpolicy Success :%s", objToUpdate.GetName())
+			logger.Debugf("[UpdateVMpolicyByName] Patch VMpolicy Success :%s", objToUpdate.GetName())
 			if s, ok := subscriptionMap.Load("vmpolicies.policypkg.tsm.tanzu.vmware.com"); ok {
-				log.Debugf("[UpdateVMpolicyByName] %s stored in wr-cache", objToUpdate.GetName())
+				logger.Debugf("[UpdateVMpolicyByName] %s stored in wr-cache", objToUpdate.GetName())
 				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
 	}
-	log.Debugf("[UpdateVMpolicyByName] Executed Successfully %s", objToUpdate.GetName())
+	logger.Debugf("[UpdateVMpolicyByName] Executed Successfully %s", objToUpdate.GetName())
 	return &PolicypkgVMpolicy{
 		client:   group.client,
 		VMpolicy: result,
@@ -15653,6 +15718,7 @@ func (obj *PolicypkgVMpolicy) Update(ctx context.Context) error {
 
 func (obj *PolicypkgVMpolicy) GetParent(ctx context.Context) (result *ConfigConfig, err error) {
 	hashedName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", obj.Labels, obj.Labels["configs.config.tsm.tanzu.vmware.com"])
+	logger.Debugf("[GetParent] Get parent of PolicypkgVMpolicy name %s [labels %#v] of parent type configs.config.tsm.tanzu.vmware.com and name %s", obj.Name, obj.Labels, hashedName)
 	return obj.client.Config().GetConfigByName(ctx, hashedName)
 }
 
@@ -15689,23 +15755,25 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) IsSubscribed() bool {
 }
 
 func (c *vmpolicyPolicypkgTsmV1Chainer) addCallback(obj *PolicypkgVMpolicy) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["configs.config.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[addCallback] received for vmpolicies.policypkg.tsm.tanzu.vmware.com name %s displayName %s parent configs.config.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	AddChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "vmpolicies.policypkg.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "vmpolicies.policypkg.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *vmpolicyPolicypkgTsmV1Chainer) deleteCallback(obj *PolicypkgVMpolicy) {
-	parentDisplayName := helper.DEFAULT_KEY
+	parentDisplayName := helper.DefaultKey
 	if value, ok := obj.Labels["configs.config.tsm.tanzu.vmware.com"]; ok {
 		parentDisplayName = value
 	}
 	parentHashName := helper.GetHashedName("configs.config.tsm.tanzu.vmware.com", obj.Labels, parentDisplayName)
+	logger.Debugf("[deleteCallback] received for vmpolicies.policypkg.tsm.tanzu.vmware.com name %s displayName %s parent configs.config.tsm.tanzu.vmware.com name %s parentDisplayName %s", obj.Name, obj.DisplayName(), parentHashName, parentDisplayName)
 
-	RemoveChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "vmpolicies.policypkg.tsm.tanzu.vmware.com", obj.Name)
+	c.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parentHashName, "vmpolicies.policypkg.tsm.tanzu.vmware.com", obj.Name)
 }
 
 func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *PolicypkgVMpolicy), updateCB func(oldObj, newObj *PolicypkgVMpolicy), deleteCB func(obj *PolicypkgVMpolicy)) (cache.ResourceEventHandlerRegistration, error) {
@@ -15735,6 +15803,7 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Pol
 				client:   c.client,
 				VMpolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy),
 			}
+			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for vmpolicies.policypkg.tsm.tanzu.vmware.com name %s", nc.VMpolicy.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -15756,10 +15825,10 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Pol
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if !IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			addCB(nc)
@@ -15774,6 +15843,7 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Pol
 				client:   c.client,
 				VMpolicy: newObj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy),
 			}
+			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for vmpolicies.policypkg.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.VMpolicy.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
 		},
 
@@ -15782,6 +15852,7 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Pol
 				client:   c.client,
 				VMpolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy),
 			}
+			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for vmpolicies.policypkg.tsm.tanzu.vmware.com name %s", nc.VMpolicy.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -15805,11 +15876,11 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Pol
 					}
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			deleteCB(nc)
@@ -15819,7 +15890,7 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Pol
 }
 
 func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterAddCallback(cbfn func(obj *PolicypkgVMpolicy)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterAddCallback] Received for PolicypkgVMpolicy")
+	logger.Debugf("[RegisterAddCallback] Received for PolicypkgVMpolicy")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -15847,6 +15918,7 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Polic
 				client:   c.client,
 				VMpolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy),
 			}
+			logger.Debugf("[RegisterAddCallback] Got Add event for vmpolicies.policypkg.tsm.tanzu.vmware.com name %s", nc.VMpolicy.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -15869,11 +15941,11 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Polic
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
 
-			if !IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name) {
-				AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name)
+			if !c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.AddChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)
@@ -15884,7 +15956,7 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Polic
 }
 
 func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *PolicypkgVMpolicy)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterUpdateCallback] Received for PolicypkgVMpolicy")
+	logger.Debugf("[RegisterUpdateCallback] Received for PolicypkgVMpolicy")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -15916,6 +15988,7 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj,
 				client:   c.client,
 				VMpolicy: newObj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy),
 			}
+			logger.Debugf("[RegisterUpdateCallback] Got Update event for vmpolicies.policypkg.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.VMpolicy.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
 		},
 	})
@@ -15924,7 +15997,7 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj,
 }
 
 func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *PolicypkgVMpolicy)) (cache.ResourceEventHandlerRegistration, error) {
-	log.Debugf("[RegisterDeleteCallback] Received for PolicypkgVMpolicy")
+	logger.Debugf("[RegisterDeleteCallback] Received for PolicypkgVMpolicy")
 	var (
 		registrationId cache.ResourceEventHandlerRegistration
 		err            error
@@ -15952,6 +16025,7 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *Po
 				client:   c.client,
 				VMpolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy),
 			}
+			logger.Debugf("[RegisterDeleteCallback] Got Delete event for vmpolicies.policypkg.tsm.tanzu.vmware.com name %s", nc.VMpolicy.Name)
 
 			var parent *ConfigConfig
 			for i := 0; i < 600; i++ {
@@ -15977,10 +16051,10 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *Po
 
 					panic("error occurred while fetching parent " + err.Error())
 				}
-				panic(fmt.Sprintf("parent found (event loop is stalled) " + nc.DisplayName()))
+				panic("parent found (event loop is stalled) " + nc.DisplayName())
 			}
-			if IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name) {
-				RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name)
+			if c.client.children.IsChildExists("configs.config.tsm.tanzu.vmware.com", parent.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name) {
+				c.client.children.RemoveChild("configs.config.tsm.tanzu.vmware.com", parent.Name, "vmpolicies.policypkg.tsm.tanzu.vmware.com", nc.Name)
 			}
 
 			cbfn(nc)

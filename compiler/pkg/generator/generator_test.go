@@ -56,7 +56,7 @@ var _ = Describe("Template renderers tests", func() {
 		graphqlQueries := parser.ParseGraphqlQuerySpecs(pkgs)
 		graph, _, _ := parser.ParseDSLNodes(exampleDSLPath, baseGroupName, pkgs, graphqlQueries)
 		parentsMap = parser.CreateParentsMap(graph)
-		Expect(parentsMap).To(HaveLen(14))
+		Expect(parentsMap).To(HaveLen(15))
 
 		methods, codes = rest.ParseResponses(pkgs)
 		gql.BaseImportPath = crdModulePath
@@ -217,13 +217,15 @@ var _ = Describe("Template renderers tests", func() {
 		datamodelPath := "../../example/test-utils/group-name-with-hyphen-datamodel"
 		groupName := "tsm-tanzu.vmware.com"
 		crdModulePath := "../../example/test-utils/output-group-name-with-hyphen-datamodel/crd_generated/"
-		outputDir := "../../example/test-utils/output-group-name-with-hyphen-datamodel/crd_generated"
+		outputDir, err := os.MkdirTemp("", "nexus-hyphen-model-*")
+		Expect(err).NotTo(HaveOccurred())
+		defer os.RemoveAll(outputDir)
 
 		pkgs := parser.ParseDSLPkg(datamodelPath)
 		graphlqQueries := parser.ParseGraphqlQuerySpecs(pkgs)
 		graph, nonNexusTypes, fileset := parser.ParseDSLNodes(datamodelPath, groupName, pkgs, graphlqQueries)
 		methods, codes := rest.ParseResponses(pkgs)
-		err := generator.RenderCRDTemplate(groupName, crdModulePath, pkgs, graph, outputDir, methods, codes, nonNexusTypes, fileset, nil)
+		err = generator.RenderCRDTemplate(groupName, crdModulePath, pkgs, graph, outputDir, methods, codes, nonNexusTypes, fileset, nil)
 		Expect(err).NotTo(HaveOccurred())
 	})
 })

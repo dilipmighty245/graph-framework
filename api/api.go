@@ -4,7 +4,7 @@ import (
 	"nexus/admin/api/config"
 	"nexus/admin/api/runtime"
 
-	"nexus/base/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 // Nexus is the root node for Nexus infra/runtime datamodel.

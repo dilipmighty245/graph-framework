@@ -28,6 +28,9 @@ func Parse(startPath string) map[string][]*parser.Package {
 	packages := map[string][]*parser.Package{}
 	modulePath := parser.GetModulePath(startPath)
 	err := filepath.Walk(startPath, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
 		if info.IsDir() {
 			if info.Name() == "build" {
 				log.Infof("Ignoring build directory...")

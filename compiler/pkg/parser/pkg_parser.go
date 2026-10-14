@@ -20,6 +20,9 @@ func ParseDSLPkg(startPath string) Packages {
 
 	packages := make(Packages)
 	err := filepath.Walk(startPath, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
 		if info.IsDir() {
 			if info.Name() == "build" {
 				log.Infof("Ignoring build directory...")

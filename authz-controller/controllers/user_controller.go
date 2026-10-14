@@ -36,11 +36,12 @@ import (
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"authz-controller/pkg/utils"
-	auth_nexus_org "nexus/admin/api/build/apis/authorization.nexus.org/v1"
+	auth_nexus_org "nexus/admin/api/build/apis/authorization.admin.nexus.com/v1"
 )
 
 // NexusRoleBindingReconciler reconciles a NexusRoleBinding object
@@ -49,9 +50,10 @@ type UserReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=authentication.nexus.org.authz-controller.com,resources=resourcerolebindings,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=authentication.nexus.org.authz-controller.com,resources=resourcerolebindings/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=authentication.nexus.org.authz-controller.com,resources=resourcerolebindings/finalizers,verbs=update
+//+kubebuilder:rbac:groups=authorization.admin.nexus.com,resources=users,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=authorization.admin.nexus.com,resources=users/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=authorization.admin.nexus.com,resources=users/finalizers,verbs=update
+//+kubebuilder:rbac:groups=authorization.admin.nexus.com,resources=usercertificates,verbs=get;create
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -60,7 +62,7 @@ type UserReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.2/pkg/reconcile
 const (
 	CACertsPath            = "/etc/kubecerts"
-	UserCertificateCRDName = "usercertificates.authorization.nexus.org"
+	UserCertificateCRDName = "usercertificates.authorization.admin.nexus.com"
 )
 
 func (r *UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -77,7 +79,19 @@ func (r *UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		eventType = utils.Delete
 	}
 
+	if eventType == utils.Delete {
+		return ctrl.Result{}, nil
+	}
 	userName := nexusUser.Labels[utils.DISPLAY_NAME_LABEL]
+	certObjName := fmt.Sprintf("%s:%s", UserCertificateCRDName, userName)
+	hash := sha1.Sum([]byte(certObjName))
+	userCertificateName := hex.EncodeToString(hash[:])
+	var existing auth_nexus_org.UserCertificate
+	if err := r.Get(ctx, types.NamespacedName{Name: userCertificateName}, &existing); err == nil {
+		return ctrl.Result{}, nil
+	} else if client.IgnoreNotFound(err) != nil {
+		return ctrl.Result{}, err
+	}
 	log.Debugf("Creating Cert for user: %q", userName)
 
 	certPrivateKey, cert, err := r.CreateUserCert(userName, CACertsPath)
@@ -89,12 +103,7 @@ func (r *UserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	certPrivateKeyString := base64.StdEncoding.EncodeToString(certPrivateKey.Bytes())
 
 	certString := base64.StdEncoding.EncodeToString(cert.Bytes())
-	certObjName := fmt.Sprintf("%s:%s", UserCertificateCRDName, userName)
-	h := sha1.New()
-	h.Write([]byte(certObjName))
-
-	userCertificateName := hex.EncodeToString(h.Sum(nil))
-	nexusUser.Labels["runtimes.runtime.nexus.org"] = "default"
+	nexusUser.Labels["runtimes.runtime.admin.nexus.com"] = "default"
 	if err := r.CreateUserCertificate(
 		ctx,
 		certPrivateKeyString,
@@ -169,8 +178,13 @@ func (r *UserReconciler) CreateUserCert(name, path string) (*bytes.Buffer, *byte
 		return nil, nil, err
 	}
 
+	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate certificate serial number: %w", err)
+	}
+	serialNumber.Add(serialNumber, big.NewInt(1))
 	cert := x509.Certificate{
-		SerialNumber: big.NewInt(2019),
+		SerialNumber: serialNumber,
 		Subject: pkix.Name{
 			Country:       []string{"US"},
 			Organization:  []string{"Default"},
@@ -183,7 +197,7 @@ func (r *UserReconciler) CreateUserCert(name, path string) (*bytes.Buffer, *byte
 		NotBefore:             time.Now(),
 		IsCA:                  false,
 		BasicConstraintsValid: true,
-		NotAfter:              time.Now().AddDate(365, 0, 0),
+		NotAfter:              time.Now().AddDate(1, 0, 0),
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
 

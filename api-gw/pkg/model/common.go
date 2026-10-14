@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -111,12 +112,16 @@ type ConnectorObject struct {
 }
 
 func (v *ConnectorObject) GetVersion() (interface{}, error) {
+	if v.Protocol != "http" {
+		return nil, fmt.Errorf("version lookup is unsupported for protocol %q", v.Protocol)
+	}
 	var result interface{}
 	if v.Protocol == "http" {
 		resp, err := http.Get(v.Service)
 		if err != nil {
 			return nil, err
 		}
+		defer resp.Body.Close()
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			return nil, err

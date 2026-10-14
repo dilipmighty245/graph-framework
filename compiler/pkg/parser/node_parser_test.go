@@ -40,6 +40,7 @@ var _ = Describe("Node parser tests", func() {
 			"FooTypeABC",
 			"Gns",
 			"IgnoreChild",
+			"OptionalParentPathParam",
 			"Root",
 			"SvcGroup",
 			"SvcGroupLinkInfo",
@@ -50,7 +51,7 @@ var _ = Describe("Node parser tests", func() {
 			nodes = append(nodes, node.Name)
 		})
 		sort.Strings(nodes)
-		Expect(nodes).To(HaveLen(14))
+		Expect(nodes).To(HaveLen(15))
 		Expect(nodes).To(Equal(expectedNodes))
 	})
 

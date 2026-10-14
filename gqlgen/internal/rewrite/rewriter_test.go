@@ -38,7 +38,7 @@ func TestRewriter(t *testing.T) {
 	})
 
 	t.Run("out of scope dir", func(t *testing.T) {
-		_, err := New("../../../out-of-gomod/package")
+		_, err := New(t.TempDir())
 		require.Error(t, err)
 	})
 }

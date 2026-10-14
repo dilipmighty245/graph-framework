@@ -49,12 +49,12 @@ var _ = Describe("Construct tests", func() {
 			Protocol: "grpc",
 		}
 		Expect(grpcConnector.InitConnection()).To(BeNil())
-
-		_, err := connector.GetVersion()
-		Expect(err).NotTo(BeNil())
+		defer grpcConnector.Connection.Close()
 
 		httpmock.Activate()
 		defer httpmock.DeactivateAndReset()
+		_, err := connector.GetVersion()
+		Expect(err).NotTo(BeNil())
 
 		//Mock test for http endpoint
 		httpmock.RegisterResponder("GET", "http://localhost:80/version", func(req *http.Request) (*http.Response, error) {

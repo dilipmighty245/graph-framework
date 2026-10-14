@@ -63,7 +63,7 @@ func (c *Foo) CRDName() string {
 
 func (c *Foo) DisplayName() string {
 	if c.GetLabels() != nil {
-		return c.GetLabels()[common.DISPLAY_NAME_LABEL]
+		return c.GetLabels()[common.DisplayNameLabel]
 	}
 	return ""
 }
@@ -104,7 +104,7 @@ func (c *Gns) CRDName() string {
 
 func (c *Gns) DisplayName() string {
 	if c.GetLabels() != nil {
-		return c.GetLabels()[common.DISPLAY_NAME_LABEL]
+		return c.GetLabels()[common.DisplayNameLabel]
 	}
 	return ""
 }
@@ -169,7 +169,7 @@ func (c *BarChild) CRDName() string {
 
 func (c *BarChild) DisplayName() string {
 	if c.GetLabels() != nil {
-		return c.GetLabels()[common.DISPLAY_NAME_LABEL]
+		return c.GetLabels()[common.DisplayNameLabel]
 	}
 	return ""
 }
@@ -209,7 +209,7 @@ func (c *IgnoreChild) CRDName() string {
 
 func (c *IgnoreChild) DisplayName() string {
 	if c.GetLabels() != nil {
-		return c.GetLabels()[common.DISPLAY_NAME_LABEL]
+		return c.GetLabels()[common.DisplayNameLabel]
 	}
 	return ""
 }
@@ -249,7 +249,7 @@ func (c *Dns) CRDName() string {
 
 func (c *Dns) DisplayName() string {
 	if c.GetLabels() != nil {
-		return c.GetLabels()[common.DISPLAY_NAME_LABEL]
+		return c.GetLabels()[common.DisplayNameLabel]
 	}
 	return ""
 }

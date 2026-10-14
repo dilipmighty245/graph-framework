@@ -57,7 +57,7 @@ func getRoutes(tenantconfigs []*TenantConfig, jwtAuthnConfig *JwtAuthnConfig, up
 		//This will be removed once the core issue is resolved
 		if TenantConfigs != nil {
 			for _, tenantConfig := range TenantConfigs {
-				log.Debugf(fmt.Sprintf("Adding route for tenant %s", tenantConfig.Name))
+				log.Debugf("Adding route for tenant %s", tenantConfig.Name)
 				for _, route := range makeTSMRoutes(tenantConfig.Name) {
 					routes = append(routes, route)
 				}

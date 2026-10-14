@@ -60,7 +60,7 @@ func (c *AccessControlPolicy) CRDName() string {
 
 func (c *AccessControlPolicy) DisplayName() string {
 	if c.GetLabels() != nil {
-		return c.GetLabels()[common.DISPLAY_NAME_LABEL]
+		return c.GetLabels()[common.DisplayNameLabel]
 	}
 	return ""
 }
@@ -101,7 +101,7 @@ func (c *ACPConfig) CRDName() string {
 
 func (c *ACPConfig) DisplayName() string {
 	if c.GetLabels() != nil {
-		return c.GetLabels()[common.DISPLAY_NAME_LABEL]
+		return c.GetLabels()[common.DisplayNameLabel]
 	}
 	return ""
 }
@@ -148,7 +148,7 @@ func (c *VMpolicy) CRDName() string {
 
 func (c *VMpolicy) DisplayName() string {
 	if c.GetLabels() != nil {
-		return c.GetLabels()[common.DISPLAY_NAME_LABEL]
+		return c.GetLabels()[common.DisplayNameLabel]
 	}
 	return ""
 }

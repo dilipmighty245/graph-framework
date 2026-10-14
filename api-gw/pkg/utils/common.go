@@ -60,7 +60,7 @@ func DumpReq(req *http.Request) {
 	if err != nil {
 		log.Warn(err)
 	}
-	log.Debugf(string(requestDump))
+	log.Debug(string(requestDump))
 }
 
 func GetEnvoyInitParams() (*envoy.JwtAuthnConfig, map[string]*envoy.UpstreamConfig, map[string]*envoy.HeaderMatchedUpstream, error) {

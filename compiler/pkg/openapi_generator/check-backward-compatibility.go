@@ -95,7 +95,24 @@ func CheckBackwardCompatibility(existingCRDsPath, yamlsPath string, force bool) 
 				}
 
 				found = true
-				isInCompatible, message, err := nexus_compare.CompareFiles([]byte(existingCRDPart), []byte(newCRDPart))
+				// uniqueItems -> set-list is the same uniqueness constraint.
+				// Compare supported structural representations on both sides.
+				for _, crd := range []*extensionsv1.CustomResourceDefinition{existingCRD, newCRD} {
+					for i := range crd.Spec.Versions {
+						if crd.Spec.Versions[i].Schema != nil {
+							normalizeUniqueItems(crd.Spec.Versions[i].Schema.OpenAPIV3Schema)
+						}
+					}
+				}
+				oldBytes, err := yaml.Marshal(existingCRD)
+				if err != nil {
+					return err
+				}
+				newBytes, err := yaml.Marshal(newCRD)
+				if err != nil {
+					return err
+				}
+				isInCompatible, message, err := nexus_compare.CompareFiles(oldBytes, newBytes)
 				if err != nil {
 					return err
 				}
@@ -132,4 +149,39 @@ func CheckBackwardCompatibility(existingCRDsPath, yamlsPath string, force bool) 
 	}
 
 	return nil
+}
+
+func normalizeUniqueItems(schema *extensionsv1.JSONSchemaProps) {
+	if schema == nil {
+		return
+	}
+	normalizeUniqueList(schema)
+	for name, value := range schema.Properties {
+		normalizeUniqueItems(&value)
+		schema.Properties[name] = value
+	}
+	if schema.Items != nil {
+		normalizeUniqueItems(schema.Items.Schema)
+	}
+	if schema.AdditionalProperties != nil {
+		normalizeUniqueItems(schema.AdditionalProperties.Schema)
+	}
+	for _, composition := range [][]extensionsv1.JSONSchemaProps{schema.AllOf, schema.AnyOf, schema.OneOf} {
+		for i := range composition {
+			normalizeUniqueItems(&composition[i])
+		}
+	}
+}
+
+func normalizeUniqueList(schema *extensionsv1.JSONSchemaProps) {
+	if schema.Type != "array" || !schema.UniqueItems {
+		return
+	}
+	schema.UniqueItems = false
+	listType := "set"
+	schema.XListType = &listType
+	if schema.Items != nil && schema.Items.Schema != nil && schema.Items.Schema.Type == "object" {
+		mapType := "atomic"
+		schema.Items.Schema.XMapType = &mapType
+	}
 }

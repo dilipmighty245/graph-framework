@@ -5,8 +5,8 @@
 
 ### 1. Clone Nexus Repo
 ```
-git clone git@github.com:intel-sandbox/applications.development.framework.nexus.git
-cd applications.development.framework.nexus/
+git clone https://github.com/dilipmighty245/graph-framework-for-microservices.git
+cd graph-framework-for-microservices/
 export NEXUS_REPO_DIR=${PWD}
 ```
 

@@ -29,7 +29,7 @@ services:
     depends_on:
       - k0s
     container_name: k8s-proxy
-    image: amr-registry-pre.caas.intel.com/nexus/nexus-etcd-kubectl:latest
+    image: ghcr.io/dilipmighty245/nexus/nexus-etcd-kubectl:latest
     command: /usr/local/bin/kubectl proxy -s https://k0s:6443 --disable-filter=true --v=1 --kubeconfig /var/lib/k0s/pki/admin.conf
     hostname: k8s-proxy
     privileged: true

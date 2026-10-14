@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/labstack/echo/v4"
 	log "github.com/sirupsen/logrus"
@@ -184,12 +186,17 @@ func getLinkInfo(nc *NexusContext, uriType model.URIType, crdInfo model.NodeInfo
 			return nc.JSON(http.StatusInternalServerError, DefaultResponse{Message: "Couldn't unmarshal gvk of link"})
 		}
 
-		list := make([]model.LinkGvk, len(m))
-		i := 0
+		list := make([]model.LinkGvk, 0, len(m))
+		keys := make([]string, 0, len(m))
+		for key := range m {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
 		hierarchy := []string{}
-		for k, link := range m {
+		for _, k := range keys {
+			link := m[k]
 			// set parent hierarchy
-			if i == 0 {
+			if len(list) == 0 {
 				resourceName := utils.GetGroupResourceName(link.Kind)
 				item, err := getUnstructuredObject(link.Group, resourceName, link.Name)
 				if err != nil {
@@ -205,8 +212,7 @@ func getLinkInfo(nc *NexusContext, uriType model.URIType, crdInfo model.NodeInfo
 			link.Hierarchy = hierarchy
 			link.Name = k
 			link.Group = link.Group + "/v1"
-			list[i] = link
-			i++
+			list = append(list, link)
 		}
 		return nc.JSON(http.StatusOK, list)
 	}
@@ -298,7 +304,7 @@ func getNameFromParam(nc *NexusContext, crdInfo model.NodeInfo) (string, string)
 		if len(name) > 0 && name != nexus.DEFAULT_KEY {
 			msg := fmt.Sprintf("Wrong singleton node name %s: %s for request %s, only '%s' is allowed as name",
 				crdInfo.Name, name, nc.Request().RequestURI, nexus.DEFAULT_KEY)
-			log.Debugf(msg)
+			log.Debug(msg)
 			log.Debugf("crdName: %s, nexusURI: %s, paramNames: %s, paramValues: %s", crdInfo.Name, nc.NexusURI, nc.ParamNames(), nc.ParamValues())
 			return "", msg
 		}
@@ -503,7 +509,7 @@ func deleteHandler(c echo.Context) error {
 		if name != nexus.DEFAULT_KEY {
 			msg := fmt.Sprintf("Wrong singleton node name %s: %s for request %s, only '%s' is allowed as name",
 				crdInfo.Name, name, nc.Request().RequestURI, nexus.DEFAULT_KEY)
-			log.Debugf(msg)
+			log.Debug(msg)
 			return nc.JSON(http.StatusBadRequest, DefaultResponse{Message: msg})
 		}
 	}
@@ -691,9 +697,9 @@ func DebugAllHandler(c echo.Context) error {
 		"crdTypeToRestUris":                       model.CrdTypeToRestUris,
 		"uriToUriInfo":                            model.UriToUriInfo,
 		"crdTypeToNodeInfo":                       model.CrdTypeToNodeInfo,
-		"datamodelToDatamodelInfo":                model.DatamodelToDatamodelInfo,
+		"datamodelToDatamodelInfo":                model.GetDatamodelInfos(),
 		"declarativePaths":                        declarative.ApisList,
-		"totalHttpServerRestarts":                 TotalHttpServerRestartCounter,
-		"httpServerRestartsFromOpenApiSpecUpdate": HttpServerRestartFromOpenApiSpecUpdateCounter,
+		"totalHttpServerRestarts":                 atomic.LoadInt64(&TotalHttpServerRestartCounter),
+		"httpServerRestartsFromOpenApiSpecUpdate": atomic.LoadInt64(&HttpServerRestartFromOpenApiSpecUpdateCounter),
 	})
 }

@@ -21,7 +21,7 @@ func New(datamodel string) {
 
 	// Check if datamodel info is present
 	title := "Nexus API GW APIs"
-	if info, ok := model.DatamodelToDatamodelInfo[datamodel]; ok {
+	if info, ok := model.GetDatamodelInfo(datamodel); ok {
 		title = info.Title
 	}
 	schema := openapi3.T{
@@ -78,9 +78,8 @@ func DatamodelUpdateNotification() {
 		select {
 		case name := <-model.DatamodelsChan:
 			if schema, ok := Schemas[name]; ok {
-				model.DatamodelToDatamodelInfoMutex.Lock()
-				schema.Info.Title = model.DatamodelToDatamodelInfo[name].Title
-				model.DatamodelToDatamodelInfoMutex.Unlock()
+				info, _ := model.GetDatamodelInfo(name)
+				schema.Info.Title = info.Title
 				log.Infof("Updated title: %s for %s openapi spec", schema.Info.Title, name)
 			}
 		}

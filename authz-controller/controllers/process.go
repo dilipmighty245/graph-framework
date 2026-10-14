@@ -52,22 +52,24 @@ func (r *CustomResourceDefinitionReconciler) ProcessAnnotation(ctx context.Conte
 }
 
 /*
- checkCRDTypeToAddToClusterRole iterates through all the roles in the map, and it's parent CRDs
- against the crd type from the event notification received. if the crd type parent matched
- with the map value and the child crd type not already in k8s ClusterRole rules, if so append the
- crd type's <resources> and <apiGroups> to the rules and update the k8s ClusterRole.
- Do this recursively ...
+checkCRDTypeToAddToClusterRole iterates through all the roles in the map, and it's parent CRDs
+against the crd type from the event notification received. if the crd type parent matched
+with the map value and the child crd type not already in k8s ClusterRole rules, if so append the
+crd type's <resources> and <apiGroups> to the rules and update the k8s ClusterRole.
+Do this recursively ...
 
- roleName - k8s ClusterRole name
-        Ex: root-admin-role
+roleName - k8s ClusterRole name
 
- parentToChildrenCRDMap - indicates the map of parent CRD to list of children
-         Ex: map[roots.root.helloworld.com] = []Children{
-                                                     projects.project.helloworld.com,
-                                                     configs.config.helloworld.com
-                                                    }
+	Ex: root-admin-role
 
- childrenCRDTypes - indicates all the children CRDs which is captured during the ResourceRole event handler.
+parentToChildrenCRDMap - indicates the map of parent CRD to list of children
+
+	Ex: map[roots.root.helloworld.com] = []Children{
+	                                            projects.project.helloworld.com,
+	                                            configs.config.helloworld.com
+	                                           }
+
+childrenCRDTypes - indicates all the children CRDs which is captured during the ResourceRole event handler.
 */
 func checkCRDTypeToAddToClusterRole(client client.Client, ctx context.Context, crdType string, hierarchy []string) {
 	for roleName, parentToChildrenCRDMap := range utils.GetRolesToHierarchicalCRDMap() {

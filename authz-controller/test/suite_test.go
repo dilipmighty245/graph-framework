@@ -28,11 +28,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
 
-	api_nexus_org "nexus/admin/api/build/apis/api.nexus.org/v1"
-	auth_nexus_org "nexus/admin/api/build/apis/authorization.nexus.org/v1"
-	config_nexus_org "nexus/admin/api/build/apis/config.nexus.org/v1"
+	api_nexus_org "nexus/admin/api/build/apis/api.admin.nexus.com/v1"
+	auth_nexus_org "nexus/admin/api/build/apis/authorization.admin.nexus.com/v1"
+	config_nexus_org "nexus/admin/api/build/apis/config.admin.nexus.com/v1"
 	nexus_client "nexus/admin/api/build/nexus-client"
 )
 
@@ -49,39 +48,37 @@ var (
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
 
-	RunSpecsWithDefaultAndCustomReporters(t,
-		"Authz Suite",
-		[]Reporter{printer.NewlineReporter{}})
+	RunSpecs(t, "Authz Suite")
 }
 
-var _ = BeforeSuite(func() {
+var _ = BeforeEach(func() {
 	nexusClient = nexus_client.NewFakeClient()
 	ctx = context.Background()
 	scheme = addScheme()
 })
 
-var _ = AfterSuite(func() {
+var _ = AfterEach(func() {
 	clearNexusAPI()
 })
 
 func createParentNodes() *nexus_client.AuthorizationAuthorization {
 	nexusapi, err := nexusClient.AddApiNexus(ctx, &api_nexus_org.Nexus{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "nexus",
+			Name: "default",
 		},
 		Spec: api_nexus_org.NexusSpec{},
 	})
 	Expect(err).NotTo(HaveOccurred())
-	Expect(nexusapi.DisplayName()).To(Equal("nexus"))
+	Expect(nexusapi.DisplayName()).To(Equal("default"))
 
 	config, err := nexusapi.AddConfig(ctx, &config_nexus_org.Config{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "config",
+			Name: "default",
 		},
 		Spec: config_nexus_org.ConfigSpec{},
 	})
 	Expect(err).NotTo(HaveOccurred())
-	Expect(config.DisplayName()).To(Equal("config"))
+	Expect(config.DisplayName()).To(Equal("default"))
 
 	authz, err := config.AddAuthorization(ctx, &auth_nexus_org.Authorization{
 		ObjectMeta: metav1.ObjectMeta{
@@ -106,5 +103,5 @@ func addScheme() *runtime.Scheme {
 }
 
 func clearNexusAPI() {
-	_ = nexusClient.DeleteApiNexus(ctx, "nexus")
+	_ = nexusClient.DeleteApiNexus(ctx)
 }

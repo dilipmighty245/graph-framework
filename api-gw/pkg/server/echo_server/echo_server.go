@@ -12,13 +12,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -52,8 +53,8 @@ type UserLogin struct {
 }
 
 var corsmutex = &sync.Mutex{}
-var TotalHttpServerRestartCounter = 0
-var HttpServerRestartFromOpenApiSpecUpdateCounter = 0
+var TotalHttpServerRestartCounter int64
+var HttpServerRestartFromOpenApiSpecUpdateCounter int64
 
 type EchoServer struct {
 	Echo        *echo.Echo
@@ -61,6 +62,11 @@ type EchoServer struct {
 	Client      *kubernetes.Clientset
 	NexusClient *nexus_client.Clientset
 	k8sProxy    *httputil.ReverseProxy
+	lifecycle   context.Context
+	cancel      context.CancelFunc
+	serveDone   chan struct{}
+	watchDone   chan struct{}
+	restarted   *EchoServer
 }
 
 func InitEcho(stopCh chan struct{}, conf *config.Config, client *kubernetes.Clientset, nexusClient *nexus_client.Clientset) *EchoServer {
@@ -94,20 +100,28 @@ func (s *EchoServer) StartHTTPServer() {
 }
 
 func (s *EchoServer) Start(stopCh chan struct{}) {
-	if config.Cfg.EnableNexusRuntime {
+	s.serveDone = make(chan struct{})
+	s.watchDone = make(chan struct{})
+	if s.Config.EnableNexusRuntime {
 		// Start watching URI notification
 		go func() {
-			log.Debug("NodeUpdateNotifications")
-			if err := s.NodeUpdateNotifications(stopCh); err != nil {
-				s.StopServer()
-				InitEcho(stopCh, s.Config, s.Client, s.NexusClient)
-				TotalHttpServerRestartCounter++
+			defer close(s.watchDone)
+			if err := s.NodeUpdateNotifications(stopCh); err != nil && s.lifecycle.Err() == nil {
+				s.shutdownHTTP()
+				<-s.serveDone
+				if s.lifecycle.Err() == nil {
+					s.restarted = InitEcho(stopCh, s.Config, s.Client, s.NexusClient)
+					atomic.AddInt64(&TotalHttpServerRestartCounter, 1)
+				}
 			}
 		}()
+	} else {
+		close(s.watchDone)
 	}
 
 	// Start Server
 	go func() {
+		defer close(s.serveDone)
 		log.Info("Start Echo Server")
 		if utils.IsServerConfigValid(s.Config) && utils.IsFileExists(s.Config.Server.CertPath) && utils.IsFileExists(s.Config.Server.KeyPath) {
 			log.Infof("Server Config %v", s.Config.Server)
@@ -351,6 +365,8 @@ func (s *EchoServer) RegisterDeclarativeRouter() {
 func (s *EchoServer) NodeUpdateNotifications(stopCh chan struct{}) error {
 	for {
 		select {
+		case <-s.lifecycle.Done():
+			return nil
 		case <-stopCh:
 			return fmt.Errorf("stop signal received")
 		case restURIs := <-model.RestURIChan:
@@ -386,49 +402,34 @@ func (s *EchoServer) NodeUpdateNotifications(stopCh chan struct{}) error {
 	}
 }
 
+// StopServer closes this server, its route watcher, and any replacement created
+// by a restart. Shutdown owns listener cleanup; probing a TCP port afterward can
+// accidentally wait on an unrelated process that reused the port.
 func (s *EchoServer) StopServer() {
+	s.cancel()
+	if s.watchDone != nil {
+		<-s.watchDone
+	}
+	s.shutdownHTTP()
+	if s.serveDone != nil {
+		<-s.serveDone
+	}
+	if s.restarted != nil {
+		s.restarted.StopServer()
+	}
+}
+
+func (s *EchoServer) shutdownHTTP() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-
 	if err := s.Echo.Shutdown(ctx); err != nil {
-		log.Fatalf("Shutdown signal received")
-	} else {
-		log.Debugln("Server exiting")
-	}
-
-	address := ":80"
-	if s.Config.Server.HttpPort != "" {
-		address = ":" + s.Config.Server.HttpPort
-	}
-
-	if utils.IsServerConfigValid(s.Config) && utils.IsFileExists(s.Config.Server.CertPath) && utils.IsFileExists(s.Config.Server.KeyPath) {
-		address = s.Config.Server.Address
-	}
-
-	ok := false
-	timeout := time.Now().Add(30 * time.Second)
-	for time.Now().Before(timeout) {
-		conn, err := net.DialTimeout("tcp", address, 100*time.Millisecond)
-		if err != nil {
-			//informative log. When port is free then error will occur
-			log.Debugf("StopServer: DialTimeout err: %v\n", err)
-		}
-
-		if conn == nil {
-			ok = true
-			break
-		} else {
-			conn.Close()
-			time.Sleep(100 * time.Millisecond)
-		}
-	}
-	if !ok {
-		log.Fatalf("Error occured while stopping echo server. TCP port is busy")
+		log.Errorf("Gateway shutdown: %v", err)
 	}
 }
 
 func NewEchoServer(conf *config.Config, client *kubernetes.Clientset, nexusClient *nexus_client.Clientset) *EchoServer {
 	e := echo.New()
+	lifecycle, cancel := context.WithCancel(context.Background())
 
 	e.Pre(middleware.RemoveTrailingSlash())
 	e.Use(middleware.CORS())
@@ -443,6 +444,8 @@ func NewEchoServer(conf *config.Config, client *kubernetes.Clientset, nexusClien
 	}))
 
 	return &EchoServer{
+		lifecycle: lifecycle,
+		cancel:    cancel,
 		// create a new echo_server instance
 		Echo:        e,
 		Config:      conf,
@@ -839,83 +842,54 @@ func (s *EchoServer) CSPTokenHander(c echo.Context) error {
 
 }
 
-func WatchForOpenApiSpecChanges(stopCh chan struct{}, openApiSpecDir string, openApiSpecFile string) {
+// WatchForOpenApiSpecChanges installs the watch synchronously and returns a cleanup
+// function that stops the goroutine. Watching the directory also handles atomic replacement.
+func WatchForOpenApiSpecChanges(stopCh chan struct{}, openApiSpecDir string, openApiSpecFile string) func() {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Errorln("NewWatcher failed: ", err)
-		return
+		log.Error("NewWatcher failed: ", err)
+		return func() {}
 	}
-
+	if err := watcher.Add(openApiSpecDir); err != nil {
+		watcher.Close()
+		log.Error("Unable to watch OpenAPI directory: ", err)
+		return func() {}
+	}
+	target, err := filepath.Abs(openApiSpecFile)
+	if err != nil {
+		watcher.Close()
+		return func() {}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
+		defer watcher.Close()
 		for {
-			_, err := os.Stat(openApiSpecFile)
-
-			if err != nil { //openApiSpec file does not exist
-				er := watcher.Add(openApiSpecDir)
-				if er != nil {
-					log.Panicln("Unable to add watcher for ", openApiSpecDir, ": ", er.Error())
+			select {
+			case <-ctx.Done():
+				return
+			case event, open := <-watcher.Events:
+				if !open {
+					return
 				}
-				log.Debugln("Watching: ", openApiSpecDir)
-				fileDoesNotExist := true
-				for fileDoesNotExist {
-					select {
-					case event := <-watcher.Events:
-						if event.Op == fsnotify.Create && event.Name == openApiSpecFile {
-							log.Debugln("Restarting echo server because openApi spec file is created")
-							stopCh <- struct{}{}
-							HttpServerRestartFromOpenApiSpecUpdateCounter++
-							fileDoesNotExist = false
-							watcher.Remove(openApiSpecDir)
-							break
-						} else {
-							log.Traceln("Received Event on dir watch: " + event.Op.String() + " on file " + event.Name)
-						}
-					case e := <-watcher.Errors:
-						if e != nil {
-							log.Errorln("Error:", e)
-							fileDoesNotExist = false
-							watcher.Remove(openApiSpecDir)
-							break
-						}
-					}
+				path, err := filepath.Abs(event.Name)
+				if err != nil || path != target || event.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Remove|fsnotify.Rename) == 0 {
+					continue
 				}
-			} else { //openApiSpec file exists
-				er := watcher.Add(openApiSpecFile)
-				if er != nil {
-					log.Panicln("Unable to add watcher for ", openApiSpecFile, ": ", er.Error())
+				select {
+				case <-ctx.Done():
+					return
+				case stopCh <- struct{}{}:
+					atomic.AddInt64(&HttpServerRestartFromOpenApiSpecUpdateCounter, 1)
 				}
-				log.Debugln("Watching:", openApiSpecFile)
-				fileExist := true
-				for fileExist {
-					select {
-					case event := <-watcher.Events:
-						if event.Op == fsnotify.Write && event.Name == openApiSpecFile {
-							log.Debugln("Restarting echo server because openApi spec file is updated")
-							stopCh <- struct{}{}
-							HttpServerRestartFromOpenApiSpecUpdateCounter++
-						}
-						if event.Op == fsnotify.Remove && event.Name == openApiSpecFile {
-							log.Debugln("Restarting echo server because openApi spec file is removed")
-							stopCh <- struct{}{}
-							HttpServerRestartFromOpenApiSpecUpdateCounter++
-							fileExist = false
-							watcher.Remove(openApiSpecFile)
-							break
-						} else {
-							log.Traceln("Received Event on file watch: " + event.Op.String() + " on file " + event.Name)
-						}
-
-					case e := <-watcher.Errors:
-						if e != nil {
-							log.Errorln("Error:", e)
-							fileExist = false
-							watcher.Remove(openApiSpecFile)
-							break
-						}
-					}
+			case err, open := <-watcher.Errors:
+				if !open {
+					return
 				}
+				log.Error("OpenAPI watcher: ", err)
 			}
-
 		}
 	}()
+	return func() { cancel(); <-done }
 }

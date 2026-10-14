@@ -3,7 +3,7 @@ package user
 import (
 	tenantconfig "nexus/admin/api/config/tenant"
 
-	"nexus/base/nexus"
+	"github.com/dilipmighty245/graph-framework-for-microservices/nexus/nexus"
 )
 
 type User struct {

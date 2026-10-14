@@ -28,20 +28,20 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"authz-controller/pkg/utils"
-	auth_nexus_org "nexus/admin/api/build/apis/authorization.nexus.org/v1"
+	auth_nexus_org "nexus/admin/api/build/apis/authorization.admin.nexus.com/v1"
 )
 
-// TODO this logic will have to be reviewed https://jira.eng.vmware.com/browse/NPT-264
+// TODO: Review instance-scoped role expansion and binding semantics.
 
-//InstanceRoleReconciler reconciles a InstanceRole object
+// InstanceRoleReconciler reconciles a InstanceRole object
 type InstanceRoleReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=authorization.nexus.org.authz-controller.com,resources=instanceroles,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=authorization.nexus.org.authz-controller.com,resources=instanceroles/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=authorization.nexus.org.authz-controller.com,resources=instanceroles/finalizers,verbs=update
+//+kubebuilder:rbac:groups=authorization.admin.nexus.com,resources=instanceroles,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=authorization.admin.nexus.com,resources=instanceroles/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=authorization.admin.nexus.com,resources=instanceroles/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.

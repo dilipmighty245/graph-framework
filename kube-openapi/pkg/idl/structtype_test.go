@@ -18,7 +18,7 @@ package idl_test
 
 // This example shows how to use the structType atomic attribute to
 // specify that this struct should be treated as a whole.
-func ExampleStructType_atomic() {
+func Example_structType_atomic() {
 	type SomeStruct struct {
 		Name  string
 		Value string

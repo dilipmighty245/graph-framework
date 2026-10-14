@@ -15,6 +15,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	labelSelector "k8s.io/apimachinery/pkg/labels"
@@ -305,13 +306,23 @@ func KubeDeleteHandler(c echo.Context) error {
 		}
 	}
 
-	name = nexus.GetHashedName(nc.CrdType, crdInfo.ParentHierarchy, labels, name)
+	// Kubernetes clients use stored names; graph clients can supply display names.
+	if _, err := client.Client.Resource(gvr).Get(c.Request().Context(), name, metav1.GetOptions{}); kerrors.IsNotFound(err) {
+		name = nexus.GetHashedName(nc.CrdType, crdInfo.ParentHierarchy, labels, name)
+	} else if err != nil {
+		return err
+	}
 	log.Debugf("KubeDeleteHandler: hashedName: %s, labels: %s", name, labels)
 
 	err := client.DeleteObject(gvr, nc.CrdType, crdInfo, name)
 	if err != nil {
 		if status := kerrors.APIStatus(nil); errors.As(err, &status) {
-			return c.JSON(int(status.Status().Code), status.Status())
+			response := status.Status()
+			response.Message = strings.ReplaceAll(response.Message, name, c.Param("name"))
+			if response.Details != nil {
+				response.Details.Name = c.Param("name")
+			}
+			return c.JSON(int(response.Code), response)
 		}
 		c.Error(err)
 	}

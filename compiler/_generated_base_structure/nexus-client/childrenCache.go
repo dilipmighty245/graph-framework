@@ -2,13 +2,16 @@
 package nexus_client
 
 import (
+	"sort"
 	"sync"
 )
 
 // Package level cache to track parent to child relationships.
 // key: node crd type string of the parent.
 // value: *nodeCache
-var parentChildCache = &sync.Map{}
+type childCache struct{ parents sync.Map }
+
+var defaultChildCache = &childCache{}
 
 type nodeCache struct {
 	// Key: Node hashed name string. Answers the question if a node exists or it has children.
@@ -28,53 +31,20 @@ type childrenCache struct {
 	children sync.Map
 }
 
-func AddChild(parentNodeType, parentName, childNodeType, childName string) {
-	parentNodeTypeVal, parentNodeTypeFound := parentChildCache.Load(parentNodeType)
-	var parentNodeCache *nodeCache
-	var typeAsserted bool
-
-	if !parentNodeTypeFound {
-		parentNodeCache = &nodeCache{}
-		parentChildCache.Store(parentNodeType, parentNodeCache)
-	} else {
-		parentNodeCache, typeAsserted = (parentNodeTypeVal).(*nodeCache)
-		if !typeAsserted {
-			logger.Fatalf("invalid parentNodeTypeVal found in nodeCache for parentNodeType %s", parentNodeType)
-		}
-	}
-
-	childNodeTypeVal, parentNodeFound := parentNodeCache.node.Load(parentName)
-	var childTypeCache *childNodeTypeCache
-	if !parentNodeFound {
-		childTypeCache = &childNodeTypeCache{}
-		parentNodeCache.node.Store(parentName, childTypeCache)
-	} else {
-		childTypeCache, typeAsserted = childNodeTypeVal.(*childNodeTypeCache)
-		if !typeAsserted {
-			logger.Fatalf("invalid childNodeTypeVal found in childNodeTypeCache for parentName %s", parentName)
-		}
-	}
-
-	childrenCacheVal, childNodeTypeFound := childTypeCache.childType.Load(childNodeType)
-	var cache *childrenCache
-	if !childNodeTypeFound {
-		cache = &childrenCache{}
-		childTypeCache.childType.Store(childNodeType, cache)
-	} else {
-		cache, typeAsserted = childrenCacheVal.(*childrenCache)
-		if !typeAsserted {
-			logger.Fatalf("invalid childrenCacheVal found in childrenCacheVal forchildNodeType %s", childNodeType)
-		}
-	}
-
-	cache.children.Store(childName, struct{}{})
+func (c *childCache) AddChild(parentNodeType, parentName, childNodeType, childName string) {
+	parentValue, _ := c.parents.LoadOrStore(parentNodeType, &nodeCache{})
+	parent := parentValue.(*nodeCache)
+	typeValue, _ := parent.node.LoadOrStore(parentName, &childNodeTypeCache{})
+	childType := typeValue.(*childNodeTypeCache)
+	cacheValue, _ := childType.childType.LoadOrStore(childNodeType, &childrenCache{})
+	cacheValue.(*childrenCache).children.Store(childName, struct{}{})
 }
 
-func RemoveChild(parentNodeType, parentName, childNodeType, childName string) {
+func (c *childCache) RemoveChild(parentNodeType, parentName, childNodeType, childName string) {
 	var typeAsserted bool
 
 	// Remove entry on the last child being removed.
-	nodeVal, parentNodeTypeFound := parentChildCache.Load(parentNodeType)
+	nodeVal, parentNodeTypeFound := c.parents.Load(parentNodeType)
 	if !parentNodeTypeFound {
 		return
 	}
@@ -104,10 +74,10 @@ func RemoveChild(parentNodeType, parentName, childNodeType, childName string) {
 	childrenCache.children.Delete(childName)
 }
 
-func IsChildExists(parentNodeType, parentName, childNodeType, childName string) bool {
+func (c *childCache) IsChildExists(parentNodeType, parentName, childNodeType, childName string) bool {
 	var typeAsserted bool
 
-	nodeVal, parentNodeTypeFound := parentChildCache.Load(parentNodeType)
+	nodeVal, parentNodeTypeFound := c.parents.Load(parentNodeType)
 	if !parentNodeTypeFound {
 		return false
 	}
@@ -140,10 +110,10 @@ func IsChildExists(parentNodeType, parentName, childNodeType, childName string) 
 	return false
 }
 
-func GetChildren(parentNodeType, parentName, childNodeType string) (children []string) {
+func (c *childCache) GetChildren(parentNodeType, parentName, childNodeType string) (children []string) {
 	var typeAsserted bool
 
-	nodeVal, parentNodeTypeFound := parentChildCache.Load(parentNodeType)
+	nodeVal, parentNodeTypeFound := c.parents.Load(parentNodeType)
 	if !parentNodeTypeFound {
 		return children
 	}
@@ -174,5 +144,21 @@ func GetChildren(parentNodeType, parentName, childNodeType string) (children []s
 		children = append(children, k.(string))
 		return true
 	})
+	sort.Strings(children)
 	return children
+}
+
+// Package helpers operate on the legacy shared cache. Generated clients keep a
+// separate cache so independent API backends cannot leak graph relationships.
+func AddChild(parentType, parent, childType, child string) {
+	defaultChildCache.AddChild(parentType, parent, childType, child)
+}
+func RemoveChild(parentType, parent, childType, child string) {
+	defaultChildCache.RemoveChild(parentType, parent, childType, child)
+}
+func IsChildExists(parentType, parent, childType, child string) bool {
+	return defaultChildCache.IsChildExists(parentType, parent, childType, child)
+}
+func GetChildren(parentType, parent, childType string) []string {
+	return defaultChildCache.GetChildren(parentType, parent, childType)
 }
