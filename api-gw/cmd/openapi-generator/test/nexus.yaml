@@ -1,5 +1,5 @@
 groupName: "infra-host.com"
-dockerRepo: "ghcr.io/dilipmighty245"
+dockerRepo: ""
 ignoredDirs:
   - "test"
 ignoredParentPathParams:

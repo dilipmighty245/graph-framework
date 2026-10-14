@@ -18,6 +18,7 @@ if [[ -n "$E2E_COMPILER_IMAGE" ]]; then
 fi
 export E2E_GOARCH
 E2E_GOARCH=$(docker version --format '{{.Server.Arch}}')
+export GOMODCACHE=${GOMODCACHE:-$(go env GOMODCACHE)}
 results=${FRAMEWORK_TEST_RESULTS:-"$root/artifacts/framework-tests"}
 mkdir -p "$results"
 results=$(mktemp -d "$results/e2e-XXXXXXXX")
@@ -77,10 +78,31 @@ git -C "$work/repo" add -A
 git -C "$work/repo" -c user.name=framework-e2e -c user.email=framework-e2e@localhost commit -qm 'Isolated E2E working-tree snapshot'
 if [[ -n "$E2E_COMPILER_IMAGE" ]]; then
 container_root=/go/src/github.com/dilipmighty245/graph-framework-for-microservices
+docker_args=(--volume "$GOMODCACHE:/go/pkg/mod" --volume "${GOCACHE:-$(go env GOCACHE)}:/root/.cache/go-build")
 docker run --rm --pull=never \
+    "${docker_args[@]}" \
     --volume "$work/repo:$container_root" --workdir "$container_root" \
     -e E2E_COMPONENTS -e E2E_GOARCH -e FRAMEWORK_TEST_RACE --entrypoint /bin/bash "$E2E_COMPILER_IMAGE" \
     scripts/framework-e2e-build.sh 2>&1 | tee "$results/generation.log"
+if [[ -n ${E2E_AUTHZ_BUILDER_IMAGE:-} ]]; then
+    [[ ,$E2E_COMPONENTS, == *,gateway,* ]] || { echo 'Authorization builder tests need gateway/admin model generation.' >&2; exit 2; }
+    docker run --rm --pull=never "${docker_args[@]}" \
+        --volume "$work/repo:$container_root" --workdir "$container_root/authz-controller" \
+        "$E2E_AUTHZ_BUILDER_IMAGE" go test -timeout=4m -mod=readonly -race -count=1 ./... \
+        2>&1 | tee "$results/authorization-builder.log"
+fi
+# Generated module replacements must point to the mounted tree on this host
+# when running the live subscription tests outside the Linux build container.
+python3 - "$work/repo" "$container_root" <<'PY'
+from pathlib import Path
+import sys
+root, container_root = Path(sys.argv[1]), sys.argv[2]
+for path in root.rglob("go.mod"):
+    content = path.read_text()
+    updated = content.replace(container_root, str(root))
+    if updated != content:
+        path.write_text(updated)
+PY
 else
     for tool in go make jq yq goimports; do
         command -v "$tool" >/dev/null || { echo "Host build prerequisite missing: $tool" >&2; exit 2; }
@@ -90,8 +112,6 @@ else
     export GOMODCACHE=${GOMODCACHE:-$(go env GOMODCACHE)}
     export GOPATH="$work/gopath"
     export PATH="$work/bin:$PATH"
-    (cd "$work/repo/gqlgen" && go build -o "$work/bin/gqlgen" .)
-    (cd "$work/repo/kube-openapi" && go build -o "$work/bin/nexus-openapi-gen" ./cmd/nexus-openapi-gen)
     bash "$work/repo/scripts/framework-e2e-build.sh" 2>&1 | tee "$results/generation.log"
 fi
 kind_args=(create cluster --name "$cluster" --kubeconfig "$work/kubeconfig" --wait 120s)
@@ -103,6 +123,17 @@ kube() { kubectl --kubeconfig "$work/kubeconfig" "$@"; }
 crds="$work/repo/compiler/example/output/generated/crds"
 kube apply -f "$crds" 2>&1 | tee "$results/crds.log"
 kube wait --for=condition=Established --timeout=90s -f "$crds"
+# Run against the freshly generated SDK and the real API server. Each pass
+# creates and deletes its own graph and starts a fresh Go test process.
+sdk_runs=${E2E_SDK_RUNS:-3}
+[[ $sdk_runs =~ ^[1-9][0-9]*$ ]] || { echo 'E2E_SDK_RUNS must be a positive integer.' >&2; exit 2; }
+link_flags=${FRAMEWORK_TEST_LDFLAGS:-}
+if [[ $(uname -s) == Darwin && -z "$link_flags" ]]; then link_flags=-linkmode=external; fi
+for ((sdk_run=1; sdk_run<=sdk_runs; sdk_run++)); do
+    (cd "$work/repo/compiler/example/tests" && KUBECONFIG="$work/kubeconfig" \
+        go test -tags=integration -timeout=4m -mod=mod -race -count=1 -v \
+        -ldflags="$link_flags" ./integration) 2>&1 | tee "$results/subscriptions-$sdk_run.log"
+done
 # These names follow common-library/pkg/nexus's hierarchy-aware naming contract.
 root_name=$(python3 -c 'import hashlib; print(hashlib.sha1(b"roots.root.tsm.tanzu.vmware.com:default").hexdigest())')
 config_name=$(python3 -c 'import hashlib; print(hashlib.sha1(b"roots.root.tsm.tanzu.vmware.com:default/configs.config.tsm.tanzu.vmware.com:default").hexdigest())')

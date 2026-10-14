@@ -58,6 +58,8 @@ var informerResyncPeriod time.Duration = 36000
 type Clientset struct {
 	baseClient baseClientset.Interface
  children *childCache
+ subscriptions sync.Map
+ subscriptionMu sync.Mutex
 	DynamicClient               dynamic.Interface
 	{{ range $key, $group := .ApiGroups }}{{$group.ClientsetApiGroups}}{{ end }}
 }
@@ -66,29 +68,37 @@ type subscription struct {
 	informer     cache.SharedIndexInformer
 	stop chan    struct{}
 	WriteCacheObjects *sync.Map
+ done chan struct{}
+ stopOnce sync.Once
 }
 
-// subscriptionMap will store crd string as key and value as subscription type,
-// for example key="roots.orgchart.vmware.org" and value=subscription{}
-var subscriptionMap = sync.Map{}
+// Subscriptions belong to a client so independent API backends and observers
+// cannot share informers, write caches, or unsubscribe one another.
+func (c *Clientset) subscribe(key string, informer cache.SharedIndexInformer) cache.SharedIndexInformer {
+ c.subscriptionMu.Lock()
+ defer c.subscriptionMu.Unlock()
+ if existing, ok := c.subscriptions.Load(key); ok { return existing.(*subscription).informer }
+ s := &subscription{informer: informer, stop: make(chan struct{}), done: make(chan struct{}), WriteCacheObjects: &sync.Map{}}
+ c.subscriptions.Store(key, s)
+ go func() { defer close(s.done); s.informer.Run(s.stop) }()
+ return informer
+}
 
-func subscribe(key string, informer cache.SharedIndexInformer){
-	s:=subscription{
-		informer: informer,
-		stop: make(chan struct{}),
-		WriteCacheObjects: &sync.Map{},
-	}
-	go s.informer.Run(s.stop)
-	subscriptionMap.Store(key,s)
+func (c *Clientset) unsubscribe(key string) {
+ if value, ok := c.subscriptions.LoadAndDelete(key); ok {
+  sub := value.(*subscription)
+  sub.stopOnce.Do(func() { close(sub.stop) })
+  <-sub.done
+ }
 }
 
 func (c *Clientset) SubscribeAll() {	
 	var key string
 	{{ range $key, $node := .Nodes }}
 	key = "{{$node.CrdName}}"
-	if _,ok := subscriptionMap.Load(key); !ok {
+	if _,ok := c.subscriptions.Load(key); !ok {
 		informer := {{$node.GroupInformerImport}}.New{{$node.BaseNodeName}}Informer(c.baseClient, informerResyncPeriod * time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.subscribe(key, informer)
 
 		{{if $node.Parent.HasParent}}
 		chainer := {{$node.GroupResourceType}}Chainer{
@@ -102,11 +112,7 @@ func (c *Clientset) SubscribeAll() {
 }
 
 func (c *Clientset) UnsubscribeAll() {
-    subscriptionMap.Range(func(key, s interface{})bool{
-		close(s.(subscription).stop)
-		subscriptionMap.Delete(key)
-		return true
-	})
+ c.subscriptions.Range(func(key, _ interface{}) bool { c.unsubscribe(key.(string)); return true })
 }
 
 // NewForConfig returns Client which can be which can be used to connect to database
@@ -201,10 +207,10 @@ func (group *{{$node.GroupTypeName}}) Get{{$node.BaseNodeName}}Child(grp, kind, 
 // name and parents names. Use it when you know hashed name of object.
 func (group *{{$node.GroupTypeName}}) Get{{$node.BaseNodeName}}ByName(ctx context.Context, hashedName string) (*{{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}, error) {
 	key := "{{$node.CrdName}}"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := group.client.subscriptions.Load(key); ok {
 		// Check if the object is in write cache.
-		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
-		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
+		resWrCache, inWrCache := s.(*subscription).WriteCacheObjects.Load(hashedName)
+		item, exists, _ := s.(*subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
 			logger.Debugf("[Get{{$node.BaseNodeName}}ByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*{{$node.GroupBaseImport}})
@@ -224,18 +230,18 @@ func (group *{{$node.GroupTypeName}}) Get{{$node.BaseNodeName}}ByName(ctx contex
 
 			if !inWrCache || subsCacheVersion >= writeCacheVersion {
 				if inWrCache {
-					 s.(subscription).WriteCacheObjects.Delete(hashedName)
+					 s.(*subscription).WriteCacheObjects.Delete(hashedName)
 				}
 				return &{{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}{
 					client: group.client,
-					{{$node.BaseNodeName}}: resultCache,
+					{{$node.BaseNodeName}}: resultCache.DeepCopy(),
 				}, nil
 			}
 		}
 		if inWrCache {
 			return &{{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}{
 					client: group.client,
-					{{$node.BaseNodeName}}: resWrCache.(*{{$node.GroupBaseImport}}),
+					{{$node.BaseNodeName}}: resWrCache.(*{{$node.GroupBaseImport}}).DeepCopy(),
 				}, nil
 		}
 	}
@@ -388,8 +394,8 @@ func (group *{{$node.GroupTypeName}}) Delete{{$node.BaseNodeName}}ByName(ctx con
 				return err
 			}
 		} else {
-			if s, ok := subscriptionMap.Load("{{$node.CrdName}}"); ok {
-				s.(subscription).WriteCacheObjects.Delete(hashedName)
+			if s, ok := group.client.subscriptions.Load("{{$node.CrdName}}"); ok {
+				s.(*subscription).WriteCacheObjects.Delete(hashedName)
 			}
 			break
 		}
@@ -489,9 +495,9 @@ func (group *{{$node.GroupTypeName}}) Create{{$node.BaseNodeName}}ByName(ctx con
 			}
 		} else {
 			logger.Debugf("[Create{{$node.BaseNodeName}}ByName] {{$node.BaseNodeName}}: %s created successfully",objToCreate.GetName())
-			if s, ok := subscriptionMap.Load("{{$node.CrdName}}"); ok {
+			if s, ok := group.client.subscriptions.Load("{{$node.CrdName}}"); ok {
 				logger.Debugf("[Create{{$node.BaseNodeName}}ByName] {{$node.BaseNodeName}}: %s stored in wr-cache",objToCreate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
 		}
@@ -524,8 +530,8 @@ func (group *{{$node.GroupTypeName}}) Set{{$node.BaseNodeName}}{{$node.StatusNam
  if err != nil { return nil, err }
  result, err := group.client.baseClient.{{$node.GroupTypeName}}().{{$node.GroupResourceNameTitle}}().Patch(ctx, objToUpdate.Name, types.MergePatchType, payload, metav1.PatchOptions{}, "status")
  if err != nil { return nil, err }
- if sub, ok := subscriptionMap.Load("{{$node.CrdName}}"); ok {
-  sub.(subscription).WriteCacheObjects.Store(result.Name, result)
+ if sub, ok := group.client.subscriptions.Load("{{$node.CrdName}}"); ok {
+  sub.(*subscription).WriteCacheObjects.Store(result.Name, result)
  }
  return &{{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}{client: group.client, {{$node.BaseNodeName}}: result}, nil
 }
@@ -651,9 +657,9 @@ func (group *{{$node.GroupTypeName}}) Update{{$node.BaseNodeName}}ByName(ctx con
 			}
 		} else {
 			logger.Debugf("[Update{{$node.BaseNodeName}}ByName] Patch {{$node.BaseNodeName}} Success :%s",objToUpdate.GetName())
-			if s, ok := subscriptionMap.Load("{{$node.CrdName}}"); ok {
+			if s, ok := group.client.subscriptions.Load("{{$node.CrdName}}"); ok {
 				logger.Debugf("[Update{{$node.BaseNodeName}}ByName] %s stored in wr-cache", objToUpdate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
@@ -669,14 +675,14 @@ func (group *{{$node.GroupTypeName}}) Update{{$node.BaseNodeName}}ByName(ctx con
 func (group *{{$node.GroupTypeName}}) List{{$node.GroupResourceNameTitle}}(ctx context.Context,
 	opts metav1.ListOptions) (result []*{{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}, err error) {
 	key := "{{$node.CrdName}}"
-	if s,ok := subscriptionMap.Load(key); ok {
-		items := s.(subscription).informer.GetStore().List()
+	if s,ok := group.client.subscriptions.Load(key); ok {
+		items := s.(*subscription).informer.GetStore().List()
 		result = make([]*{{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}, len(items))
 		for k, v := range items {
 			item, _ := v.(*{{$node.GroupBaseImport}})
 			result[k] = &{{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}{
 				client: group.client,
-				{{$node.BaseNodeName}}: item,
+				{{$node.BaseNodeName}}: item.DeepCopy(),
 			}
 		}
 	} else {
@@ -1141,9 +1147,9 @@ type {{$node.GroupResourceType}}Chainer struct {
 
 func (c *{{$node.GroupResourceType}}Chainer) Subscribe(){
     key := "{{$node.CrdName}}"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.client.subscriptions.Load(key); !ok {
 		informer := {{$node.GroupInformerImport}}.New{{$node.BaseNodeName}}Informer(c.client.baseClient, informerResyncPeriod * time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 		{{if .Parent.HasParent}}
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -1152,16 +1158,12 @@ func (c *{{$node.GroupResourceType}}Chainer) Subscribe(){
 }
 
 func (c *{{$node.GroupResourceType}}Chainer) Unsubscribe(){
-	key := "{{$node.CrdName}}"
-	if s, ok := subscriptionMap.Load(key); ok {
-		close(s.(subscription).stop)
-		subscriptionMap.Delete(key)
-	}
+ c.client.unsubscribe("{{$node.CrdName}}")
 }
 
 func (c *{{$node.GroupResourceType}}Chainer) IsSubscribed() bool {
 	key := "{{$node.CrdName}}"
-	 _, ok := subscriptionMap.Load(key)
+	 _, ok := c.client.subscriptions.Load(key)
 	 return ok
 }
 
@@ -1197,14 +1199,14 @@ func (c *{{$node.GroupResourceType}}Chainer) RegisterEventHandler(addCB func(obj
 	    informer cache.SharedIndexInformer
 	)
 	key := "{{$node.CrdName}}"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for {{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for {{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}, so creating a new one")
 		informer = {{$node.GroupInformerImport}}.New{{$node.BaseNodeName}}Informer(c.client.baseClient, informerResyncPeriod * time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		{{if .Parent.HasParent}}
 		c.RegisterAddCallback(c.addCallback)
@@ -1215,7 +1217,7 @@ func (c *{{$node.GroupResourceType}}Chainer) RegisterEventHandler(addCB func(obj
 		AddFunc: func(obj interface{}){
 			nc := &{{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}{
 			client: c.client,
-				{{$node.BaseNodeName}}: obj.(*{{$node.GroupBaseImport}}),
+				{{$node.BaseNodeName}}: obj.(*{{$node.GroupBaseImport}}).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for {{$node.CrdName}} name %s", nc.{{$node.BaseNodeName}}.Name)
 
@@ -1252,11 +1254,11 @@ func (c *{{$node.GroupResourceType}}Chainer) RegisterEventHandler(addCB func(obj
 		UpdateFunc: func(oldObj,newObj interface{}){
 			oldData := &{{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}{
 				client: c.client,
-				{{$node.BaseNodeName}}: oldObj.(*{{$node.GroupBaseImport}}),
+				{{$node.BaseNodeName}}: oldObj.(*{{$node.GroupBaseImport}}).DeepCopy(),
 			}
 			newData := &{{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}{
 				client: c.client,
-				{{$node.BaseNodeName}}: newObj.(*{{$node.GroupBaseImport}}),
+				{{$node.BaseNodeName}}: newObj.(*{{$node.GroupBaseImport}}).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for {{$node.CrdName}} name %s old version %s new version %s", oldData.{{$node.BaseNodeName}}.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData,newData)
@@ -1265,7 +1267,7 @@ func (c *{{$node.GroupResourceType}}Chainer) RegisterEventHandler(addCB func(obj
 		DeleteFunc: func(obj interface{}){
 			nc := &{{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}{
 			client: c.client,
-				{{$node.BaseNodeName}}: obj.(*{{$node.GroupBaseImport}}),
+				{{$node.BaseNodeName}}: obj.(*{{$node.GroupBaseImport}}).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for {{$node.CrdName}} name %s", nc.{{$node.BaseNodeName}}.Name)
 
@@ -1314,14 +1316,14 @@ func (c *{{$node.GroupResourceType}}Chainer) RegisterAddCallback(cbfn func(obj *
 	)
 
 	key := "{{$node.CrdName}}"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for {{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for {{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}, so creating a new one")
 		informer = {{$node.GroupInformerImport}}.New{{$node.BaseNodeName}}Informer(c.client.baseClient, informerResyncPeriod * time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		{{if .Parent.HasParent}}
 		c.RegisterAddCallback(c.addCallback)
@@ -1333,7 +1335,7 @@ func (c *{{$node.GroupResourceType}}Chainer) RegisterAddCallback(cbfn func(obj *
             AddFunc: func(obj interface{}){
 				nc := &{{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}{
 					client: c.client,
-					{{$node.BaseNodeName}}: obj.(*{{$node.GroupBaseImport}}),
+					{{$node.BaseNodeName}}: obj.(*{{$node.GroupBaseImport}}).DeepCopy(),
 				}
 				logger.Debugf("[RegisterAddCallback] Got Add event for {{$node.CrdName}} name %s", nc.{{$node.BaseNodeName}}.Name)
 
@@ -1383,14 +1385,14 @@ func (c *{{$node.GroupResourceType}}Chainer) RegisterUpdateCallback(cbfn func(ol
 	)
 
 	key := "{{$node.CrdName}}"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for {{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for {{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}, so creating a new one")
 		informer = {{$node.GroupInformerImport}}.New{{$node.BaseNodeName}}Informer(c.client.baseClient, informerResyncPeriod * time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		{{if .Parent.HasParent}}
 		c.RegisterAddCallback(c.addCallback)
@@ -1402,11 +1404,11 @@ func (c *{{$node.GroupResourceType}}Chainer) RegisterUpdateCallback(cbfn func(ol
             UpdateFunc: func(oldObj,newObj interface{}){
 				oldData := &{{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}{
 					client: c.client,
-					{{$node.BaseNodeName}}: oldObj.(*{{$node.GroupBaseImport}}),
+					{{$node.BaseNodeName}}: oldObj.(*{{$node.GroupBaseImport}}).DeepCopy(),
 				}
 				newData := &{{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}{
 					client: c.client,
-					{{$node.BaseNodeName}}: newObj.(*{{$node.GroupBaseImport}}),
+					{{$node.BaseNodeName}}: newObj.(*{{$node.GroupBaseImport}}).DeepCopy(),
 				}
 				logger.Debugf("[RegisterUpdateCallback] Got Update event for {{$node.CrdName}} name %s old version %s new version %s", oldData.{{$node.BaseNodeName}}.Name, oldData.ResourceVersion, newData.ResourceVersion)
 				cbfn(oldData,newData)
@@ -1425,14 +1427,14 @@ func (c *{{$node.GroupResourceType}}Chainer) RegisterDeleteCallback(cbfn func(ob
 	)
 
 	key := "{{$node.CrdName}}"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for {{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for {{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}, so creating a new one")
 		informer = {{$node.GroupInformerImport}}.New{{$node.BaseNodeName}}Informer(c.client.baseClient, informerResyncPeriod * time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		{{if .Parent.HasParent}}
 		c.RegisterAddCallback(c.addCallback)
@@ -1444,7 +1446,7 @@ func (c *{{$node.GroupResourceType}}Chainer) RegisterDeleteCallback(cbfn func(ob
             DeleteFunc: func(obj interface{}){
 				nc := &{{$node.SimpleGroupTypeName}}{{$node.BaseNodeName}}{
 				client: c.client,
-					{{$node.BaseNodeName}}: obj.(*{{$node.GroupBaseImport}}),
+					{{$node.BaseNodeName}}: obj.(*{{$node.GroupBaseImport}}).DeepCopy(),
 				}
 				logger.Debugf("[RegisterDeleteCallback] Got Delete event for {{$node.CrdName}} name %s", nc.{{$node.BaseNodeName}}.Name)
 

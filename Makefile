@@ -14,7 +14,8 @@ COMPILER_TAG ?= latest
 CLUSTER_PORT ?= 9000
 K8S_RUNTIME_PORT = $(shell echo $$(( ${CLUSTER_PORT} + 1 )))
 LOG_LEVEL ?= ERROR
-DOCKER_REGISTRY ?= ghcr.io/dilipmighty245
+DOCKER_REGISTRY ?=
+DOCKER_IMAGE_PREFIX = $(if $(strip $(DOCKER_REGISTRY)),$(patsubst %/,%,$(DOCKER_REGISTRY))/)
 OS ?= $(shell go env GOOS)
 ARCH ?= $(shell go env GOARCH)
 DOCKER_BUILDER_PLATFORM ?= linux/${ARCH}
@@ -24,9 +25,9 @@ OPENAPI_GENERATOR_COMPONENT_NAME ?= openapi-generator
 
 KIND_API_GW_PORT=$(shell expr ${CLUSTER_PORT} + 1)
 API_GW_COMPONENT_NAME ?= api-gw
-API_GW_DOCKER_IMAGE ?= ${DOCKER_REGISTRY}/nexus/${API_GW_COMPONENT_NAME}:${TAG}
-API_GW_RUN_DOCKER_IMAGE ?= ${DOCKER_REGISTRY}/nexus/${API_GW_COMPONENT_NAME}:${API_GW_DEFAULT_RUN_TAG}
-OPENAPI_GENERATOR_DOCKER_IMAGE?= ${DOCKER_REGISTRY}/nexus/${OPENAPI_GENERATOR_COMPONENT_NAME}:${TAG}
+API_GW_DOCKER_IMAGE ?= ${DOCKER_IMAGE_PREFIX}nexus/${API_GW_COMPONENT_NAME}:${TAG}
+API_GW_RUN_DOCKER_IMAGE ?= ${DOCKER_IMAGE_PREFIX}nexus/${API_GW_COMPONENT_NAME}:${API_GW_DEFAULT_RUN_TAG}
+OPENAPI_GENERATOR_DOCKER_IMAGE?= ${DOCKER_IMAGE_PREFIX}nexus/${OPENAPI_GENERATOR_COMPONENT_NAME}:${TAG}
 
 .PHONY: check.prereq.git
 check.prereq.git:
@@ -80,7 +81,7 @@ cli.build.darwin:
 		--volume ${HOME}/.cache/go-build:/root/.cache/go-build \
 		-e GOCACHE=/root/.cache/go-build \
 		-w ${DOCKER_BUILD_MOUNT_DIR}/${CLI_DIR} \
-		golang:1.19.8 \
+		docker.io/library/golang:1.27.2-bookworm \
 		/bin/bash -c "git config --global --add safe.directory '*' && go mod download && make build.darwin";
 
 .PHONY: cli.build.linux
@@ -91,7 +92,7 @@ cli.build.linux:
 		-w ${DOCKER_BUILD_MOUNT_DIR}/${CLI_DIR} \
 		--volume ${HOME}/.cache/go-build:/root/.cache/go-build \
 		-e GOCACHE=/root/.cache/go-build \
-		golang:1.19.8 \
+		docker.io/library/golang:1.27.2-bookworm \
 		/bin/bash -c "git config --global --add safe.directory '*' && go mod download && make build.linux";
 
 .PHONY: cli.install.darwin
@@ -107,7 +108,7 @@ compiler.builder:
 	cd compiler; DOCKER_REGISTRY=${DOCKER_REGISTRY} BUILDER_TAG=${COMPILER_TAG} make docker.builder
 
 .PHONY: compiler.builder.publish
-compiler.builder.publish:
+compiler.builder.publish: check.registry
 	cd compiler; DOCKER_REGISTRY=${DOCKER_REGISTRY} BUILDER_TAG=${COMPILER_TAG} make docker.builder.publish
 
 .PHONY: compiler.build
@@ -115,14 +116,14 @@ compiler.build:
 	cd compiler; DOCKER_REGISTRY=${DOCKER_REGISTRY} BUILDER_TAG=${TAG} TAG=${TAG} make docker
 
 .PHONY: compiler.build.publish
-compiler.build.publish:
+compiler.build.publish: check.registry
 	cd compiler; DOCKER_REGISTRY=${DOCKER_REGISTRY} BUILDER_TAG=${TAG} TAG=${TAG} make docker.publish
 
 #
 # Usage: DOCKER_REGISTRY=<registry> TAG=<tag-value> make api-gw.docker
 # Tag and publish nexus api gw.
 #
-# Example: DOCKER_REGISTRY=822995803632.dkr.ecr.us-west-2.amazonaws.com TAG=letstest make api-gw.docker
+# Example: DOCKER_REGISTRY=<your-registry> TAG=letstest make api-gw.docker
 #
 .PHONY: api-gw.docker
 api-gw.docker: check.tag
@@ -133,7 +134,7 @@ api-gw.docker: check.tag
 # Tag and publish nexus api gw for execution on K8s cluster.
 # This forces the the api-gw to be built for linux/amd64 arch.
 #
-# Example: DOCKER_REGISTRY=822995803632.dkr.ecr.us-west-2.amazonaws.com TAG=letstest make api-gw.docker.kubeconfig
+# Example: DOCKER_REGISTRY=<your-registry> TAG=letstest make api-gw.docker.kubeconfig
 #
 .PHONY: api-gw.docker.kubeconfig
 api-gw.docker.kubeconfig:
@@ -141,12 +142,12 @@ api-gw.docker.kubeconfig:
 		--pull=missing \
 		--volume $(realpath .):${DOCKER_BUILD_MOUNT_DIR} \
 		-w ${DOCKER_BUILD_MOUNT_DIR}/${API_GW_COMPONENT_NAME} \
-		golang:1.19.8 \
+		docker.io/library/golang:1.27.2-bookworm \
 		/bin/bash -c "go mod download && GOOS=linux GOARCH=amd64 go build -buildvcs=false -o bin/${API_GW_COMPONENT_NAME}";
 	docker build --platform ${DOCKER_BUILDER_PLATFORM} -t ${API_GW_DOCKER_IMAGE} -f api-gw/Dockerfile .
 
 .PHONY: api-gw.docker.publish
-api-gw.docker.publish:
+api-gw.docker.publish: check.registry
 	docker push ${API_GW_DOCKER_IMAGE}
 
 .PHONY: k0s.install
@@ -416,51 +417,51 @@ core.runtime.build: api.build api-gw.docker.kubeconfig
 # Usage: DOCKER_REGISTRY=<registry> TAG=<tag-value> make core.runtime.release
 # Publish core artifiacats to container registry.
 #
-# Example: DOCKER_REGISTRY=ghcr.io/dilipmighty245 TAG=latest make core.runtime.release
+# Example: DOCKER_REGISTRY=<your-registry> TAG=latest make core.runtime.release
 #
 .PHONY: core.runtime.release
-core.runtime.release:
+core.runtime.release: check.registry
 	docker push ${API_GW_DOCKER_IMAGE}
 	cd api; DATAMODEL_DOCKER_REGISTRY=${DOCKER_REGISTRY} TAG=${TAG} make docker.publish
 #
-# Usage: TAG=<tag-value> make core.runtime.download
+# Usage: DOCKER_REGISTRY=<registry> TAG=<tag-value> make core.runtime.download
 # Download all artifacts that make up the nexus runtime.
 # TAG provides a way to download custom tagged artifacts.
 #
-# Example: TAG=latest make core.runtime.download
+# Example: DOCKER_REGISTRY=<your-registry> TAG=latest make core.runtime.download
 #
 .PHONY: core.runtime.download
-core.runtime.download:
-	docker pull ghcr.io/dilipmighty245/nexus/api-gw:${TAG}
-	docker pull ghcr.io/dilipmighty245/nexus/admin.nexus.com:${TAG}
-	docker pull ghcr.io/dilipmighty245/nexus/debugtools:latest
-	docker pull ghcr.io/dilipmighty245/nexus/nexus-kube-apiserver:latest
-	docker pull ghcr.io/dilipmighty245/nexus/nexus-etcd-kubectl:latest
+core.runtime.download: check.registry
+	docker pull ${DOCKER_IMAGE_PREFIX}nexus/api-gw:${TAG}
+	docker pull ${DOCKER_IMAGE_PREFIX}nexus/admin.nexus.com:${TAG}
+	docker pull ${DOCKER_IMAGE_PREFIX}nexus/debugtools:latest
+	docker pull ${DOCKER_IMAGE_PREFIX}nexus/nexus-kube-apiserver:latest
+	docker pull ${DOCKER_IMAGE_PREFIX}nexus/nexus-etcd-kubectl:latest
 
 #
 # Usage: DOCKER_REGISTRY=<registry> TAG=<tag-value> make core.runtime.artifacts.push
 # Tag and publish all the images needed by nexus rutnime.
 #
-# Example: DOCKER_REGISTRY=822995803632.dkr.ecr.us-west-2.amazonaws.com TAG=letstest make core.runtime.artifacts.push
+# Example: DOCKER_REGISTRY=<your-registry> TAG=letstest make core.runtime.artifacts.push
 #
 .PHONY: core.runtime.artifacts.push
-core.runtime.artifacts.push:
-	docker tag ghcr.io/dilipmighty245/nexus/api-gw:${TAG} ${API_GW_DOCKER_IMAGE}
+core.runtime.artifacts.push: check.registry
+	docker tag nexus/api-gw:${TAG} ${API_GW_DOCKER_IMAGE}
 	docker push ${API_GW_DOCKER_IMAGE}
-	docker tag ghcr.io/dilipmighty245/nexus/admin.nexus.com:${TAG} ${DOCKER_REGISTRY}/nexus/admin.nexus.com:${TAG}
-	docker push ${DOCKER_REGISTRY}/nexus/admin.nexus.com:${TAG}
-	docker tag ghcr.io/dilipmighty245/nexus/debugtools:latest ${DOCKER_REGISTRY}/nexus/debugtools:${TAG}
-	docker push ${DOCKER_REGISTRY}/nexus/debugtools:${TAG}
-	docker tag ghcr.io/dilipmighty245/nexus/nexus-kube-apiserver:latest ${DOCKER_REGISTRY}/nexus/nexus-kube-apiserver:${TAG}
-	docker push ${DOCKER_REGISTRY}/nexus/nexus-kube-apiserver:${TAG}
-	docker tag ghcr.io/dilipmighty245/nexus/nexus-etcd-kubectl:latest ${DOCKER_REGISTRY}/nexus/nexus-etcd-kubectl:${TAG}
-	docker push ${DOCKER_REGISTRY}/nexus/nexus-etcd-kubectl:${TAG}
+	docker tag nexus/admin.nexus.com:${TAG} ${DOCKER_IMAGE_PREFIX}nexus/admin.nexus.com:${TAG}
+	docker push ${DOCKER_IMAGE_PREFIX}nexus/admin.nexus.com:${TAG}
+	docker tag nexus/debugtools:latest ${DOCKER_IMAGE_PREFIX}nexus/debugtools:${TAG}
+	docker push ${DOCKER_IMAGE_PREFIX}nexus/debugtools:${TAG}
+	docker tag nexus/nexus-kube-apiserver:latest ${DOCKER_IMAGE_PREFIX}nexus/nexus-kube-apiserver:${TAG}
+	docker push ${DOCKER_IMAGE_PREFIX}nexus/nexus-kube-apiserver:${TAG}
+	docker tag nexus/nexus-etcd-kubectl:latest ${DOCKER_IMAGE_PREFIX}nexus/nexus-etcd-kubectl:${TAG}
+	docker push ${DOCKER_IMAGE_PREFIX}nexus/nexus-etcd-kubectl:${TAG}
 
 #
 # Usage: DOCKER_REGISTRY=<registry> TAG=<tag-value> make core.install.kubeconfig
 # Tag and publish all the images needed by nexus rutnime.
 #
-# Example: DOCKER_REGISTRY=822995803632.dkr.ecr.us-west-2.amazonaws.com TAG=letstest make core.install.kubeconfig
+# Example: DOCKER_REGISTRY=<your-registry> TAG=letstest make core.install.kubeconfig
 #
 .PHONY: core.install.kubeconfig
 core.install.kubeconfig:
@@ -505,7 +506,7 @@ traffic.demo.uninstall.kubeconfig: core.uninstall.kubeconfig
 	kubectl delete -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 
 # Cross-module checks; see docs/testing.md for prerequisites and coverage.
-.PHONY: test.framework test.framework.compiler test.framework.gateway test.framework.all test.framework.e2e test.framework.stability test.framework.race test.framework.help
+.PHONY: test.framework.builders test.framework test.framework.compiler test.framework.gateway test.framework.all test.framework.e2e test.framework.stability test.framework.race test.framework.help
 test.framework:
 	@bash scripts/test-framework.sh regression
 
@@ -524,6 +525,9 @@ test.framework.stability:
 test.framework.race:
 	@FRAMEWORK_TEST_RACE=true bash scripts/test-framework.sh regression
 
+test.framework.builders:
+	@bash scripts/test-framework-builders.sh
+
 test.framework.e2e:
 	@bash scripts/test-framework-e2e.sh
 
@@ -533,7 +537,12 @@ test.framework.help:
 	  'make test.framework.gateway  Run gateway and controller suites; generated admin API required' \
 	  'make test.framework.compiler Run every compiler command and package suite' \
 	  'make test.framework.all      Run source suites, generated SDK tests, services, and Kind E2E' \
+	  'make test.framework.builders Build public Go builders and run detailed Kind checks' \
 	  'make test.framework.e2e      Generate artifacts and test resources, gateway, and GraphQL in Kind' \
 	  'make test.framework.stability Repeat all checks with race detection (default: 3 passes)' \
 	  'make test.framework.race     Run source suites with the race detector' \
 	  'See docs/testing.md for host tools, optional compiler images, and logs.'
+
+.PHONY: check.registry
+check.registry:
+	@test -n "${DOCKER_REGISTRY}" || { echo "Set DOCKER_REGISTRY explicitly for image download or publication." >&2; exit 2; }

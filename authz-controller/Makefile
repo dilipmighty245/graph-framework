@@ -3,8 +3,10 @@ DEBUG ?= FALSE
 GO_PROJECT_NAME ?= authz-controller
 BUCKET_NAME ?= nexus-template-downloads
 
-ECR_DOCKER_REGISTRY ?= 284299419820.dkr.ecr.us-west-2.amazonaws.com/nexus
-DOCKER_REGISTRY ?= harbor-repo.vmware.com/nexus
+ECR_DOCKER_REGISTRY ?=
+DOCKER_IMAGE_PREFIX = $(if $(strip $(DOCKER_REGISTRY)),$(patsubst %/,%,$(DOCKER_REGISTRY))/)
+DOCKER_REGISTRY ?=
+DOCKER_IMAGE_PREFIX = $(if $(strip $(DOCKER_REGISTRY)),$(patsubst %/,%,$(DOCKER_REGISTRY))/)
 IMAGE_NAME ?= authz
 TAG ?= $(shell git rev-parse --verify HEAD)
 
@@ -16,8 +18,7 @@ PKG_NAME ?= /go/src/github.com/dilipmighty245/graph-framework-for-microservices/
 ifeq ($(CONTAINER_ID),)
 define run_in_container
   docker run \
-  --volume ~/.ssh:/root/.ssh \
-  --volume $(realpath .):/go/src/github.com/dilipmighty245/graph-framework-for-microservices/authz-controller/ \
+  --volume $(realpath .)/..:/go/src/github.com/dilipmighty245/graph-framework-for-microservices/ \
   --workdir ${PKG_NAME} \
   "${BUILDER_NAME}:${BUILDER_TAG}" /bin/bash -c "make cred_setup && ${1}"
 endef
@@ -49,10 +50,9 @@ build_in_container: ${BUILDER_NAME}\:${BUILDER_TAG}.image.exists
 
 .PHONY: tools
 tools:
-	go get golang.org/x/tools/cmd/goimports
-	go get github.com/golangci/golangci-lint/cmd/golangci-lint
-	go get github.com/onsi/ginkgo/ginkgo
-	go get github.com/onsi/gomega/...
+	go install golang.org/x/tools/cmd/goimports@v0.51.0
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
+	go install github.com/onsi/ginkgo/ginkgo@v1.16.5
 
 .PHONY: unit-test
 unit-test:
@@ -83,7 +83,7 @@ test_in_container: ${BUILDER_NAME}\:${BUILDER_TAG}.image.exists
 
 .PHONY: show-image-name
 show-image-name:
-	@echo ${DOCKER_REGISTRY}/${IMAGE_NAME}:${TAG}
+	@echo ${DOCKER_IMAGE_PREFIX}${IMAGE_NAME}:${TAG}
 
 .PHONY: docker
 docker: build
@@ -92,22 +92,22 @@ docker: build
 		-t ${IMAGE_NAME}:${TAG} .
 
 .PHONY: publish
-publish:
-	docker tag ${IMAGE_NAME}:${TAG} ${DOCKER_REGISTRY}/${IMAGE_NAME}:${TAG}
-	docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:${TAG};
+publish: require_registry
+	docker tag ${IMAGE_NAME}:${TAG} ${DOCKER_IMAGE_PREFIX}${IMAGE_NAME}:${TAG}
+	docker push ${DOCKER_IMAGE_PREFIX}${IMAGE_NAME}:${TAG};
 
 .PHONY: publish.ecr
-publish.ecr:
+publish.ecr: require_ecr_registry
 	docker tag ${IMAGE_NAME}:${TAG} ${ECR_DOCKER_REGISTRY}/${IMAGE_NAME}:${TAG}
 	docker push ${ECR_DOCKER_REGISTRY}/${IMAGE_NAME}:${TAG};
 
 .PHONY: download_builder_image
-download_builder_image:
+download_builder_image: require_ecr_registry
 	docker pull ${ECR_DOCKER_REGISTRY}/${BUILDER_NAME}:${BUILDER_TAG}
 	docker tag ${ECR_DOCKER_REGISTRY}/${BUILDER_NAME}:${BUILDER_TAG} ${BUILDER_NAME}:${BUILDER_TAG}
 
 .PHONY: publish_builder_image
-publish_builder_image:
+publish_builder_image: require_ecr_registry
 	docker tag ${BUILDER_NAME}:${BUILDER_TAG} ${ECR_DOCKER_REGISTRY}/${BUILDER_NAME}:${BUILDER_TAG}
 	docker push ${ECR_DOCKER_REGISTRY}/${BUILDER_NAME}:${BUILDER_TAG}
 
@@ -123,3 +123,11 @@ publish_template: build_template
 
 cred_setup:
 	go mod download
+
+.PHONY: require_ecr_registry
+require_ecr_registry:
+	@test -n "${ECR_DOCKER_REGISTRY}" || { echo 'Set ECR_DOCKER_REGISTRY explicitly for ECR operations.' >&2; exit 2; }
+
+.PHONY: require_registry
+require_registry:
+	@test -n "${DOCKER_REGISTRY}" || { echo "Set DOCKER_REGISTRY explicitly for image publication." >&2; exit 2; }

@@ -12,7 +12,9 @@ After preparing a compatible compiler image and configuring its registry and tag
 make datamodel_build
 ```
 
-Inspect `COMPILER_DOCKER_REGISTRY`, `COMPILER_TAG`, and the Makefile's image settings before running it. Existing defaults are environment-specific.
+The compiler and datamodel use local image tags by default. Set
+`COMPILER_DOCKER_REGISTRY` or `DATAMODEL_DOCKER_REGISTRY` only when using images
+from a registry you have configured. Set `COMPILER_TAG` to the locally built tag.
 
 ## Consumers
 

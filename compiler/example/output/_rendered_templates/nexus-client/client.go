@@ -68,6 +68,8 @@ var informerResyncPeriod time.Duration = 36000
 type Clientset struct {
 	baseClient                   baseClientset.Interface
 	children                     *childCache
+	subscriptions                sync.Map
+	subscriptionMu               sync.Mutex
 	DynamicClient                dynamic.Interface
 	rootTsmV1                    *RootTsmV1
 	configTsmV1                  *ConfigTsmV1
@@ -81,36 +83,46 @@ type subscription struct {
 	informer          cache.SharedIndexInformer
 	stop              chan struct{}
 	WriteCacheObjects *sync.Map
+	done              chan struct{}
+	stopOnce          sync.Once
 }
 
-// subscriptionMap will store crd string as key and value as subscription type,
-// for example key="roots.orgchart.vmware.org" and value=subscription{}
-var subscriptionMap = sync.Map{}
-
-func subscribe(key string, informer cache.SharedIndexInformer) {
-	s := subscription{
-		informer:          informer,
-		stop:              make(chan struct{}),
-		WriteCacheObjects: &sync.Map{},
+// Subscriptions belong to a client so independent API backends and observers
+// cannot share informers, write caches, or unsubscribe one another.
+func (c *Clientset) subscribe(key string, informer cache.SharedIndexInformer) cache.SharedIndexInformer {
+	c.subscriptionMu.Lock()
+	defer c.subscriptionMu.Unlock()
+	if existing, ok := c.subscriptions.Load(key); ok {
+		return existing.(*subscription).informer
 	}
-	go s.informer.Run(s.stop)
-	subscriptionMap.Store(key, s)
+	s := &subscription{informer: informer, stop: make(chan struct{}), done: make(chan struct{}), WriteCacheObjects: &sync.Map{}}
+	c.subscriptions.Store(key, s)
+	go func() { defer close(s.done); s.informer.Run(s.stop) }()
+	return informer
+}
+
+func (c *Clientset) unsubscribe(key string) {
+	if value, ok := c.subscriptions.LoadAndDelete(key); ok {
+		sub := value.(*subscription)
+		sub.stopOnce.Do(func() { close(sub.stop) })
+		<-sub.done
+	}
 }
 
 func (c *Clientset) SubscribeAll() {
 	var key string
 
 	key = "roots.root.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.subscriptions.Load(key); !ok {
 		informer := informerroottsmtanzuvmwarecomv1.NewRootInformer(c.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.subscribe(key, informer)
 
 	}
 
 	key = "configs.config.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.subscriptions.Load(key); !ok {
 		informer := informerconfigtsmtanzuvmwarecomv1.NewConfigInformer(c.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.subscribe(key, informer)
 
 		chainer := configConfigTsmV1Chainer{
 			client: c,
@@ -121,9 +133,9 @@ func (c *Clientset) SubscribeAll() {
 	}
 
 	key = "footypeabcs.config.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.subscriptions.Load(key); !ok {
 		informer := informerconfigtsmtanzuvmwarecomv1.NewFooTypeABCInformer(c.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.subscribe(key, informer)
 
 		chainer := footypeabcConfigTsmV1Chainer{
 			client: c,
@@ -134,9 +146,9 @@ func (c *Clientset) SubscribeAll() {
 	}
 
 	key = "domains.config.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.subscriptions.Load(key); !ok {
 		informer := informerconfigtsmtanzuvmwarecomv1.NewDomainInformer(c.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.subscribe(key, informer)
 
 		chainer := domainConfigTsmV1Chainer{
 			client: c,
@@ -147,9 +159,9 @@ func (c *Clientset) SubscribeAll() {
 	}
 
 	key = "foos.gns.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.subscriptions.Load(key); !ok {
 		informer := informergnstsmtanzuvmwarecomv1.NewFooInformer(c.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.subscribe(key, informer)
 
 		chainer := fooGnsTsmV1Chainer{
 			client: c,
@@ -160,9 +172,9 @@ func (c *Clientset) SubscribeAll() {
 	}
 
 	key = "gnses.gns.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.subscriptions.Load(key); !ok {
 		informer := informergnstsmtanzuvmwarecomv1.NewGnsInformer(c.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.subscribe(key, informer)
 
 		chainer := gnsGnsTsmV1Chainer{
 			client: c,
@@ -173,9 +185,9 @@ func (c *Clientset) SubscribeAll() {
 	}
 
 	key = "barchilds.gns.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.subscriptions.Load(key); !ok {
 		informer := informergnstsmtanzuvmwarecomv1.NewBarChildInformer(c.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.subscribe(key, informer)
 
 		chainer := barchildGnsTsmV1Chainer{
 			client: c,
@@ -186,9 +198,9 @@ func (c *Clientset) SubscribeAll() {
 	}
 
 	key = "ignorechilds.gns.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.subscriptions.Load(key); !ok {
 		informer := informergnstsmtanzuvmwarecomv1.NewIgnoreChildInformer(c.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.subscribe(key, informer)
 
 		chainer := ignorechildGnsTsmV1Chainer{
 			client: c,
@@ -199,9 +211,9 @@ func (c *Clientset) SubscribeAll() {
 	}
 
 	key = "dnses.gns.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.subscriptions.Load(key); !ok {
 		informer := informergnstsmtanzuvmwarecomv1.NewDnsInformer(c.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.subscribe(key, informer)
 
 		chainer := dnsGnsTsmV1Chainer{
 			client: c,
@@ -212,9 +224,9 @@ func (c *Clientset) SubscribeAll() {
 	}
 
 	key = "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.subscriptions.Load(key); !ok {
 		informer := informeroptionalparentpathparamtsmtanzuvmwarecomv1.NewOptionalParentPathParamInformer(c.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.subscribe(key, informer)
 
 		chainer := optionalparentpathparamOptionalparentpathparamTsmV1Chainer{
 			client: c,
@@ -225,9 +237,9 @@ func (c *Clientset) SubscribeAll() {
 	}
 
 	key = "svcgroups.servicegroup.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.subscriptions.Load(key); !ok {
 		informer := informerservicegrouptsmtanzuvmwarecomv1.NewSvcGroupInformer(c.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.subscribe(key, informer)
 
 		chainer := svcgroupServicegroupTsmV1Chainer{
 			client: c,
@@ -238,9 +250,9 @@ func (c *Clientset) SubscribeAll() {
 	}
 
 	key = "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.subscriptions.Load(key); !ok {
 		informer := informerservicegrouptsmtanzuvmwarecomv1.NewSvcGroupLinkInfoInformer(c.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.subscribe(key, informer)
 
 		chainer := svcgrouplinkinfoServicegroupTsmV1Chainer{
 			client: c,
@@ -251,9 +263,9 @@ func (c *Clientset) SubscribeAll() {
 	}
 
 	key = "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.subscriptions.Load(key); !ok {
 		informer := informerpolicypkgtsmtanzuvmwarecomv1.NewAccessControlPolicyInformer(c.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.subscribe(key, informer)
 
 		chainer := accesscontrolpolicyPolicypkgTsmV1Chainer{
 			client: c,
@@ -264,9 +276,9 @@ func (c *Clientset) SubscribeAll() {
 	}
 
 	key = "acpconfigs.policypkg.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.subscriptions.Load(key); !ok {
 		informer := informerpolicypkgtsmtanzuvmwarecomv1.NewACPConfigInformer(c.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.subscribe(key, informer)
 
 		chainer := acpconfigPolicypkgTsmV1Chainer{
 			client: c,
@@ -277,9 +289,9 @@ func (c *Clientset) SubscribeAll() {
 	}
 
 	key = "vmpolicies.policypkg.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.subscriptions.Load(key); !ok {
 		informer := informerpolicypkgtsmtanzuvmwarecomv1.NewVMpolicyInformer(c.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.subscribe(key, informer)
 
 		chainer := vmpolicyPolicypkgTsmV1Chainer{
 			client: c,
@@ -292,11 +304,7 @@ func (c *Clientset) SubscribeAll() {
 }
 
 func (c *Clientset) UnsubscribeAll() {
-	subscriptionMap.Range(func(key, s interface{}) bool {
-		close(s.(subscription).stop)
-		subscriptionMap.Delete(key)
-		return true
-	})
+	c.subscriptions.Range(func(key, _ interface{}) bool { c.unsubscribe(key.(string)); return true })
 }
 
 // NewForConfig returns Client which can be which can be used to connect to database
@@ -463,10 +471,10 @@ func (group *RootTsmV1) GetRootChild(grp, kind, name string) baseroottsmtanzuvmw
 // name and parents names. Use it when you know hashed name of object.
 func (group *RootTsmV1) GetRootByName(ctx context.Context, hashedName string) (*RootRoot, error) {
 	key := "roots.root.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := group.client.subscriptions.Load(key); ok {
 		// Check if the object is in write cache.
-		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
-		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
+		resWrCache, inWrCache := s.(*subscription).WriteCacheObjects.Load(hashedName)
+		item, exists, _ := s.(*subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
 			logger.Debugf("[GetRootByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*baseroottsmtanzuvmwarecomv1.Root)
@@ -486,18 +494,18 @@ func (group *RootTsmV1) GetRootByName(ctx context.Context, hashedName string) (*
 
 			if !inWrCache || subsCacheVersion >= writeCacheVersion {
 				if inWrCache {
-					s.(subscription).WriteCacheObjects.Delete(hashedName)
+					s.(*subscription).WriteCacheObjects.Delete(hashedName)
 				}
 				return &RootRoot{
 					client: group.client,
-					Root:   resultCache,
+					Root:   resultCache.DeepCopy(),
 				}, nil
 			}
 		}
 		if inWrCache {
 			return &RootRoot{
 				client: group.client,
-				Root:   resWrCache.(*baseroottsmtanzuvmwarecomv1.Root),
+				Root:   resWrCache.(*baseroottsmtanzuvmwarecomv1.Root).DeepCopy(),
 			}, nil
 		}
 	}
@@ -648,8 +656,8 @@ func (group *RootTsmV1) DeleteRootByName(ctx context.Context, hashedName string)
 				return err
 			}
 		} else {
-			if s, ok := subscriptionMap.Load("roots.root.tsm.tanzu.vmware.com"); ok {
-				s.(subscription).WriteCacheObjects.Delete(hashedName)
+			if s, ok := group.client.subscriptions.Load("roots.root.tsm.tanzu.vmware.com"); ok {
+				s.(*subscription).WriteCacheObjects.Delete(hashedName)
 			}
 			break
 		}
@@ -708,9 +716,9 @@ func (group *RootTsmV1) CreateRootByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[CreateRootByName] Root: %s created successfully", objToCreate.GetName())
-			if s, ok := subscriptionMap.Load("roots.root.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("roots.root.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[CreateRootByName] Root: %s stored in wr-cache", objToCreate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
 		}
@@ -818,9 +826,9 @@ func (group *RootTsmV1) UpdateRootByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[UpdateRootByName] Patch Root Success :%s", objToUpdate.GetName())
-			if s, ok := subscriptionMap.Load("roots.root.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("roots.root.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[UpdateRootByName] %s stored in wr-cache", objToUpdate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
@@ -836,14 +844,14 @@ func (group *RootTsmV1) UpdateRootByName(ctx context.Context,
 func (group *RootTsmV1) ListRoots(ctx context.Context,
 	opts metav1.ListOptions) (result []*RootRoot, err error) {
 	key := "roots.root.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		items := s.(subscription).informer.GetStore().List()
+	if s, ok := group.client.subscriptions.Load(key); ok {
+		items := s.(*subscription).informer.GetStore().List()
 		result = make([]*RootRoot, len(items))
 		for k, v := range items {
 			item, _ := v.(*baseroottsmtanzuvmwarecomv1.Root)
 			result[k] = &RootRoot{
 				client: group.client,
-				Root:   item,
+				Root:   item.DeepCopy(),
 			}
 		}
 	} else {
@@ -1008,24 +1016,20 @@ type rootRootTsmV1Chainer struct {
 
 func (c *rootRootTsmV1Chainer) Subscribe() {
 	key := "roots.root.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.client.subscriptions.Load(key); !ok {
 		informer := informerroottsmtanzuvmwarecomv1.NewRootInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 	}
 }
 
 func (c *rootRootTsmV1Chainer) Unsubscribe() {
-	key := "roots.root.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		close(s.(subscription).stop)
-		subscriptionMap.Delete(key)
-	}
+	c.client.unsubscribe("roots.root.tsm.tanzu.vmware.com")
 }
 
 func (c *rootRootTsmV1Chainer) IsSubscribed() bool {
 	key := "roots.root.tsm.tanzu.vmware.com"
-	_, ok := subscriptionMap.Load(key)
+	_, ok := c.client.subscriptions.Load(key)
 	return ok
 }
 
@@ -1037,21 +1041,21 @@ func (c *rootRootTsmV1Chainer) RegisterEventHandler(addCB func(obj *RootRoot), u
 		informer       cache.SharedIndexInformer
 	)
 	key := "roots.root.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for RootRoot")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for RootRoot, so creating a new one")
 		informer = informerroottsmtanzuvmwarecomv1.NewRootInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 	}
 	registrationId, err = informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			nc := &RootRoot{
 				client: c.client,
-				Root:   obj.(*baseroottsmtanzuvmwarecomv1.Root),
+				Root:   obj.(*baseroottsmtanzuvmwarecomv1.Root).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for roots.root.tsm.tanzu.vmware.com name %s", nc.Root.Name)
 
@@ -1061,11 +1065,11 @@ func (c *rootRootTsmV1Chainer) RegisterEventHandler(addCB func(obj *RootRoot), u
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &RootRoot{
 				client: c.client,
-				Root:   oldObj.(*baseroottsmtanzuvmwarecomv1.Root),
+				Root:   oldObj.(*baseroottsmtanzuvmwarecomv1.Root).DeepCopy(),
 			}
 			newData := &RootRoot{
 				client: c.client,
-				Root:   newObj.(*baseroottsmtanzuvmwarecomv1.Root),
+				Root:   newObj.(*baseroottsmtanzuvmwarecomv1.Root).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for roots.root.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Root.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
@@ -1074,7 +1078,7 @@ func (c *rootRootTsmV1Chainer) RegisterEventHandler(addCB func(obj *RootRoot), u
 		DeleteFunc: func(obj interface{}) {
 			nc := &RootRoot{
 				client: c.client,
-				Root:   obj.(*baseroottsmtanzuvmwarecomv1.Root),
+				Root:   obj.(*baseroottsmtanzuvmwarecomv1.Root).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for roots.root.tsm.tanzu.vmware.com name %s", nc.Root.Name)
 
@@ -1093,14 +1097,14 @@ func (c *rootRootTsmV1Chainer) RegisterAddCallback(cbfn func(obj *RootRoot)) (ca
 	)
 
 	key := "roots.root.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for RootRoot")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for RootRoot, so creating a new one")
 		informer = informerroottsmtanzuvmwarecomv1.NewRootInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 	}
 
@@ -1108,7 +1112,7 @@ func (c *rootRootTsmV1Chainer) RegisterAddCallback(cbfn func(obj *RootRoot)) (ca
 		AddFunc: func(obj interface{}) {
 			nc := &RootRoot{
 				client: c.client,
-				Root:   obj.(*baseroottsmtanzuvmwarecomv1.Root),
+				Root:   obj.(*baseroottsmtanzuvmwarecomv1.Root).DeepCopy(),
 			}
 			logger.Debugf("[RegisterAddCallback] Got Add event for roots.root.tsm.tanzu.vmware.com name %s", nc.Root.Name)
 
@@ -1128,14 +1132,14 @@ func (c *rootRootTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *
 	)
 
 	key := "roots.root.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for RootRoot")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for RootRoot, so creating a new one")
 		informer = informerroottsmtanzuvmwarecomv1.NewRootInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 	}
 
@@ -1143,11 +1147,11 @@ func (c *rootRootTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &RootRoot{
 				client: c.client,
-				Root:   oldObj.(*baseroottsmtanzuvmwarecomv1.Root),
+				Root:   oldObj.(*baseroottsmtanzuvmwarecomv1.Root).DeepCopy(),
 			}
 			newData := &RootRoot{
 				client: c.client,
-				Root:   newObj.(*baseroottsmtanzuvmwarecomv1.Root),
+				Root:   newObj.(*baseroottsmtanzuvmwarecomv1.Root).DeepCopy(),
 			}
 			logger.Debugf("[RegisterUpdateCallback] Got Update event for roots.root.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Root.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
@@ -1166,14 +1170,14 @@ func (c *rootRootTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *RootRoot)) 
 	)
 
 	key := "roots.root.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for RootRoot")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for RootRoot, so creating a new one")
 		informer = informerroottsmtanzuvmwarecomv1.NewRootInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 	}
 
@@ -1181,7 +1185,7 @@ func (c *rootRootTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *RootRoot)) 
 		DeleteFunc: func(obj interface{}) {
 			nc := &RootRoot{
 				client: c.client,
-				Root:   obj.(*baseroottsmtanzuvmwarecomv1.Root),
+				Root:   obj.(*baseroottsmtanzuvmwarecomv1.Root).DeepCopy(),
 			}
 			logger.Debugf("[RegisterDeleteCallback] Got Delete event for roots.root.tsm.tanzu.vmware.com name %s", nc.Root.Name)
 
@@ -1256,10 +1260,10 @@ func (group *ConfigTsmV1) GetConfigChild(grp, kind, name string) baseconfigtsmta
 // name and parents names. Use it when you know hashed name of object.
 func (group *ConfigTsmV1) GetConfigByName(ctx context.Context, hashedName string) (*ConfigConfig, error) {
 	key := "configs.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := group.client.subscriptions.Load(key); ok {
 		// Check if the object is in write cache.
-		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
-		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
+		resWrCache, inWrCache := s.(*subscription).WriteCacheObjects.Load(hashedName)
+		item, exists, _ := s.(*subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
 			logger.Debugf("[GetConfigByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*baseconfigtsmtanzuvmwarecomv1.Config)
@@ -1279,18 +1283,18 @@ func (group *ConfigTsmV1) GetConfigByName(ctx context.Context, hashedName string
 
 			if !inWrCache || subsCacheVersion >= writeCacheVersion {
 				if inWrCache {
-					s.(subscription).WriteCacheObjects.Delete(hashedName)
+					s.(*subscription).WriteCacheObjects.Delete(hashedName)
 				}
 				return &ConfigConfig{
 					client: group.client,
-					Config: resultCache,
+					Config: resultCache.DeepCopy(),
 				}, nil
 			}
 		}
 		if inWrCache {
 			return &ConfigConfig{
 				client: group.client,
-				Config: resWrCache.(*baseconfigtsmtanzuvmwarecomv1.Config),
+				Config: resWrCache.(*baseconfigtsmtanzuvmwarecomv1.Config).DeepCopy(),
 			}, nil
 		}
 	}
@@ -1481,8 +1485,8 @@ func (group *ConfigTsmV1) DeleteConfigByName(ctx context.Context, hashedName str
 				return err
 			}
 		} else {
-			if s, ok := subscriptionMap.Load("configs.config.tsm.tanzu.vmware.com"); ok {
-				s.(subscription).WriteCacheObjects.Delete(hashedName)
+			if s, ok := group.client.subscriptions.Load("configs.config.tsm.tanzu.vmware.com"); ok {
+				s.(*subscription).WriteCacheObjects.Delete(hashedName)
 			}
 			break
 		}
@@ -1567,9 +1571,9 @@ func (group *ConfigTsmV1) CreateConfigByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[CreateConfigByName] Config: %s created successfully", objToCreate.GetName())
-			if s, ok := subscriptionMap.Load("configs.config.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("configs.config.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[CreateConfigByName] Config: %s stored in wr-cache", objToCreate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
 		}
@@ -1873,9 +1877,9 @@ func (group *ConfigTsmV1) UpdateConfigByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[UpdateConfigByName] Patch Config Success :%s", objToUpdate.GetName())
-			if s, ok := subscriptionMap.Load("configs.config.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("configs.config.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[UpdateConfigByName] %s stored in wr-cache", objToUpdate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
@@ -1891,14 +1895,14 @@ func (group *ConfigTsmV1) UpdateConfigByName(ctx context.Context,
 func (group *ConfigTsmV1) ListConfigs(ctx context.Context,
 	opts metav1.ListOptions) (result []*ConfigConfig, err error) {
 	key := "configs.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		items := s.(subscription).informer.GetStore().List()
+	if s, ok := group.client.subscriptions.Load(key); ok {
+		items := s.(*subscription).informer.GetStore().List()
 		result = make([]*ConfigConfig, len(items))
 		for k, v := range items {
 			item, _ := v.(*baseconfigtsmtanzuvmwarecomv1.Config)
 			result[k] = &ConfigConfig{
 				client: group.client,
-				Config: item,
+				Config: item.DeepCopy(),
 			}
 		}
 	} else {
@@ -2479,9 +2483,9 @@ type configConfigTsmV1Chainer struct {
 
 func (c *configConfigTsmV1Chainer) Subscribe() {
 	key := "configs.config.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.client.subscriptions.Load(key); !ok {
 		informer := informerconfigtsmtanzuvmwarecomv1.NewConfigInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -2490,16 +2494,12 @@ func (c *configConfigTsmV1Chainer) Subscribe() {
 }
 
 func (c *configConfigTsmV1Chainer) Unsubscribe() {
-	key := "configs.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		close(s.(subscription).stop)
-		subscriptionMap.Delete(key)
-	}
+	c.client.unsubscribe("configs.config.tsm.tanzu.vmware.com")
 }
 
 func (c *configConfigTsmV1Chainer) IsSubscribed() bool {
 	key := "configs.config.tsm.tanzu.vmware.com"
-	_, ok := subscriptionMap.Load(key)
+	_, ok := c.client.subscriptions.Load(key)
 	return ok
 }
 
@@ -2533,14 +2533,14 @@ func (c *configConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigCo
 		informer       cache.SharedIndexInformer
 	)
 	key := "configs.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ConfigConfig")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ConfigConfig, so creating a new one")
 		informer = informerconfigtsmtanzuvmwarecomv1.NewConfigInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -2550,7 +2550,7 @@ func (c *configConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigCo
 		AddFunc: func(obj interface{}) {
 			nc := &ConfigConfig{
 				client: c.client,
-				Config: obj.(*baseconfigtsmtanzuvmwarecomv1.Config),
+				Config: obj.(*baseconfigtsmtanzuvmwarecomv1.Config).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for configs.config.tsm.tanzu.vmware.com name %s", nc.Config.Name)
 
@@ -2586,11 +2586,11 @@ func (c *configConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigCo
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &ConfigConfig{
 				client: c.client,
-				Config: oldObj.(*baseconfigtsmtanzuvmwarecomv1.Config),
+				Config: oldObj.(*baseconfigtsmtanzuvmwarecomv1.Config).DeepCopy(),
 			}
 			newData := &ConfigConfig{
 				client: c.client,
-				Config: newObj.(*baseconfigtsmtanzuvmwarecomv1.Config),
+				Config: newObj.(*baseconfigtsmtanzuvmwarecomv1.Config).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for configs.config.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Config.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
@@ -2599,7 +2599,7 @@ func (c *configConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigCo
 		DeleteFunc: func(obj interface{}) {
 			nc := &ConfigConfig{
 				client: c.client,
-				Config: obj.(*baseconfigtsmtanzuvmwarecomv1.Config),
+				Config: obj.(*baseconfigtsmtanzuvmwarecomv1.Config).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for configs.config.tsm.tanzu.vmware.com name %s", nc.Config.Name)
 
@@ -2647,14 +2647,14 @@ func (c *configConfigTsmV1Chainer) RegisterAddCallback(cbfn func(obj *ConfigConf
 	)
 
 	key := "configs.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ConfigConfig")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ConfigConfig, so creating a new one")
 		informer = informerconfigtsmtanzuvmwarecomv1.NewConfigInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -2665,7 +2665,7 @@ func (c *configConfigTsmV1Chainer) RegisterAddCallback(cbfn func(obj *ConfigConf
 		AddFunc: func(obj interface{}) {
 			nc := &ConfigConfig{
 				client: c.client,
-				Config: obj.(*baseconfigtsmtanzuvmwarecomv1.Config),
+				Config: obj.(*baseconfigtsmtanzuvmwarecomv1.Config).DeepCopy(),
 			}
 			logger.Debugf("[RegisterAddCallback] Got Add event for configs.config.tsm.tanzu.vmware.com name %s", nc.Config.Name)
 
@@ -2713,14 +2713,14 @@ func (c *configConfigTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newO
 	)
 
 	key := "configs.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ConfigConfig")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ConfigConfig, so creating a new one")
 		informer = informerconfigtsmtanzuvmwarecomv1.NewConfigInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -2731,11 +2731,11 @@ func (c *configConfigTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newO
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &ConfigConfig{
 				client: c.client,
-				Config: oldObj.(*baseconfigtsmtanzuvmwarecomv1.Config),
+				Config: oldObj.(*baseconfigtsmtanzuvmwarecomv1.Config).DeepCopy(),
 			}
 			newData := &ConfigConfig{
 				client: c.client,
-				Config: newObj.(*baseconfigtsmtanzuvmwarecomv1.Config),
+				Config: newObj.(*baseconfigtsmtanzuvmwarecomv1.Config).DeepCopy(),
 			}
 			logger.Debugf("[RegisterUpdateCallback] Got Update event for configs.config.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Config.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
@@ -2754,14 +2754,14 @@ func (c *configConfigTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *ConfigC
 	)
 
 	key := "configs.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ConfigConfig")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ConfigConfig, so creating a new one")
 		informer = informerconfigtsmtanzuvmwarecomv1.NewConfigInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -2772,7 +2772,7 @@ func (c *configConfigTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *ConfigC
 		DeleteFunc: func(obj interface{}) {
 			nc := &ConfigConfig{
 				client: c.client,
-				Config: obj.(*baseconfigtsmtanzuvmwarecomv1.Config),
+				Config: obj.(*baseconfigtsmtanzuvmwarecomv1.Config).DeepCopy(),
 			}
 			logger.Debugf("[RegisterDeleteCallback] Got Delete event for configs.config.tsm.tanzu.vmware.com name %s", nc.Config.Name)
 
@@ -3122,10 +3122,10 @@ func (group *ConfigTsmV1) GetFooTypeABCChild(grp, kind, name string) baseconfigt
 // name and parents names. Use it when you know hashed name of object.
 func (group *ConfigTsmV1) GetFooTypeABCByName(ctx context.Context, hashedName string) (*ConfigFooTypeABC, error) {
 	key := "footypeabcs.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := group.client.subscriptions.Load(key); ok {
 		// Check if the object is in write cache.
-		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
-		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
+		resWrCache, inWrCache := s.(*subscription).WriteCacheObjects.Load(hashedName)
+		item, exists, _ := s.(*subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
 			logger.Debugf("[GetFooTypeABCByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC)
@@ -3145,18 +3145,18 @@ func (group *ConfigTsmV1) GetFooTypeABCByName(ctx context.Context, hashedName st
 
 			if !inWrCache || subsCacheVersion >= writeCacheVersion {
 				if inWrCache {
-					s.(subscription).WriteCacheObjects.Delete(hashedName)
+					s.(*subscription).WriteCacheObjects.Delete(hashedName)
 				}
 				return &ConfigFooTypeABC{
 					client:     group.client,
-					FooTypeABC: resultCache,
+					FooTypeABC: resultCache.DeepCopy(),
 				}, nil
 			}
 		}
 		if inWrCache {
 			return &ConfigFooTypeABC{
 				client:     group.client,
-				FooTypeABC: resWrCache.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC),
+				FooTypeABC: resWrCache.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC).DeepCopy(),
 			}, nil
 		}
 	}
@@ -3299,8 +3299,8 @@ func (group *ConfigTsmV1) DeleteFooTypeABCByName(ctx context.Context, hashedName
 				return err
 			}
 		} else {
-			if s, ok := subscriptionMap.Load("footypeabcs.config.tsm.tanzu.vmware.com"); ok {
-				s.(subscription).WriteCacheObjects.Delete(hashedName)
+			if s, ok := group.client.subscriptions.Load("footypeabcs.config.tsm.tanzu.vmware.com"); ok {
+				s.(*subscription).WriteCacheObjects.Delete(hashedName)
 			}
 			break
 		}
@@ -3377,9 +3377,9 @@ func (group *ConfigTsmV1) CreateFooTypeABCByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[CreateFooTypeABCByName] FooTypeABC: %s created successfully", objToCreate.GetName())
-			if s, ok := subscriptionMap.Load("footypeabcs.config.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("footypeabcs.config.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[CreateFooTypeABCByName] FooTypeABC: %s stored in wr-cache", objToCreate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
 		}
@@ -3620,9 +3620,9 @@ func (group *ConfigTsmV1) UpdateFooTypeABCByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[UpdateFooTypeABCByName] Patch FooTypeABC Success :%s", objToUpdate.GetName())
-			if s, ok := subscriptionMap.Load("footypeabcs.config.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("footypeabcs.config.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[UpdateFooTypeABCByName] %s stored in wr-cache", objToUpdate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
@@ -3638,14 +3638,14 @@ func (group *ConfigTsmV1) UpdateFooTypeABCByName(ctx context.Context,
 func (group *ConfigTsmV1) ListFooTypeABCs(ctx context.Context,
 	opts metav1.ListOptions) (result []*ConfigFooTypeABC, err error) {
 	key := "footypeabcs.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		items := s.(subscription).informer.GetStore().List()
+	if s, ok := group.client.subscriptions.Load(key); ok {
+		items := s.(*subscription).informer.GetStore().List()
 		result = make([]*ConfigFooTypeABC, len(items))
 		for k, v := range items {
 			item, _ := v.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC)
 			result[k] = &ConfigFooTypeABC{
 				client:     group.client,
-				FooTypeABC: item,
+				FooTypeABC: item.DeepCopy(),
 			}
 		}
 	} else {
@@ -3705,9 +3705,9 @@ type footypeabcConfigTsmV1Chainer struct {
 
 func (c *footypeabcConfigTsmV1Chainer) Subscribe() {
 	key := "footypeabcs.config.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.client.subscriptions.Load(key); !ok {
 		informer := informerconfigtsmtanzuvmwarecomv1.NewFooTypeABCInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -3716,16 +3716,12 @@ func (c *footypeabcConfigTsmV1Chainer) Subscribe() {
 }
 
 func (c *footypeabcConfigTsmV1Chainer) Unsubscribe() {
-	key := "footypeabcs.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		close(s.(subscription).stop)
-		subscriptionMap.Delete(key)
-	}
+	c.client.unsubscribe("footypeabcs.config.tsm.tanzu.vmware.com")
 }
 
 func (c *footypeabcConfigTsmV1Chainer) IsSubscribed() bool {
 	key := "footypeabcs.config.tsm.tanzu.vmware.com"
-	_, ok := subscriptionMap.Load(key)
+	_, ok := c.client.subscriptions.Load(key)
 	return ok
 }
 
@@ -3759,14 +3755,14 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *Conf
 		informer       cache.SharedIndexInformer
 	)
 	key := "footypeabcs.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ConfigFooTypeABC")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ConfigFooTypeABC, so creating a new one")
 		informer = informerconfigtsmtanzuvmwarecomv1.NewFooTypeABCInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -3776,7 +3772,7 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *Conf
 		AddFunc: func(obj interface{}) {
 			nc := &ConfigFooTypeABC{
 				client:     c.client,
-				FooTypeABC: obj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC),
+				FooTypeABC: obj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for footypeabcs.config.tsm.tanzu.vmware.com name %s", nc.FooTypeABC.Name)
 
@@ -3812,11 +3808,11 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *Conf
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &ConfigFooTypeABC{
 				client:     c.client,
-				FooTypeABC: oldObj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC),
+				FooTypeABC: oldObj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC).DeepCopy(),
 			}
 			newData := &ConfigFooTypeABC{
 				client:     c.client,
-				FooTypeABC: newObj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC),
+				FooTypeABC: newObj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for footypeabcs.config.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.FooTypeABC.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
@@ -3825,7 +3821,7 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *Conf
 		DeleteFunc: func(obj interface{}) {
 			nc := &ConfigFooTypeABC{
 				client:     c.client,
-				FooTypeABC: obj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC),
+				FooTypeABC: obj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for footypeabcs.config.tsm.tanzu.vmware.com name %s", nc.FooTypeABC.Name)
 
@@ -3873,14 +3869,14 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Config
 	)
 
 	key := "footypeabcs.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ConfigFooTypeABC")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ConfigFooTypeABC, so creating a new one")
 		informer = informerconfigtsmtanzuvmwarecomv1.NewFooTypeABCInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -3891,7 +3887,7 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Config
 		AddFunc: func(obj interface{}) {
 			nc := &ConfigFooTypeABC{
 				client:     c.client,
-				FooTypeABC: obj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC),
+				FooTypeABC: obj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC).DeepCopy(),
 			}
 			logger.Debugf("[RegisterAddCallback] Got Add event for footypeabcs.config.tsm.tanzu.vmware.com name %s", nc.FooTypeABC.Name)
 
@@ -3939,14 +3935,14 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, 
 	)
 
 	key := "footypeabcs.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ConfigFooTypeABC")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ConfigFooTypeABC, so creating a new one")
 		informer = informerconfigtsmtanzuvmwarecomv1.NewFooTypeABCInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -3957,11 +3953,11 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, 
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &ConfigFooTypeABC{
 				client:     c.client,
-				FooTypeABC: oldObj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC),
+				FooTypeABC: oldObj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC).DeepCopy(),
 			}
 			newData := &ConfigFooTypeABC{
 				client:     c.client,
-				FooTypeABC: newObj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC),
+				FooTypeABC: newObj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC).DeepCopy(),
 			}
 			logger.Debugf("[RegisterUpdateCallback] Got Update event for footypeabcs.config.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.FooTypeABC.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
@@ -3980,14 +3976,14 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *Con
 	)
 
 	key := "footypeabcs.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ConfigFooTypeABC")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ConfigFooTypeABC, so creating a new one")
 		informer = informerconfigtsmtanzuvmwarecomv1.NewFooTypeABCInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -3998,7 +3994,7 @@ func (c *footypeabcConfigTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *Con
 		DeleteFunc: func(obj interface{}) {
 			nc := &ConfigFooTypeABC{
 				client:     c.client,
-				FooTypeABC: obj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC),
+				FooTypeABC: obj.(*baseconfigtsmtanzuvmwarecomv1.FooTypeABC).DeepCopy(),
 			}
 			logger.Debugf("[RegisterDeleteCallback] Got Delete event for footypeabcs.config.tsm.tanzu.vmware.com name %s", nc.FooTypeABC.Name)
 
@@ -4055,10 +4051,10 @@ func (group *ConfigTsmV1) GetDomainChild(grp, kind, name string) baseconfigtsmta
 // name and parents names. Use it when you know hashed name of object.
 func (group *ConfigTsmV1) GetDomainByName(ctx context.Context, hashedName string) (*ConfigDomain, error) {
 	key := "domains.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := group.client.subscriptions.Load(key); ok {
 		// Check if the object is in write cache.
-		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
-		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
+		resWrCache, inWrCache := s.(*subscription).WriteCacheObjects.Load(hashedName)
+		item, exists, _ := s.(*subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
 			logger.Debugf("[GetDomainByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*baseconfigtsmtanzuvmwarecomv1.Domain)
@@ -4078,18 +4074,18 @@ func (group *ConfigTsmV1) GetDomainByName(ctx context.Context, hashedName string
 
 			if !inWrCache || subsCacheVersion >= writeCacheVersion {
 				if inWrCache {
-					s.(subscription).WriteCacheObjects.Delete(hashedName)
+					s.(*subscription).WriteCacheObjects.Delete(hashedName)
 				}
 				return &ConfigDomain{
 					client: group.client,
-					Domain: resultCache,
+					Domain: resultCache.DeepCopy(),
 				}, nil
 			}
 		}
 		if inWrCache {
 			return &ConfigDomain{
 				client: group.client,
-				Domain: resWrCache.(*baseconfigtsmtanzuvmwarecomv1.Domain),
+				Domain: resWrCache.(*baseconfigtsmtanzuvmwarecomv1.Domain).DeepCopy(),
 			}, nil
 		}
 	}
@@ -4232,8 +4228,8 @@ func (group *ConfigTsmV1) DeleteDomainByName(ctx context.Context, hashedName str
 				return err
 			}
 		} else {
-			if s, ok := subscriptionMap.Load("domains.config.tsm.tanzu.vmware.com"); ok {
-				s.(subscription).WriteCacheObjects.Delete(hashedName)
+			if s, ok := group.client.subscriptions.Load("domains.config.tsm.tanzu.vmware.com"); ok {
+				s.(*subscription).WriteCacheObjects.Delete(hashedName)
 			}
 			break
 		}
@@ -4310,9 +4306,9 @@ func (group *ConfigTsmV1) CreateDomainByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[CreateDomainByName] Domain: %s created successfully", objToCreate.GetName())
-			if s, ok := subscriptionMap.Load("domains.config.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("domains.config.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[CreateDomainByName] Domain: %s stored in wr-cache", objToCreate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
 		}
@@ -4616,9 +4612,9 @@ func (group *ConfigTsmV1) UpdateDomainByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[UpdateDomainByName] Patch Domain Success :%s", objToUpdate.GetName())
-			if s, ok := subscriptionMap.Load("domains.config.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("domains.config.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[UpdateDomainByName] %s stored in wr-cache", objToUpdate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
@@ -4634,14 +4630,14 @@ func (group *ConfigTsmV1) UpdateDomainByName(ctx context.Context,
 func (group *ConfigTsmV1) ListDomains(ctx context.Context,
 	opts metav1.ListOptions) (result []*ConfigDomain, err error) {
 	key := "domains.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		items := s.(subscription).informer.GetStore().List()
+	if s, ok := group.client.subscriptions.Load(key); ok {
+		items := s.(*subscription).informer.GetStore().List()
 		result = make([]*ConfigDomain, len(items))
 		for k, v := range items {
 			item, _ := v.(*baseconfigtsmtanzuvmwarecomv1.Domain)
 			result[k] = &ConfigDomain{
 				client: group.client,
-				Domain: item,
+				Domain: item.DeepCopy(),
 			}
 		}
 	} else {
@@ -4701,9 +4697,9 @@ type domainConfigTsmV1Chainer struct {
 
 func (c *domainConfigTsmV1Chainer) Subscribe() {
 	key := "domains.config.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.client.subscriptions.Load(key); !ok {
 		informer := informerconfigtsmtanzuvmwarecomv1.NewDomainInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -4712,16 +4708,12 @@ func (c *domainConfigTsmV1Chainer) Subscribe() {
 }
 
 func (c *domainConfigTsmV1Chainer) Unsubscribe() {
-	key := "domains.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		close(s.(subscription).stop)
-		subscriptionMap.Delete(key)
-	}
+	c.client.unsubscribe("domains.config.tsm.tanzu.vmware.com")
 }
 
 func (c *domainConfigTsmV1Chainer) IsSubscribed() bool {
 	key := "domains.config.tsm.tanzu.vmware.com"
-	_, ok := subscriptionMap.Load(key)
+	_, ok := c.client.subscriptions.Load(key)
 	return ok
 }
 
@@ -4755,14 +4747,14 @@ func (c *domainConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigDo
 		informer       cache.SharedIndexInformer
 	)
 	key := "domains.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ConfigDomain")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ConfigDomain, so creating a new one")
 		informer = informerconfigtsmtanzuvmwarecomv1.NewDomainInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -4772,7 +4764,7 @@ func (c *domainConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigDo
 		AddFunc: func(obj interface{}) {
 			nc := &ConfigDomain{
 				client: c.client,
-				Domain: obj.(*baseconfigtsmtanzuvmwarecomv1.Domain),
+				Domain: obj.(*baseconfigtsmtanzuvmwarecomv1.Domain).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for domains.config.tsm.tanzu.vmware.com name %s", nc.Domain.Name)
 
@@ -4808,11 +4800,11 @@ func (c *domainConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigDo
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &ConfigDomain{
 				client: c.client,
-				Domain: oldObj.(*baseconfigtsmtanzuvmwarecomv1.Domain),
+				Domain: oldObj.(*baseconfigtsmtanzuvmwarecomv1.Domain).DeepCopy(),
 			}
 			newData := &ConfigDomain{
 				client: c.client,
-				Domain: newObj.(*baseconfigtsmtanzuvmwarecomv1.Domain),
+				Domain: newObj.(*baseconfigtsmtanzuvmwarecomv1.Domain).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for domains.config.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Domain.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
@@ -4821,7 +4813,7 @@ func (c *domainConfigTsmV1Chainer) RegisterEventHandler(addCB func(obj *ConfigDo
 		DeleteFunc: func(obj interface{}) {
 			nc := &ConfigDomain{
 				client: c.client,
-				Domain: obj.(*baseconfigtsmtanzuvmwarecomv1.Domain),
+				Domain: obj.(*baseconfigtsmtanzuvmwarecomv1.Domain).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for domains.config.tsm.tanzu.vmware.com name %s", nc.Domain.Name)
 
@@ -4869,14 +4861,14 @@ func (c *domainConfigTsmV1Chainer) RegisterAddCallback(cbfn func(obj *ConfigDoma
 	)
 
 	key := "domains.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ConfigDomain")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ConfigDomain, so creating a new one")
 		informer = informerconfigtsmtanzuvmwarecomv1.NewDomainInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -4887,7 +4879,7 @@ func (c *domainConfigTsmV1Chainer) RegisterAddCallback(cbfn func(obj *ConfigDoma
 		AddFunc: func(obj interface{}) {
 			nc := &ConfigDomain{
 				client: c.client,
-				Domain: obj.(*baseconfigtsmtanzuvmwarecomv1.Domain),
+				Domain: obj.(*baseconfigtsmtanzuvmwarecomv1.Domain).DeepCopy(),
 			}
 			logger.Debugf("[RegisterAddCallback] Got Add event for domains.config.tsm.tanzu.vmware.com name %s", nc.Domain.Name)
 
@@ -4935,14 +4927,14 @@ func (c *domainConfigTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newO
 	)
 
 	key := "domains.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ConfigDomain")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ConfigDomain, so creating a new one")
 		informer = informerconfigtsmtanzuvmwarecomv1.NewDomainInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -4953,11 +4945,11 @@ func (c *domainConfigTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newO
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &ConfigDomain{
 				client: c.client,
-				Domain: oldObj.(*baseconfigtsmtanzuvmwarecomv1.Domain),
+				Domain: oldObj.(*baseconfigtsmtanzuvmwarecomv1.Domain).DeepCopy(),
 			}
 			newData := &ConfigDomain{
 				client: c.client,
-				Domain: newObj.(*baseconfigtsmtanzuvmwarecomv1.Domain),
+				Domain: newObj.(*baseconfigtsmtanzuvmwarecomv1.Domain).DeepCopy(),
 			}
 			logger.Debugf("[RegisterUpdateCallback] Got Update event for domains.config.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Domain.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
@@ -4976,14 +4968,14 @@ func (c *domainConfigTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *ConfigD
 	)
 
 	key := "domains.config.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ConfigDomain")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ConfigDomain, so creating a new one")
 		informer = informerconfigtsmtanzuvmwarecomv1.NewDomainInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -4994,7 +4986,7 @@ func (c *domainConfigTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *ConfigD
 		DeleteFunc: func(obj interface{}) {
 			nc := &ConfigDomain{
 				client: c.client,
-				Domain: obj.(*baseconfigtsmtanzuvmwarecomv1.Domain),
+				Domain: obj.(*baseconfigtsmtanzuvmwarecomv1.Domain).DeepCopy(),
 			}
 			logger.Debugf("[RegisterDeleteCallback] Got Delete event for domains.config.tsm.tanzu.vmware.com name %s", nc.Domain.Name)
 
@@ -5051,10 +5043,10 @@ func (group *GnsTsmV1) GetFooChild(grp, kind, name string) basegnstsmtanzuvmware
 // name and parents names. Use it when you know hashed name of object.
 func (group *GnsTsmV1) GetFooByName(ctx context.Context, hashedName string) (*GnsFoo, error) {
 	key := "foos.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := group.client.subscriptions.Load(key); ok {
 		// Check if the object is in write cache.
-		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
-		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
+		resWrCache, inWrCache := s.(*subscription).WriteCacheObjects.Load(hashedName)
+		item, exists, _ := s.(*subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
 			logger.Debugf("[GetFooByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*basegnstsmtanzuvmwarecomv1.Foo)
@@ -5074,18 +5066,18 @@ func (group *GnsTsmV1) GetFooByName(ctx context.Context, hashedName string) (*Gn
 
 			if !inWrCache || subsCacheVersion >= writeCacheVersion {
 				if inWrCache {
-					s.(subscription).WriteCacheObjects.Delete(hashedName)
+					s.(*subscription).WriteCacheObjects.Delete(hashedName)
 				}
 				return &GnsFoo{
 					client: group.client,
-					Foo:    resultCache,
+					Foo:    resultCache.DeepCopy(),
 				}, nil
 			}
 		}
 		if inWrCache {
 			return &GnsFoo{
 				client: group.client,
-				Foo:    resWrCache.(*basegnstsmtanzuvmwarecomv1.Foo),
+				Foo:    resWrCache.(*basegnstsmtanzuvmwarecomv1.Foo).DeepCopy(),
 			}, nil
 		}
 	}
@@ -5228,8 +5220,8 @@ func (group *GnsTsmV1) DeleteFooByName(ctx context.Context, hashedName string) (
 				return err
 			}
 		} else {
-			if s, ok := subscriptionMap.Load("foos.gns.tsm.tanzu.vmware.com"); ok {
-				s.(subscription).WriteCacheObjects.Delete(hashedName)
+			if s, ok := group.client.subscriptions.Load("foos.gns.tsm.tanzu.vmware.com"); ok {
+				s.(*subscription).WriteCacheObjects.Delete(hashedName)
 			}
 			break
 		}
@@ -5306,9 +5298,9 @@ func (group *GnsTsmV1) CreateFooByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[CreateFooByName] Foo: %s created successfully", objToCreate.GetName())
-			if s, ok := subscriptionMap.Load("foos.gns.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("foos.gns.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[CreateFooByName] Foo: %s stored in wr-cache", objToCreate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
 		}
@@ -5444,9 +5436,9 @@ func (group *GnsTsmV1) UpdateFooByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[UpdateFooByName] Patch Foo Success :%s", objToUpdate.GetName())
-			if s, ok := subscriptionMap.Load("foos.gns.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("foos.gns.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[UpdateFooByName] %s stored in wr-cache", objToUpdate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
@@ -5462,14 +5454,14 @@ func (group *GnsTsmV1) UpdateFooByName(ctx context.Context,
 func (group *GnsTsmV1) ListFoos(ctx context.Context,
 	opts metav1.ListOptions) (result []*GnsFoo, err error) {
 	key := "foos.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		items := s.(subscription).informer.GetStore().List()
+	if s, ok := group.client.subscriptions.Load(key); ok {
+		items := s.(*subscription).informer.GetStore().List()
 		result = make([]*GnsFoo, len(items))
 		for k, v := range items {
 			item, _ := v.(*basegnstsmtanzuvmwarecomv1.Foo)
 			result[k] = &GnsFoo{
 				client: group.client,
-				Foo:    item,
+				Foo:    item.DeepCopy(),
 			}
 		}
 	} else {
@@ -5529,9 +5521,9 @@ type fooGnsTsmV1Chainer struct {
 
 func (c *fooGnsTsmV1Chainer) Subscribe() {
 	key := "foos.gns.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.client.subscriptions.Load(key); !ok {
 		informer := informergnstsmtanzuvmwarecomv1.NewFooInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -5540,16 +5532,12 @@ func (c *fooGnsTsmV1Chainer) Subscribe() {
 }
 
 func (c *fooGnsTsmV1Chainer) Unsubscribe() {
-	key := "foos.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		close(s.(subscription).stop)
-		subscriptionMap.Delete(key)
-	}
+	c.client.unsubscribe("foos.gns.tsm.tanzu.vmware.com")
 }
 
 func (c *fooGnsTsmV1Chainer) IsSubscribed() bool {
 	key := "foos.gns.tsm.tanzu.vmware.com"
-	_, ok := subscriptionMap.Load(key)
+	_, ok := c.client.subscriptions.Load(key)
 	return ok
 }
 
@@ -5583,14 +5571,14 @@ func (c *fooGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsFoo), updat
 		informer       cache.SharedIndexInformer
 	)
 	key := "foos.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsFoo")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsFoo, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewFooInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -5600,7 +5588,7 @@ func (c *fooGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsFoo), updat
 		AddFunc: func(obj interface{}) {
 			nc := &GnsFoo{
 				client: c.client,
-				Foo:    obj.(*basegnstsmtanzuvmwarecomv1.Foo),
+				Foo:    obj.(*basegnstsmtanzuvmwarecomv1.Foo).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for foos.gns.tsm.tanzu.vmware.com name %s", nc.Foo.Name)
 
@@ -5636,11 +5624,11 @@ func (c *fooGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsFoo), updat
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &GnsFoo{
 				client: c.client,
-				Foo:    oldObj.(*basegnstsmtanzuvmwarecomv1.Foo),
+				Foo:    oldObj.(*basegnstsmtanzuvmwarecomv1.Foo).DeepCopy(),
 			}
 			newData := &GnsFoo{
 				client: c.client,
-				Foo:    newObj.(*basegnstsmtanzuvmwarecomv1.Foo),
+				Foo:    newObj.(*basegnstsmtanzuvmwarecomv1.Foo).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for foos.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Foo.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
@@ -5649,7 +5637,7 @@ func (c *fooGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsFoo), updat
 		DeleteFunc: func(obj interface{}) {
 			nc := &GnsFoo{
 				client: c.client,
-				Foo:    obj.(*basegnstsmtanzuvmwarecomv1.Foo),
+				Foo:    obj.(*basegnstsmtanzuvmwarecomv1.Foo).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for foos.gns.tsm.tanzu.vmware.com name %s", nc.Foo.Name)
 
@@ -5697,14 +5685,14 @@ func (c *fooGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsFoo)) (cache.
 	)
 
 	key := "foos.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsFoo")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsFoo, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewFooInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -5715,7 +5703,7 @@ func (c *fooGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsFoo)) (cache.
 		AddFunc: func(obj interface{}) {
 			nc := &GnsFoo{
 				client: c.client,
-				Foo:    obj.(*basegnstsmtanzuvmwarecomv1.Foo),
+				Foo:    obj.(*basegnstsmtanzuvmwarecomv1.Foo).DeepCopy(),
 			}
 			logger.Debugf("[RegisterAddCallback] Got Add event for foos.gns.tsm.tanzu.vmware.com name %s", nc.Foo.Name)
 
@@ -5763,14 +5751,14 @@ func (c *fooGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *Gn
 	)
 
 	key := "foos.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsFoo")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsFoo, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewFooInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -5781,11 +5769,11 @@ func (c *fooGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *Gn
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &GnsFoo{
 				client: c.client,
-				Foo:    oldObj.(*basegnstsmtanzuvmwarecomv1.Foo),
+				Foo:    oldObj.(*basegnstsmtanzuvmwarecomv1.Foo).DeepCopy(),
 			}
 			newData := &GnsFoo{
 				client: c.client,
-				Foo:    newObj.(*basegnstsmtanzuvmwarecomv1.Foo),
+				Foo:    newObj.(*basegnstsmtanzuvmwarecomv1.Foo).DeepCopy(),
 			}
 			logger.Debugf("[RegisterUpdateCallback] Got Update event for foos.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Foo.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
@@ -5804,14 +5792,14 @@ func (c *fooGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsFoo)) (cac
 	)
 
 	key := "foos.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsFoo")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsFoo, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewFooInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -5822,7 +5810,7 @@ func (c *fooGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsFoo)) (cac
 		DeleteFunc: func(obj interface{}) {
 			nc := &GnsFoo{
 				client: c.client,
-				Foo:    obj.(*basegnstsmtanzuvmwarecomv1.Foo),
+				Foo:    obj.(*basegnstsmtanzuvmwarecomv1.Foo).DeepCopy(),
 			}
 			logger.Debugf("[RegisterDeleteCallback] Got Delete event for foos.gns.tsm.tanzu.vmware.com name %s", nc.Foo.Name)
 
@@ -5879,10 +5867,10 @@ func (group *GnsTsmV1) GetGnsChild(grp, kind, name string) basegnstsmtanzuvmware
 // name and parents names. Use it when you know hashed name of object.
 func (group *GnsTsmV1) GetGnsByName(ctx context.Context, hashedName string) (*GnsGns, error) {
 	key := "gnses.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := group.client.subscriptions.Load(key); ok {
 		// Check if the object is in write cache.
-		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
-		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
+		resWrCache, inWrCache := s.(*subscription).WriteCacheObjects.Load(hashedName)
+		item, exists, _ := s.(*subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
 			logger.Debugf("[GetGnsByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*basegnstsmtanzuvmwarecomv1.Gns)
@@ -5902,18 +5890,18 @@ func (group *GnsTsmV1) GetGnsByName(ctx context.Context, hashedName string) (*Gn
 
 			if !inWrCache || subsCacheVersion >= writeCacheVersion {
 				if inWrCache {
-					s.(subscription).WriteCacheObjects.Delete(hashedName)
+					s.(*subscription).WriteCacheObjects.Delete(hashedName)
 				}
 				return &GnsGns{
 					client: group.client,
-					Gns:    resultCache,
+					Gns:    resultCache.DeepCopy(),
 				}, nil
 			}
 		}
 		if inWrCache {
 			return &GnsGns{
 				client: group.client,
-				Gns:    resWrCache.(*basegnstsmtanzuvmwarecomv1.Gns),
+				Gns:    resWrCache.(*basegnstsmtanzuvmwarecomv1.Gns).DeepCopy(),
 			}, nil
 		}
 	}
@@ -6104,8 +6092,8 @@ func (group *GnsTsmV1) DeleteGnsByName(ctx context.Context, hashedName string) (
 				return err
 			}
 		} else {
-			if s, ok := subscriptionMap.Load("gnses.gns.tsm.tanzu.vmware.com"); ok {
-				s.(subscription).WriteCacheObjects.Delete(hashedName)
+			if s, ok := group.client.subscriptions.Load("gnses.gns.tsm.tanzu.vmware.com"); ok {
+				s.(*subscription).WriteCacheObjects.Delete(hashedName)
 			}
 			break
 		}
@@ -6203,9 +6191,9 @@ func (group *GnsTsmV1) CreateGnsByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[CreateGnsByName] Gns: %s created successfully", objToCreate.GetName())
-			if s, ok := subscriptionMap.Load("gnses.gns.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("gnses.gns.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[CreateGnsByName] Gns: %s stored in wr-cache", objToCreate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
 		}
@@ -6242,8 +6230,8 @@ func (group *GnsTsmV1) SetGnsStateByName(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	if sub, ok := subscriptionMap.Load("gnses.gns.tsm.tanzu.vmware.com"); ok {
-		sub.(subscription).WriteCacheObjects.Store(result.Name, result)
+	if sub, ok := group.client.subscriptions.Load("gnses.gns.tsm.tanzu.vmware.com"); ok {
+		sub.(*subscription).WriteCacheObjects.Store(result.Name, result)
 	}
 	return &GnsGns{client: group.client, Gns: result}, nil
 }
@@ -6699,9 +6687,9 @@ func (group *GnsTsmV1) UpdateGnsByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[UpdateGnsByName] Patch Gns Success :%s", objToUpdate.GetName())
-			if s, ok := subscriptionMap.Load("gnses.gns.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("gnses.gns.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[UpdateGnsByName] %s stored in wr-cache", objToUpdate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
@@ -6717,14 +6705,14 @@ func (group *GnsTsmV1) UpdateGnsByName(ctx context.Context,
 func (group *GnsTsmV1) ListGnses(ctx context.Context,
 	opts metav1.ListOptions) (result []*GnsGns, err error) {
 	key := "gnses.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		items := s.(subscription).informer.GetStore().List()
+	if s, ok := group.client.subscriptions.Load(key); ok {
+		items := s.(*subscription).informer.GetStore().List()
 		result = make([]*GnsGns, len(items))
 		for k, v := range items {
 			item, _ := v.(*basegnstsmtanzuvmwarecomv1.Gns)
 			result[k] = &GnsGns{
 				client: group.client,
-				Gns:    item,
+				Gns:    item.DeepCopy(),
 			}
 		}
 	} else {
@@ -7402,9 +7390,9 @@ type gnsGnsTsmV1Chainer struct {
 
 func (c *gnsGnsTsmV1Chainer) Subscribe() {
 	key := "gnses.gns.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.client.subscriptions.Load(key); !ok {
 		informer := informergnstsmtanzuvmwarecomv1.NewGnsInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -7413,16 +7401,12 @@ func (c *gnsGnsTsmV1Chainer) Subscribe() {
 }
 
 func (c *gnsGnsTsmV1Chainer) Unsubscribe() {
-	key := "gnses.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		close(s.(subscription).stop)
-		subscriptionMap.Delete(key)
-	}
+	c.client.unsubscribe("gnses.gns.tsm.tanzu.vmware.com")
 }
 
 func (c *gnsGnsTsmV1Chainer) IsSubscribed() bool {
 	key := "gnses.gns.tsm.tanzu.vmware.com"
-	_, ok := subscriptionMap.Load(key)
+	_, ok := c.client.subscriptions.Load(key)
 	return ok
 }
 
@@ -7456,14 +7440,14 @@ func (c *gnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsGns), updat
 		informer       cache.SharedIndexInformer
 	)
 	key := "gnses.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsGns")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsGns, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewGnsInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -7473,7 +7457,7 @@ func (c *gnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsGns), updat
 		AddFunc: func(obj interface{}) {
 			nc := &GnsGns{
 				client: c.client,
-				Gns:    obj.(*basegnstsmtanzuvmwarecomv1.Gns),
+				Gns:    obj.(*basegnstsmtanzuvmwarecomv1.Gns).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for gnses.gns.tsm.tanzu.vmware.com name %s", nc.Gns.Name)
 
@@ -7509,11 +7493,11 @@ func (c *gnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsGns), updat
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &GnsGns{
 				client: c.client,
-				Gns:    oldObj.(*basegnstsmtanzuvmwarecomv1.Gns),
+				Gns:    oldObj.(*basegnstsmtanzuvmwarecomv1.Gns).DeepCopy(),
 			}
 			newData := &GnsGns{
 				client: c.client,
-				Gns:    newObj.(*basegnstsmtanzuvmwarecomv1.Gns),
+				Gns:    newObj.(*basegnstsmtanzuvmwarecomv1.Gns).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for gnses.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Gns.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
@@ -7522,7 +7506,7 @@ func (c *gnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsGns), updat
 		DeleteFunc: func(obj interface{}) {
 			nc := &GnsGns{
 				client: c.client,
-				Gns:    obj.(*basegnstsmtanzuvmwarecomv1.Gns),
+				Gns:    obj.(*basegnstsmtanzuvmwarecomv1.Gns).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for gnses.gns.tsm.tanzu.vmware.com name %s", nc.Gns.Name)
 
@@ -7570,14 +7554,14 @@ func (c *gnsGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsGns)) (cache.
 	)
 
 	key := "gnses.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsGns")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsGns, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewGnsInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -7588,7 +7572,7 @@ func (c *gnsGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsGns)) (cache.
 		AddFunc: func(obj interface{}) {
 			nc := &GnsGns{
 				client: c.client,
-				Gns:    obj.(*basegnstsmtanzuvmwarecomv1.Gns),
+				Gns:    obj.(*basegnstsmtanzuvmwarecomv1.Gns).DeepCopy(),
 			}
 			logger.Debugf("[RegisterAddCallback] Got Add event for gnses.gns.tsm.tanzu.vmware.com name %s", nc.Gns.Name)
 
@@ -7636,14 +7620,14 @@ func (c *gnsGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *Gn
 	)
 
 	key := "gnses.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsGns")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsGns, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewGnsInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -7654,11 +7638,11 @@ func (c *gnsGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *Gn
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &GnsGns{
 				client: c.client,
-				Gns:    oldObj.(*basegnstsmtanzuvmwarecomv1.Gns),
+				Gns:    oldObj.(*basegnstsmtanzuvmwarecomv1.Gns).DeepCopy(),
 			}
 			newData := &GnsGns{
 				client: c.client,
-				Gns:    newObj.(*basegnstsmtanzuvmwarecomv1.Gns),
+				Gns:    newObj.(*basegnstsmtanzuvmwarecomv1.Gns).DeepCopy(),
 			}
 			logger.Debugf("[RegisterUpdateCallback] Got Update event for gnses.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Gns.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
@@ -7677,14 +7661,14 @@ func (c *gnsGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsGns)) (cac
 	)
 
 	key := "gnses.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsGns")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsGns, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewGnsInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -7695,7 +7679,7 @@ func (c *gnsGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsGns)) (cac
 		DeleteFunc: func(obj interface{}) {
 			nc := &GnsGns{
 				client: c.client,
-				Gns:    obj.(*basegnstsmtanzuvmwarecomv1.Gns),
+				Gns:    obj.(*basegnstsmtanzuvmwarecomv1.Gns).DeepCopy(),
 			}
 			logger.Debugf("[RegisterDeleteCallback] Got Delete event for gnses.gns.tsm.tanzu.vmware.com name %s", nc.Gns.Name)
 
@@ -8081,10 +8065,10 @@ func (group *GnsTsmV1) GetBarChildChild(grp, kind, name string) basegnstsmtanzuv
 // name and parents names. Use it when you know hashed name of object.
 func (group *GnsTsmV1) GetBarChildByName(ctx context.Context, hashedName string) (*GnsBarChild, error) {
 	key := "barchilds.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := group.client.subscriptions.Load(key); ok {
 		// Check if the object is in write cache.
-		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
-		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
+		resWrCache, inWrCache := s.(*subscription).WriteCacheObjects.Load(hashedName)
+		item, exists, _ := s.(*subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
 			logger.Debugf("[GetBarChildByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*basegnstsmtanzuvmwarecomv1.BarChild)
@@ -8104,18 +8088,18 @@ func (group *GnsTsmV1) GetBarChildByName(ctx context.Context, hashedName string)
 
 			if !inWrCache || subsCacheVersion >= writeCacheVersion {
 				if inWrCache {
-					s.(subscription).WriteCacheObjects.Delete(hashedName)
+					s.(*subscription).WriteCacheObjects.Delete(hashedName)
 				}
 				return &GnsBarChild{
 					client:   group.client,
-					BarChild: resultCache,
+					BarChild: resultCache.DeepCopy(),
 				}, nil
 			}
 		}
 		if inWrCache {
 			return &GnsBarChild{
 				client:   group.client,
-				BarChild: resWrCache.(*basegnstsmtanzuvmwarecomv1.BarChild),
+				BarChild: resWrCache.(*basegnstsmtanzuvmwarecomv1.BarChild).DeepCopy(),
 			}, nil
 		}
 	}
@@ -8258,8 +8242,8 @@ func (group *GnsTsmV1) DeleteBarChildByName(ctx context.Context, hashedName stri
 				return err
 			}
 		} else {
-			if s, ok := subscriptionMap.Load("barchilds.gns.tsm.tanzu.vmware.com"); ok {
-				s.(subscription).WriteCacheObjects.Delete(hashedName)
+			if s, ok := group.client.subscriptions.Load("barchilds.gns.tsm.tanzu.vmware.com"); ok {
+				s.(*subscription).WriteCacheObjects.Delete(hashedName)
 			}
 			break
 		}
@@ -8342,9 +8326,9 @@ func (group *GnsTsmV1) CreateBarChildByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[CreateBarChildByName] BarChild: %s created successfully", objToCreate.GetName())
-			if s, ok := subscriptionMap.Load("barchilds.gns.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("barchilds.gns.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[CreateBarChildByName] BarChild: %s stored in wr-cache", objToCreate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
 		}
@@ -8483,9 +8467,9 @@ func (group *GnsTsmV1) UpdateBarChildByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[UpdateBarChildByName] Patch BarChild Success :%s", objToUpdate.GetName())
-			if s, ok := subscriptionMap.Load("barchilds.gns.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("barchilds.gns.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[UpdateBarChildByName] %s stored in wr-cache", objToUpdate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
@@ -8501,14 +8485,14 @@ func (group *GnsTsmV1) UpdateBarChildByName(ctx context.Context,
 func (group *GnsTsmV1) ListBarChilds(ctx context.Context,
 	opts metav1.ListOptions) (result []*GnsBarChild, err error) {
 	key := "barchilds.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		items := s.(subscription).informer.GetStore().List()
+	if s, ok := group.client.subscriptions.Load(key); ok {
+		items := s.(*subscription).informer.GetStore().List()
 		result = make([]*GnsBarChild, len(items))
 		for k, v := range items {
 			item, _ := v.(*basegnstsmtanzuvmwarecomv1.BarChild)
 			result[k] = &GnsBarChild{
 				client:   group.client,
-				BarChild: item,
+				BarChild: item.DeepCopy(),
 			}
 		}
 	} else {
@@ -8568,9 +8552,9 @@ type barchildGnsTsmV1Chainer struct {
 
 func (c *barchildGnsTsmV1Chainer) Subscribe() {
 	key := "barchilds.gns.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.client.subscriptions.Load(key); !ok {
 		informer := informergnstsmtanzuvmwarecomv1.NewBarChildInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -8579,16 +8563,12 @@ func (c *barchildGnsTsmV1Chainer) Subscribe() {
 }
 
 func (c *barchildGnsTsmV1Chainer) Unsubscribe() {
-	key := "barchilds.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		close(s.(subscription).stop)
-		subscriptionMap.Delete(key)
-	}
+	c.client.unsubscribe("barchilds.gns.tsm.tanzu.vmware.com")
 }
 
 func (c *barchildGnsTsmV1Chainer) IsSubscribed() bool {
 	key := "barchilds.gns.tsm.tanzu.vmware.com"
-	_, ok := subscriptionMap.Load(key)
+	_, ok := c.client.subscriptions.Load(key)
 	return ok
 }
 
@@ -8622,14 +8602,14 @@ func (c *barchildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsBarChi
 		informer       cache.SharedIndexInformer
 	)
 	key := "barchilds.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsBarChild")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsBarChild, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewBarChildInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -8639,7 +8619,7 @@ func (c *barchildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsBarChi
 		AddFunc: func(obj interface{}) {
 			nc := &GnsBarChild{
 				client:   c.client,
-				BarChild: obj.(*basegnstsmtanzuvmwarecomv1.BarChild),
+				BarChild: obj.(*basegnstsmtanzuvmwarecomv1.BarChild).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for barchilds.gns.tsm.tanzu.vmware.com name %s", nc.BarChild.Name)
 
@@ -8675,11 +8655,11 @@ func (c *barchildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsBarChi
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &GnsBarChild{
 				client:   c.client,
-				BarChild: oldObj.(*basegnstsmtanzuvmwarecomv1.BarChild),
+				BarChild: oldObj.(*basegnstsmtanzuvmwarecomv1.BarChild).DeepCopy(),
 			}
 			newData := &GnsBarChild{
 				client:   c.client,
-				BarChild: newObj.(*basegnstsmtanzuvmwarecomv1.BarChild),
+				BarChild: newObj.(*basegnstsmtanzuvmwarecomv1.BarChild).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for barchilds.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.BarChild.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
@@ -8688,7 +8668,7 @@ func (c *barchildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsBarChi
 		DeleteFunc: func(obj interface{}) {
 			nc := &GnsBarChild{
 				client:   c.client,
-				BarChild: obj.(*basegnstsmtanzuvmwarecomv1.BarChild),
+				BarChild: obj.(*basegnstsmtanzuvmwarecomv1.BarChild).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for barchilds.gns.tsm.tanzu.vmware.com name %s", nc.BarChild.Name)
 
@@ -8736,14 +8716,14 @@ func (c *barchildGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsBarChild
 	)
 
 	key := "barchilds.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsBarChild")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsBarChild, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewBarChildInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -8754,7 +8734,7 @@ func (c *barchildGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsBarChild
 		AddFunc: func(obj interface{}) {
 			nc := &GnsBarChild{
 				client:   c.client,
-				BarChild: obj.(*basegnstsmtanzuvmwarecomv1.BarChild),
+				BarChild: obj.(*basegnstsmtanzuvmwarecomv1.BarChild).DeepCopy(),
 			}
 			logger.Debugf("[RegisterAddCallback] Got Add event for barchilds.gns.tsm.tanzu.vmware.com name %s", nc.BarChild.Name)
 
@@ -8802,14 +8782,14 @@ func (c *barchildGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newOb
 	)
 
 	key := "barchilds.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsBarChild")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsBarChild, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewBarChildInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -8820,11 +8800,11 @@ func (c *barchildGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newOb
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &GnsBarChild{
 				client:   c.client,
-				BarChild: oldObj.(*basegnstsmtanzuvmwarecomv1.BarChild),
+				BarChild: oldObj.(*basegnstsmtanzuvmwarecomv1.BarChild).DeepCopy(),
 			}
 			newData := &GnsBarChild{
 				client:   c.client,
-				BarChild: newObj.(*basegnstsmtanzuvmwarecomv1.BarChild),
+				BarChild: newObj.(*basegnstsmtanzuvmwarecomv1.BarChild).DeepCopy(),
 			}
 			logger.Debugf("[RegisterUpdateCallback] Got Update event for barchilds.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.BarChild.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
@@ -8843,14 +8823,14 @@ func (c *barchildGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsBarCh
 	)
 
 	key := "barchilds.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsBarChild")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsBarChild, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewBarChildInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -8861,7 +8841,7 @@ func (c *barchildGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsBarCh
 		DeleteFunc: func(obj interface{}) {
 			nc := &GnsBarChild{
 				client:   c.client,
-				BarChild: obj.(*basegnstsmtanzuvmwarecomv1.BarChild),
+				BarChild: obj.(*basegnstsmtanzuvmwarecomv1.BarChild).DeepCopy(),
 			}
 			logger.Debugf("[RegisterDeleteCallback] Got Delete event for barchilds.gns.tsm.tanzu.vmware.com name %s", nc.BarChild.Name)
 
@@ -8918,10 +8898,10 @@ func (group *GnsTsmV1) GetIgnoreChildChild(grp, kind, name string) basegnstsmtan
 // name and parents names. Use it when you know hashed name of object.
 func (group *GnsTsmV1) GetIgnoreChildByName(ctx context.Context, hashedName string) (*GnsIgnoreChild, error) {
 	key := "ignorechilds.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := group.client.subscriptions.Load(key); ok {
 		// Check if the object is in write cache.
-		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
-		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
+		resWrCache, inWrCache := s.(*subscription).WriteCacheObjects.Load(hashedName)
+		item, exists, _ := s.(*subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
 			logger.Debugf("[GetIgnoreChildByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*basegnstsmtanzuvmwarecomv1.IgnoreChild)
@@ -8941,18 +8921,18 @@ func (group *GnsTsmV1) GetIgnoreChildByName(ctx context.Context, hashedName stri
 
 			if !inWrCache || subsCacheVersion >= writeCacheVersion {
 				if inWrCache {
-					s.(subscription).WriteCacheObjects.Delete(hashedName)
+					s.(*subscription).WriteCacheObjects.Delete(hashedName)
 				}
 				return &GnsIgnoreChild{
 					client:      group.client,
-					IgnoreChild: resultCache,
+					IgnoreChild: resultCache.DeepCopy(),
 				}, nil
 			}
 		}
 		if inWrCache {
 			return &GnsIgnoreChild{
 				client:      group.client,
-				IgnoreChild: resWrCache.(*basegnstsmtanzuvmwarecomv1.IgnoreChild),
+				IgnoreChild: resWrCache.(*basegnstsmtanzuvmwarecomv1.IgnoreChild).DeepCopy(),
 			}, nil
 		}
 	}
@@ -9095,8 +9075,8 @@ func (group *GnsTsmV1) DeleteIgnoreChildByName(ctx context.Context, hashedName s
 				return err
 			}
 		} else {
-			if s, ok := subscriptionMap.Load("ignorechilds.gns.tsm.tanzu.vmware.com"); ok {
-				s.(subscription).WriteCacheObjects.Delete(hashedName)
+			if s, ok := group.client.subscriptions.Load("ignorechilds.gns.tsm.tanzu.vmware.com"); ok {
+				s.(*subscription).WriteCacheObjects.Delete(hashedName)
 			}
 			break
 		}
@@ -9173,9 +9153,9 @@ func (group *GnsTsmV1) CreateIgnoreChildByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[CreateIgnoreChildByName] IgnoreChild: %s created successfully", objToCreate.GetName())
-			if s, ok := subscriptionMap.Load("ignorechilds.gns.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("ignorechilds.gns.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[CreateIgnoreChildByName] IgnoreChild: %s stored in wr-cache", objToCreate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
 		}
@@ -9311,9 +9291,9 @@ func (group *GnsTsmV1) UpdateIgnoreChildByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[UpdateIgnoreChildByName] Patch IgnoreChild Success :%s", objToUpdate.GetName())
-			if s, ok := subscriptionMap.Load("ignorechilds.gns.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("ignorechilds.gns.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[UpdateIgnoreChildByName] %s stored in wr-cache", objToUpdate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
@@ -9329,14 +9309,14 @@ func (group *GnsTsmV1) UpdateIgnoreChildByName(ctx context.Context,
 func (group *GnsTsmV1) ListIgnoreChilds(ctx context.Context,
 	opts metav1.ListOptions) (result []*GnsIgnoreChild, err error) {
 	key := "ignorechilds.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		items := s.(subscription).informer.GetStore().List()
+	if s, ok := group.client.subscriptions.Load(key); ok {
+		items := s.(*subscription).informer.GetStore().List()
 		result = make([]*GnsIgnoreChild, len(items))
 		for k, v := range items {
 			item, _ := v.(*basegnstsmtanzuvmwarecomv1.IgnoreChild)
 			result[k] = &GnsIgnoreChild{
 				client:      group.client,
-				IgnoreChild: item,
+				IgnoreChild: item.DeepCopy(),
 			}
 		}
 	} else {
@@ -9396,9 +9376,9 @@ type ignorechildGnsTsmV1Chainer struct {
 
 func (c *ignorechildGnsTsmV1Chainer) Subscribe() {
 	key := "ignorechilds.gns.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.client.subscriptions.Load(key); !ok {
 		informer := informergnstsmtanzuvmwarecomv1.NewIgnoreChildInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -9407,16 +9387,12 @@ func (c *ignorechildGnsTsmV1Chainer) Subscribe() {
 }
 
 func (c *ignorechildGnsTsmV1Chainer) Unsubscribe() {
-	key := "ignorechilds.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		close(s.(subscription).stop)
-		subscriptionMap.Delete(key)
-	}
+	c.client.unsubscribe("ignorechilds.gns.tsm.tanzu.vmware.com")
 }
 
 func (c *ignorechildGnsTsmV1Chainer) IsSubscribed() bool {
 	key := "ignorechilds.gns.tsm.tanzu.vmware.com"
-	_, ok := subscriptionMap.Load(key)
+	_, ok := c.client.subscriptions.Load(key)
 	return ok
 }
 
@@ -9450,14 +9426,14 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsIgn
 		informer       cache.SharedIndexInformer
 	)
 	key := "ignorechilds.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsIgnoreChild")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsIgnoreChild, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewIgnoreChildInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -9467,7 +9443,7 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsIgn
 		AddFunc: func(obj interface{}) {
 			nc := &GnsIgnoreChild{
 				client:      c.client,
-				IgnoreChild: obj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild),
+				IgnoreChild: obj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for ignorechilds.gns.tsm.tanzu.vmware.com name %s", nc.IgnoreChild.Name)
 
@@ -9503,11 +9479,11 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsIgn
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &GnsIgnoreChild{
 				client:      c.client,
-				IgnoreChild: oldObj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild),
+				IgnoreChild: oldObj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild).DeepCopy(),
 			}
 			newData := &GnsIgnoreChild{
 				client:      c.client,
-				IgnoreChild: newObj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild),
+				IgnoreChild: newObj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for ignorechilds.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.IgnoreChild.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
@@ -9516,7 +9492,7 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsIgn
 		DeleteFunc: func(obj interface{}) {
 			nc := &GnsIgnoreChild{
 				client:      c.client,
-				IgnoreChild: obj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild),
+				IgnoreChild: obj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for ignorechilds.gns.tsm.tanzu.vmware.com name %s", nc.IgnoreChild.Name)
 
@@ -9564,14 +9540,14 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsIgnor
 	)
 
 	key := "ignorechilds.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsIgnoreChild")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsIgnoreChild, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewIgnoreChildInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -9582,7 +9558,7 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsIgnor
 		AddFunc: func(obj interface{}) {
 			nc := &GnsIgnoreChild{
 				client:      c.client,
-				IgnoreChild: obj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild),
+				IgnoreChild: obj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild).DeepCopy(),
 			}
 			logger.Debugf("[RegisterAddCallback] Got Add event for ignorechilds.gns.tsm.tanzu.vmware.com name %s", nc.IgnoreChild.Name)
 
@@ -9630,14 +9606,14 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, ne
 	)
 
 	key := "ignorechilds.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsIgnoreChild")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsIgnoreChild, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewIgnoreChildInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -9648,11 +9624,11 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, ne
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &GnsIgnoreChild{
 				client:      c.client,
-				IgnoreChild: oldObj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild),
+				IgnoreChild: oldObj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild).DeepCopy(),
 			}
 			newData := &GnsIgnoreChild{
 				client:      c.client,
-				IgnoreChild: newObj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild),
+				IgnoreChild: newObj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild).DeepCopy(),
 			}
 			logger.Debugf("[RegisterUpdateCallback] Got Update event for ignorechilds.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.IgnoreChild.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
@@ -9671,14 +9647,14 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsIg
 	)
 
 	key := "ignorechilds.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsIgnoreChild")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsIgnoreChild, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewIgnoreChildInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -9689,7 +9665,7 @@ func (c *ignorechildGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsIg
 		DeleteFunc: func(obj interface{}) {
 			nc := &GnsIgnoreChild{
 				client:      c.client,
-				IgnoreChild: obj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild),
+				IgnoreChild: obj.(*basegnstsmtanzuvmwarecomv1.IgnoreChild).DeepCopy(),
 			}
 			logger.Debugf("[RegisterDeleteCallback] Got Delete event for ignorechilds.gns.tsm.tanzu.vmware.com name %s", nc.IgnoreChild.Name)
 
@@ -9746,10 +9722,10 @@ func (group *GnsTsmV1) GetDnsChild(grp, kind, name string) basegnstsmtanzuvmware
 // name and parents names. Use it when you know hashed name of object.
 func (group *GnsTsmV1) GetDnsByName(ctx context.Context, hashedName string) (*GnsDns, error) {
 	key := "dnses.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := group.client.subscriptions.Load(key); ok {
 		// Check if the object is in write cache.
-		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
-		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
+		resWrCache, inWrCache := s.(*subscription).WriteCacheObjects.Load(hashedName)
+		item, exists, _ := s.(*subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
 			logger.Debugf("[GetDnsByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*basegnstsmtanzuvmwarecomv1.Dns)
@@ -9769,18 +9745,18 @@ func (group *GnsTsmV1) GetDnsByName(ctx context.Context, hashedName string) (*Gn
 
 			if !inWrCache || subsCacheVersion >= writeCacheVersion {
 				if inWrCache {
-					s.(subscription).WriteCacheObjects.Delete(hashedName)
+					s.(*subscription).WriteCacheObjects.Delete(hashedName)
 				}
 				return &GnsDns{
 					client: group.client,
-					Dns:    resultCache,
+					Dns:    resultCache.DeepCopy(),
 				}, nil
 			}
 		}
 		if inWrCache {
 			return &GnsDns{
 				client: group.client,
-				Dns:    resWrCache.(*basegnstsmtanzuvmwarecomv1.Dns),
+				Dns:    resWrCache.(*basegnstsmtanzuvmwarecomv1.Dns).DeepCopy(),
 			}, nil
 		}
 	}
@@ -9923,8 +9899,8 @@ func (group *GnsTsmV1) DeleteDnsByName(ctx context.Context, hashedName string) (
 				return err
 			}
 		} else {
-			if s, ok := subscriptionMap.Load("dnses.gns.tsm.tanzu.vmware.com"); ok {
-				s.(subscription).WriteCacheObjects.Delete(hashedName)
+			if s, ok := group.client.subscriptions.Load("dnses.gns.tsm.tanzu.vmware.com"); ok {
+				s.(*subscription).WriteCacheObjects.Delete(hashedName)
 			}
 			break
 		}
@@ -10007,9 +9983,9 @@ func (group *GnsTsmV1) CreateDnsByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[CreateDnsByName] Dns: %s created successfully", objToCreate.GetName())
-			if s, ok := subscriptionMap.Load("dnses.gns.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("dnses.gns.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[CreateDnsByName] Dns: %s stored in wr-cache", objToCreate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
 		}
@@ -10125,9 +10101,9 @@ func (group *GnsTsmV1) UpdateDnsByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[UpdateDnsByName] Patch Dns Success :%s", objToUpdate.GetName())
-			if s, ok := subscriptionMap.Load("dnses.gns.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("dnses.gns.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[UpdateDnsByName] %s stored in wr-cache", objToUpdate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
@@ -10143,14 +10119,14 @@ func (group *GnsTsmV1) UpdateDnsByName(ctx context.Context,
 func (group *GnsTsmV1) ListDnses(ctx context.Context,
 	opts metav1.ListOptions) (result []*GnsDns, err error) {
 	key := "dnses.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		items := s.(subscription).informer.GetStore().List()
+	if s, ok := group.client.subscriptions.Load(key); ok {
+		items := s.(*subscription).informer.GetStore().List()
 		result = make([]*GnsDns, len(items))
 		for k, v := range items {
 			item, _ := v.(*basegnstsmtanzuvmwarecomv1.Dns)
 			result[k] = &GnsDns{
 				client: group.client,
-				Dns:    item,
+				Dns:    item.DeepCopy(),
 			}
 		}
 	} else {
@@ -10210,9 +10186,9 @@ type dnsGnsTsmV1Chainer struct {
 
 func (c *dnsGnsTsmV1Chainer) Subscribe() {
 	key := "dnses.gns.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.client.subscriptions.Load(key); !ok {
 		informer := informergnstsmtanzuvmwarecomv1.NewDnsInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -10221,16 +10197,12 @@ func (c *dnsGnsTsmV1Chainer) Subscribe() {
 }
 
 func (c *dnsGnsTsmV1Chainer) Unsubscribe() {
-	key := "dnses.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		close(s.(subscription).stop)
-		subscriptionMap.Delete(key)
-	}
+	c.client.unsubscribe("dnses.gns.tsm.tanzu.vmware.com")
 }
 
 func (c *dnsGnsTsmV1Chainer) IsSubscribed() bool {
 	key := "dnses.gns.tsm.tanzu.vmware.com"
-	_, ok := subscriptionMap.Load(key)
+	_, ok := c.client.subscriptions.Load(key)
 	return ok
 }
 
@@ -10264,14 +10236,14 @@ func (c *dnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsDns), updat
 		informer       cache.SharedIndexInformer
 	)
 	key := "dnses.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsDns")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsDns, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewDnsInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -10281,7 +10253,7 @@ func (c *dnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsDns), updat
 		AddFunc: func(obj interface{}) {
 			nc := &GnsDns{
 				client: c.client,
-				Dns:    obj.(*basegnstsmtanzuvmwarecomv1.Dns),
+				Dns:    obj.(*basegnstsmtanzuvmwarecomv1.Dns).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for dnses.gns.tsm.tanzu.vmware.com name %s", nc.Dns.Name)
 
@@ -10317,11 +10289,11 @@ func (c *dnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsDns), updat
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &GnsDns{
 				client: c.client,
-				Dns:    oldObj.(*basegnstsmtanzuvmwarecomv1.Dns),
+				Dns:    oldObj.(*basegnstsmtanzuvmwarecomv1.Dns).DeepCopy(),
 			}
 			newData := &GnsDns{
 				client: c.client,
-				Dns:    newObj.(*basegnstsmtanzuvmwarecomv1.Dns),
+				Dns:    newObj.(*basegnstsmtanzuvmwarecomv1.Dns).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for dnses.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Dns.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
@@ -10330,7 +10302,7 @@ func (c *dnsGnsTsmV1Chainer) RegisterEventHandler(addCB func(obj *GnsDns), updat
 		DeleteFunc: func(obj interface{}) {
 			nc := &GnsDns{
 				client: c.client,
-				Dns:    obj.(*basegnstsmtanzuvmwarecomv1.Dns),
+				Dns:    obj.(*basegnstsmtanzuvmwarecomv1.Dns).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for dnses.gns.tsm.tanzu.vmware.com name %s", nc.Dns.Name)
 
@@ -10378,14 +10350,14 @@ func (c *dnsGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsDns)) (cache.
 	)
 
 	key := "dnses.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsDns")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsDns, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewDnsInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -10396,7 +10368,7 @@ func (c *dnsGnsTsmV1Chainer) RegisterAddCallback(cbfn func(obj *GnsDns)) (cache.
 		AddFunc: func(obj interface{}) {
 			nc := &GnsDns{
 				client: c.client,
-				Dns:    obj.(*basegnstsmtanzuvmwarecomv1.Dns),
+				Dns:    obj.(*basegnstsmtanzuvmwarecomv1.Dns).DeepCopy(),
 			}
 			logger.Debugf("[RegisterAddCallback] Got Add event for dnses.gns.tsm.tanzu.vmware.com name %s", nc.Dns.Name)
 
@@ -10444,14 +10416,14 @@ func (c *dnsGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *Gn
 	)
 
 	key := "dnses.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsDns")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsDns, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewDnsInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -10462,11 +10434,11 @@ func (c *dnsGnsTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj, newObj *Gn
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &GnsDns{
 				client: c.client,
-				Dns:    oldObj.(*basegnstsmtanzuvmwarecomv1.Dns),
+				Dns:    oldObj.(*basegnstsmtanzuvmwarecomv1.Dns).DeepCopy(),
 			}
 			newData := &GnsDns{
 				client: c.client,
-				Dns:    newObj.(*basegnstsmtanzuvmwarecomv1.Dns),
+				Dns:    newObj.(*basegnstsmtanzuvmwarecomv1.Dns).DeepCopy(),
 			}
 			logger.Debugf("[RegisterUpdateCallback] Got Update event for dnses.gns.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.Dns.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
@@ -10485,14 +10457,14 @@ func (c *dnsGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsDns)) (cac
 	)
 
 	key := "dnses.gns.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for GnsDns")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for GnsDns, so creating a new one")
 		informer = informergnstsmtanzuvmwarecomv1.NewDnsInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -10503,7 +10475,7 @@ func (c *dnsGnsTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *GnsDns)) (cac
 		DeleteFunc: func(obj interface{}) {
 			nc := &GnsDns{
 				client: c.client,
-				Dns:    obj.(*basegnstsmtanzuvmwarecomv1.Dns),
+				Dns:    obj.(*basegnstsmtanzuvmwarecomv1.Dns).DeepCopy(),
 			}
 			logger.Debugf("[RegisterDeleteCallback] Got Delete event for dnses.gns.tsm.tanzu.vmware.com name %s", nc.Dns.Name)
 
@@ -10560,10 +10532,10 @@ func (group *OptionalparentpathparamTsmV1) GetOptionalParentPathParamChild(grp, 
 // name and parents names. Use it when you know hashed name of object.
 func (group *OptionalparentpathparamTsmV1) GetOptionalParentPathParamByName(ctx context.Context, hashedName string) (*OptionalparentpathparamOptionalParentPathParam, error) {
 	key := "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := group.client.subscriptions.Load(key); ok {
 		// Check if the object is in write cache.
-		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
-		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
+		resWrCache, inWrCache := s.(*subscription).WriteCacheObjects.Load(hashedName)
+		item, exists, _ := s.(*subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
 			logger.Debugf("[GetOptionalParentPathParamByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam)
@@ -10583,18 +10555,18 @@ func (group *OptionalparentpathparamTsmV1) GetOptionalParentPathParamByName(ctx 
 
 			if !inWrCache || subsCacheVersion >= writeCacheVersion {
 				if inWrCache {
-					s.(subscription).WriteCacheObjects.Delete(hashedName)
+					s.(*subscription).WriteCacheObjects.Delete(hashedName)
 				}
 				return &OptionalparentpathparamOptionalParentPathParam{
 					client:                  group.client,
-					OptionalParentPathParam: resultCache,
+					OptionalParentPathParam: resultCache.DeepCopy(),
 				}, nil
 			}
 		}
 		if inWrCache {
 			return &OptionalparentpathparamOptionalParentPathParam{
 				client:                  group.client,
-				OptionalParentPathParam: resWrCache.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam),
+				OptionalParentPathParam: resWrCache.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam).DeepCopy(),
 			}, nil
 		}
 	}
@@ -10737,8 +10709,8 @@ func (group *OptionalparentpathparamTsmV1) DeleteOptionalParentPathParamByName(c
 				return err
 			}
 		} else {
-			if s, ok := subscriptionMap.Load("optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com"); ok {
-				s.(subscription).WriteCacheObjects.Delete(hashedName)
+			if s, ok := group.client.subscriptions.Load("optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com"); ok {
+				s.(*subscription).WriteCacheObjects.Delete(hashedName)
 			}
 			break
 		}
@@ -10815,9 +10787,9 @@ func (group *OptionalparentpathparamTsmV1) CreateOptionalParentPathParamByName(c
 			}
 		} else {
 			logger.Debugf("[CreateOptionalParentPathParamByName] OptionalParentPathParam: %s created successfully", objToCreate.GetName())
-			if s, ok := subscriptionMap.Load("optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[CreateOptionalParentPathParamByName] OptionalParentPathParam: %s stored in wr-cache", objToCreate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
 		}
@@ -10930,9 +10902,9 @@ func (group *OptionalparentpathparamTsmV1) UpdateOptionalParentPathParamByName(c
 			}
 		} else {
 			logger.Debugf("[UpdateOptionalParentPathParamByName] Patch OptionalParentPathParam Success :%s", objToUpdate.GetName())
-			if s, ok := subscriptionMap.Load("optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[UpdateOptionalParentPathParamByName] %s stored in wr-cache", objToUpdate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
@@ -10948,14 +10920,14 @@ func (group *OptionalparentpathparamTsmV1) UpdateOptionalParentPathParamByName(c
 func (group *OptionalparentpathparamTsmV1) ListOptionalParentPathParams(ctx context.Context,
 	opts metav1.ListOptions) (result []*OptionalparentpathparamOptionalParentPathParam, err error) {
 	key := "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		items := s.(subscription).informer.GetStore().List()
+	if s, ok := group.client.subscriptions.Load(key); ok {
+		items := s.(*subscription).informer.GetStore().List()
 		result = make([]*OptionalparentpathparamOptionalParentPathParam, len(items))
 		for k, v := range items {
 			item, _ := v.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam)
 			result[k] = &OptionalparentpathparamOptionalParentPathParam{
 				client:                  group.client,
-				OptionalParentPathParam: item,
+				OptionalParentPathParam: item.DeepCopy(),
 			}
 		}
 	} else {
@@ -11015,9 +10987,9 @@ type optionalparentpathparamOptionalparentpathparamTsmV1Chainer struct {
 
 func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) Subscribe() {
 	key := "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.client.subscriptions.Load(key); !ok {
 		informer := informeroptionalparentpathparamtsmtanzuvmwarecomv1.NewOptionalParentPathParamInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -11026,16 +10998,12 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) Subscribe()
 }
 
 func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) Unsubscribe() {
-	key := "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		close(s.(subscription).stop)
-		subscriptionMap.Delete(key)
-	}
+	c.client.unsubscribe("optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com")
 }
 
 func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) IsSubscribed() bool {
 	key := "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com"
-	_, ok := subscriptionMap.Load(key)
+	_, ok := c.client.subscriptions.Load(key)
 	return ok
 }
 
@@ -11069,14 +11037,14 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterEve
 		informer       cache.SharedIndexInformer
 	)
 	key := "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for OptionalparentpathparamOptionalParentPathParam")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for OptionalparentpathparamOptionalParentPathParam, so creating a new one")
 		informer = informeroptionalparentpathparamtsmtanzuvmwarecomv1.NewOptionalParentPathParamInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -11086,7 +11054,7 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterEve
 		AddFunc: func(obj interface{}) {
 			nc := &OptionalparentpathparamOptionalParentPathParam{
 				client:                  c.client,
-				OptionalParentPathParam: obj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam),
+				OptionalParentPathParam: obj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com name %s", nc.OptionalParentPathParam.Name)
 
@@ -11122,11 +11090,11 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterEve
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &OptionalparentpathparamOptionalParentPathParam{
 				client:                  c.client,
-				OptionalParentPathParam: oldObj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam),
+				OptionalParentPathParam: oldObj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam).DeepCopy(),
 			}
 			newData := &OptionalparentpathparamOptionalParentPathParam{
 				client:                  c.client,
-				OptionalParentPathParam: newObj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam),
+				OptionalParentPathParam: newObj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.OptionalParentPathParam.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
@@ -11135,7 +11103,7 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterEve
 		DeleteFunc: func(obj interface{}) {
 			nc := &OptionalparentpathparamOptionalParentPathParam{
 				client:                  c.client,
-				OptionalParentPathParam: obj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam),
+				OptionalParentPathParam: obj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com name %s", nc.OptionalParentPathParam.Name)
 
@@ -11183,14 +11151,14 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterAdd
 	)
 
 	key := "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for OptionalparentpathparamOptionalParentPathParam")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for OptionalparentpathparamOptionalParentPathParam, so creating a new one")
 		informer = informeroptionalparentpathparamtsmtanzuvmwarecomv1.NewOptionalParentPathParamInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -11201,7 +11169,7 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterAdd
 		AddFunc: func(obj interface{}) {
 			nc := &OptionalparentpathparamOptionalParentPathParam{
 				client:                  c.client,
-				OptionalParentPathParam: obj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam),
+				OptionalParentPathParam: obj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam).DeepCopy(),
 			}
 			logger.Debugf("[RegisterAddCallback] Got Add event for optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com name %s", nc.OptionalParentPathParam.Name)
 
@@ -11249,14 +11217,14 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterUpd
 	)
 
 	key := "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for OptionalparentpathparamOptionalParentPathParam")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for OptionalparentpathparamOptionalParentPathParam, so creating a new one")
 		informer = informeroptionalparentpathparamtsmtanzuvmwarecomv1.NewOptionalParentPathParamInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -11267,11 +11235,11 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterUpd
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &OptionalparentpathparamOptionalParentPathParam{
 				client:                  c.client,
-				OptionalParentPathParam: oldObj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam),
+				OptionalParentPathParam: oldObj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam).DeepCopy(),
 			}
 			newData := &OptionalparentpathparamOptionalParentPathParam{
 				client:                  c.client,
-				OptionalParentPathParam: newObj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam),
+				OptionalParentPathParam: newObj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam).DeepCopy(),
 			}
 			logger.Debugf("[RegisterUpdateCallback] Got Update event for optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.OptionalParentPathParam.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
@@ -11290,14 +11258,14 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterDel
 	)
 
 	key := "optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for OptionalparentpathparamOptionalParentPathParam")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for OptionalparentpathparamOptionalParentPathParam, so creating a new one")
 		informer = informeroptionalparentpathparamtsmtanzuvmwarecomv1.NewOptionalParentPathParamInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -11308,7 +11276,7 @@ func (c *optionalparentpathparamOptionalparentpathparamTsmV1Chainer) RegisterDel
 		DeleteFunc: func(obj interface{}) {
 			nc := &OptionalparentpathparamOptionalParentPathParam{
 				client:                  c.client,
-				OptionalParentPathParam: obj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam),
+				OptionalParentPathParam: obj.(*baseoptionalparentpathparamtsmtanzuvmwarecomv1.OptionalParentPathParam).DeepCopy(),
 			}
 			logger.Debugf("[RegisterDeleteCallback] Got Delete event for optionalparentpathparams.optionalparentpathparam.tsm.tanzu.vmware.com name %s", nc.OptionalParentPathParam.Name)
 
@@ -11365,10 +11333,10 @@ func (group *ServicegroupTsmV1) GetSvcGroupChild(grp, kind, name string) baseser
 // name and parents names. Use it when you know hashed name of object.
 func (group *ServicegroupTsmV1) GetSvcGroupByName(ctx context.Context, hashedName string) (*ServicegroupSvcGroup, error) {
 	key := "svcgroups.servicegroup.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := group.client.subscriptions.Load(key); ok {
 		// Check if the object is in write cache.
-		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
-		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
+		resWrCache, inWrCache := s.(*subscription).WriteCacheObjects.Load(hashedName)
+		item, exists, _ := s.(*subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
 			logger.Debugf("[GetSvcGroupByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup)
@@ -11388,18 +11356,18 @@ func (group *ServicegroupTsmV1) GetSvcGroupByName(ctx context.Context, hashedNam
 
 			if !inWrCache || subsCacheVersion >= writeCacheVersion {
 				if inWrCache {
-					s.(subscription).WriteCacheObjects.Delete(hashedName)
+					s.(*subscription).WriteCacheObjects.Delete(hashedName)
 				}
 				return &ServicegroupSvcGroup{
 					client:   group.client,
-					SvcGroup: resultCache,
+					SvcGroup: resultCache.DeepCopy(),
 				}, nil
 			}
 		}
 		if inWrCache {
 			return &ServicegroupSvcGroup{
 				client:   group.client,
-				SvcGroup: resWrCache.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup),
+				SvcGroup: resWrCache.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup).DeepCopy(),
 			}, nil
 		}
 	}
@@ -11542,8 +11510,8 @@ func (group *ServicegroupTsmV1) DeleteSvcGroupByName(ctx context.Context, hashed
 				return err
 			}
 		} else {
-			if s, ok := subscriptionMap.Load("svcgroups.servicegroup.tsm.tanzu.vmware.com"); ok {
-				s.(subscription).WriteCacheObjects.Delete(hashedName)
+			if s, ok := group.client.subscriptions.Load("svcgroups.servicegroup.tsm.tanzu.vmware.com"); ok {
+				s.(*subscription).WriteCacheObjects.Delete(hashedName)
 			}
 			break
 		}
@@ -11620,9 +11588,9 @@ func (group *ServicegroupTsmV1) CreateSvcGroupByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[CreateSvcGroupByName] SvcGroup: %s created successfully", objToCreate.GetName())
-			if s, ok := subscriptionMap.Load("svcgroups.servicegroup.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("svcgroups.servicegroup.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[CreateSvcGroupByName] SvcGroup: %s stored in wr-cache", objToCreate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
 		}
@@ -11800,9 +11768,9 @@ func (group *ServicegroupTsmV1) UpdateSvcGroupByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[UpdateSvcGroupByName] Patch SvcGroup Success :%s", objToUpdate.GetName())
-			if s, ok := subscriptionMap.Load("svcgroups.servicegroup.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("svcgroups.servicegroup.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[UpdateSvcGroupByName] %s stored in wr-cache", objToUpdate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
@@ -11818,14 +11786,14 @@ func (group *ServicegroupTsmV1) UpdateSvcGroupByName(ctx context.Context,
 func (group *ServicegroupTsmV1) ListSvcGroups(ctx context.Context,
 	opts metav1.ListOptions) (result []*ServicegroupSvcGroup, err error) {
 	key := "svcgroups.servicegroup.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		items := s.(subscription).informer.GetStore().List()
+	if s, ok := group.client.subscriptions.Load(key); ok {
+		items := s.(*subscription).informer.GetStore().List()
 		result = make([]*ServicegroupSvcGroup, len(items))
 		for k, v := range items {
 			item, _ := v.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup)
 			result[k] = &ServicegroupSvcGroup{
 				client:   group.client,
-				SvcGroup: item,
+				SvcGroup: item.DeepCopy(),
 			}
 		}
 	} else {
@@ -11885,9 +11853,9 @@ type svcgroupServicegroupTsmV1Chainer struct {
 
 func (c *svcgroupServicegroupTsmV1Chainer) Subscribe() {
 	key := "svcgroups.servicegroup.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.client.subscriptions.Load(key); !ok {
 		informer := informerservicegrouptsmtanzuvmwarecomv1.NewSvcGroupInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -11896,16 +11864,12 @@ func (c *svcgroupServicegroupTsmV1Chainer) Subscribe() {
 }
 
 func (c *svcgroupServicegroupTsmV1Chainer) Unsubscribe() {
-	key := "svcgroups.servicegroup.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		close(s.(subscription).stop)
-		subscriptionMap.Delete(key)
-	}
+	c.client.unsubscribe("svcgroups.servicegroup.tsm.tanzu.vmware.com")
 }
 
 func (c *svcgroupServicegroupTsmV1Chainer) IsSubscribed() bool {
 	key := "svcgroups.servicegroup.tsm.tanzu.vmware.com"
-	_, ok := subscriptionMap.Load(key)
+	_, ok := c.client.subscriptions.Load(key)
 	return ok
 }
 
@@ -11939,14 +11903,14 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterEventHandler(addCB func(obj *
 		informer       cache.SharedIndexInformer
 	)
 	key := "svcgroups.servicegroup.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ServicegroupSvcGroup")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ServicegroupSvcGroup, so creating a new one")
 		informer = informerservicegrouptsmtanzuvmwarecomv1.NewSvcGroupInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -11956,7 +11920,7 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterEventHandler(addCB func(obj *
 		AddFunc: func(obj interface{}) {
 			nc := &ServicegroupSvcGroup{
 				client:   c.client,
-				SvcGroup: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup),
+				SvcGroup: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for svcgroups.servicegroup.tsm.tanzu.vmware.com name %s", nc.SvcGroup.Name)
 
@@ -11992,11 +11956,11 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterEventHandler(addCB func(obj *
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &ServicegroupSvcGroup{
 				client:   c.client,
-				SvcGroup: oldObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup),
+				SvcGroup: oldObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup).DeepCopy(),
 			}
 			newData := &ServicegroupSvcGroup{
 				client:   c.client,
-				SvcGroup: newObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup),
+				SvcGroup: newObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for svcgroups.servicegroup.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.SvcGroup.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
@@ -12005,7 +11969,7 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterEventHandler(addCB func(obj *
 		DeleteFunc: func(obj interface{}) {
 			nc := &ServicegroupSvcGroup{
 				client:   c.client,
-				SvcGroup: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup),
+				SvcGroup: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for svcgroups.servicegroup.tsm.tanzu.vmware.com name %s", nc.SvcGroup.Name)
 
@@ -12053,14 +12017,14 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Se
 	)
 
 	key := "svcgroups.servicegroup.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ServicegroupSvcGroup")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ServicegroupSvcGroup, so creating a new one")
 		informer = informerservicegrouptsmtanzuvmwarecomv1.NewSvcGroupInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -12071,7 +12035,7 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Se
 		AddFunc: func(obj interface{}) {
 			nc := &ServicegroupSvcGroup{
 				client:   c.client,
-				SvcGroup: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup),
+				SvcGroup: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup).DeepCopy(),
 			}
 			logger.Debugf("[RegisterAddCallback] Got Add event for svcgroups.servicegroup.tsm.tanzu.vmware.com name %s", nc.SvcGroup.Name)
 
@@ -12119,14 +12083,14 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldO
 	)
 
 	key := "svcgroups.servicegroup.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ServicegroupSvcGroup")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ServicegroupSvcGroup, so creating a new one")
 		informer = informerservicegrouptsmtanzuvmwarecomv1.NewSvcGroupInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -12137,11 +12101,11 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldO
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &ServicegroupSvcGroup{
 				client:   c.client,
-				SvcGroup: oldObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup),
+				SvcGroup: oldObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup).DeepCopy(),
 			}
 			newData := &ServicegroupSvcGroup{
 				client:   c.client,
-				SvcGroup: newObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup),
+				SvcGroup: newObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup).DeepCopy(),
 			}
 			logger.Debugf("[RegisterUpdateCallback] Got Update event for svcgroups.servicegroup.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.SvcGroup.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
@@ -12160,14 +12124,14 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj 
 	)
 
 	key := "svcgroups.servicegroup.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ServicegroupSvcGroup")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ServicegroupSvcGroup, so creating a new one")
 		informer = informerservicegrouptsmtanzuvmwarecomv1.NewSvcGroupInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -12178,7 +12142,7 @@ func (c *svcgroupServicegroupTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj 
 		DeleteFunc: func(obj interface{}) {
 			nc := &ServicegroupSvcGroup{
 				client:   c.client,
-				SvcGroup: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup),
+				SvcGroup: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroup).DeepCopy(),
 			}
 			logger.Debugf("[RegisterDeleteCallback] Got Delete event for svcgroups.servicegroup.tsm.tanzu.vmware.com name %s", nc.SvcGroup.Name)
 
@@ -12235,10 +12199,10 @@ func (group *ServicegroupTsmV1) GetSvcGroupLinkInfoChild(grp, kind, name string)
 // name and parents names. Use it when you know hashed name of object.
 func (group *ServicegroupTsmV1) GetSvcGroupLinkInfoByName(ctx context.Context, hashedName string) (*ServicegroupSvcGroupLinkInfo, error) {
 	key := "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := group.client.subscriptions.Load(key); ok {
 		// Check if the object is in write cache.
-		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
-		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
+		resWrCache, inWrCache := s.(*subscription).WriteCacheObjects.Load(hashedName)
+		item, exists, _ := s.(*subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
 			logger.Debugf("[GetSvcGroupLinkInfoByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo)
@@ -12258,18 +12222,18 @@ func (group *ServicegroupTsmV1) GetSvcGroupLinkInfoByName(ctx context.Context, h
 
 			if !inWrCache || subsCacheVersion >= writeCacheVersion {
 				if inWrCache {
-					s.(subscription).WriteCacheObjects.Delete(hashedName)
+					s.(*subscription).WriteCacheObjects.Delete(hashedName)
 				}
 				return &ServicegroupSvcGroupLinkInfo{
 					client:           group.client,
-					SvcGroupLinkInfo: resultCache,
+					SvcGroupLinkInfo: resultCache.DeepCopy(),
 				}, nil
 			}
 		}
 		if inWrCache {
 			return &ServicegroupSvcGroupLinkInfo{
 				client:           group.client,
-				SvcGroupLinkInfo: resWrCache.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo),
+				SvcGroupLinkInfo: resWrCache.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo).DeepCopy(),
 			}, nil
 		}
 	}
@@ -12412,8 +12376,8 @@ func (group *ServicegroupTsmV1) DeleteSvcGroupLinkInfoByName(ctx context.Context
 				return err
 			}
 		} else {
-			if s, ok := subscriptionMap.Load("svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com"); ok {
-				s.(subscription).WriteCacheObjects.Delete(hashedName)
+			if s, ok := group.client.subscriptions.Load("svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com"); ok {
+				s.(*subscription).WriteCacheObjects.Delete(hashedName)
 			}
 			break
 		}
@@ -12490,9 +12454,9 @@ func (group *ServicegroupTsmV1) CreateSvcGroupLinkInfoByName(ctx context.Context
 			}
 		} else {
 			logger.Debugf("[CreateSvcGroupLinkInfoByName] SvcGroupLinkInfo: %s created successfully", objToCreate.GetName())
-			if s, ok := subscriptionMap.Load("svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[CreateSvcGroupLinkInfoByName] SvcGroupLinkInfo: %s stored in wr-cache", objToCreate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
 		}
@@ -12691,9 +12655,9 @@ func (group *ServicegroupTsmV1) UpdateSvcGroupLinkInfoByName(ctx context.Context
 			}
 		} else {
 			logger.Debugf("[UpdateSvcGroupLinkInfoByName] Patch SvcGroupLinkInfo Success :%s", objToUpdate.GetName())
-			if s, ok := subscriptionMap.Load("svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[UpdateSvcGroupLinkInfoByName] %s stored in wr-cache", objToUpdate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
@@ -12709,14 +12673,14 @@ func (group *ServicegroupTsmV1) UpdateSvcGroupLinkInfoByName(ctx context.Context
 func (group *ServicegroupTsmV1) ListSvcGroupLinkInfos(ctx context.Context,
 	opts metav1.ListOptions) (result []*ServicegroupSvcGroupLinkInfo, err error) {
 	key := "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		items := s.(subscription).informer.GetStore().List()
+	if s, ok := group.client.subscriptions.Load(key); ok {
+		items := s.(*subscription).informer.GetStore().List()
 		result = make([]*ServicegroupSvcGroupLinkInfo, len(items))
 		for k, v := range items {
 			item, _ := v.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo)
 			result[k] = &ServicegroupSvcGroupLinkInfo{
 				client:           group.client,
-				SvcGroupLinkInfo: item,
+				SvcGroupLinkInfo: item.DeepCopy(),
 			}
 		}
 	} else {
@@ -12776,9 +12740,9 @@ type svcgrouplinkinfoServicegroupTsmV1Chainer struct {
 
 func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) Subscribe() {
 	key := "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.client.subscriptions.Load(key); !ok {
 		informer := informerservicegrouptsmtanzuvmwarecomv1.NewSvcGroupLinkInfoInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -12787,16 +12751,12 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) Subscribe() {
 }
 
 func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) Unsubscribe() {
-	key := "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		close(s.(subscription).stop)
-		subscriptionMap.Delete(key)
-	}
+	c.client.unsubscribe("svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com")
 }
 
 func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) IsSubscribed() bool {
 	key := "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com"
-	_, ok := subscriptionMap.Load(key)
+	_, ok := c.client.subscriptions.Load(key)
 	return ok
 }
 
@@ -12830,14 +12790,14 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterEventHandler(addCB fu
 		informer       cache.SharedIndexInformer
 	)
 	key := "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ServicegroupSvcGroupLinkInfo")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ServicegroupSvcGroupLinkInfo, so creating a new one")
 		informer = informerservicegrouptsmtanzuvmwarecomv1.NewSvcGroupLinkInfoInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -12847,7 +12807,7 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterEventHandler(addCB fu
 		AddFunc: func(obj interface{}) {
 			nc := &ServicegroupSvcGroupLinkInfo{
 				client:           c.client,
-				SvcGroupLinkInfo: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo),
+				SvcGroupLinkInfo: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com name %s", nc.SvcGroupLinkInfo.Name)
 
@@ -12883,11 +12843,11 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterEventHandler(addCB fu
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &ServicegroupSvcGroupLinkInfo{
 				client:           c.client,
-				SvcGroupLinkInfo: oldObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo),
+				SvcGroupLinkInfo: oldObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo).DeepCopy(),
 			}
 			newData := &ServicegroupSvcGroupLinkInfo{
 				client:           c.client,
-				SvcGroupLinkInfo: newObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo),
+				SvcGroupLinkInfo: newObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.SvcGroupLinkInfo.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
@@ -12896,7 +12856,7 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterEventHandler(addCB fu
 		DeleteFunc: func(obj interface{}) {
 			nc := &ServicegroupSvcGroupLinkInfo{
 				client:           c.client,
-				SvcGroupLinkInfo: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo),
+				SvcGroupLinkInfo: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com name %s", nc.SvcGroupLinkInfo.Name)
 
@@ -12944,14 +12904,14 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterAddCallback(cbfn func
 	)
 
 	key := "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ServicegroupSvcGroupLinkInfo")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ServicegroupSvcGroupLinkInfo, so creating a new one")
 		informer = informerservicegrouptsmtanzuvmwarecomv1.NewSvcGroupLinkInfoInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -12962,7 +12922,7 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterAddCallback(cbfn func
 		AddFunc: func(obj interface{}) {
 			nc := &ServicegroupSvcGroupLinkInfo{
 				client:           c.client,
-				SvcGroupLinkInfo: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo),
+				SvcGroupLinkInfo: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo).DeepCopy(),
 			}
 			logger.Debugf("[RegisterAddCallback] Got Add event for svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com name %s", nc.SvcGroupLinkInfo.Name)
 
@@ -13010,14 +12970,14 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterUpdateCallback(cbfn f
 	)
 
 	key := "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ServicegroupSvcGroupLinkInfo")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ServicegroupSvcGroupLinkInfo, so creating a new one")
 		informer = informerservicegrouptsmtanzuvmwarecomv1.NewSvcGroupLinkInfoInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -13028,11 +12988,11 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterUpdateCallback(cbfn f
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &ServicegroupSvcGroupLinkInfo{
 				client:           c.client,
-				SvcGroupLinkInfo: oldObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo),
+				SvcGroupLinkInfo: oldObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo).DeepCopy(),
 			}
 			newData := &ServicegroupSvcGroupLinkInfo{
 				client:           c.client,
-				SvcGroupLinkInfo: newObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo),
+				SvcGroupLinkInfo: newObj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo).DeepCopy(),
 			}
 			logger.Debugf("[RegisterUpdateCallback] Got Update event for svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.SvcGroupLinkInfo.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
@@ -13051,14 +13011,14 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterDeleteCallback(cbfn f
 	)
 
 	key := "svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for ServicegroupSvcGroupLinkInfo")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for ServicegroupSvcGroupLinkInfo, so creating a new one")
 		informer = informerservicegrouptsmtanzuvmwarecomv1.NewSvcGroupLinkInfoInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -13069,7 +13029,7 @@ func (c *svcgrouplinkinfoServicegroupTsmV1Chainer) RegisterDeleteCallback(cbfn f
 		DeleteFunc: func(obj interface{}) {
 			nc := &ServicegroupSvcGroupLinkInfo{
 				client:           c.client,
-				SvcGroupLinkInfo: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo),
+				SvcGroupLinkInfo: obj.(*baseservicegrouptsmtanzuvmwarecomv1.SvcGroupLinkInfo).DeepCopy(),
 			}
 			logger.Debugf("[RegisterDeleteCallback] Got Delete event for svcgrouplinkinfos.servicegroup.tsm.tanzu.vmware.com name %s", nc.SvcGroupLinkInfo.Name)
 
@@ -13126,10 +13086,10 @@ func (group *PolicypkgTsmV1) GetAccessControlPolicyChild(grp, kind, name string)
 // name and parents names. Use it when you know hashed name of object.
 func (group *PolicypkgTsmV1) GetAccessControlPolicyByName(ctx context.Context, hashedName string) (*PolicypkgAccessControlPolicy, error) {
 	key := "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := group.client.subscriptions.Load(key); ok {
 		// Check if the object is in write cache.
-		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
-		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
+		resWrCache, inWrCache := s.(*subscription).WriteCacheObjects.Load(hashedName)
+		item, exists, _ := s.(*subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
 			logger.Debugf("[GetAccessControlPolicyByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy)
@@ -13149,18 +13109,18 @@ func (group *PolicypkgTsmV1) GetAccessControlPolicyByName(ctx context.Context, h
 
 			if !inWrCache || subsCacheVersion >= writeCacheVersion {
 				if inWrCache {
-					s.(subscription).WriteCacheObjects.Delete(hashedName)
+					s.(*subscription).WriteCacheObjects.Delete(hashedName)
 				}
 				return &PolicypkgAccessControlPolicy{
 					client:              group.client,
-					AccessControlPolicy: resultCache,
+					AccessControlPolicy: resultCache.DeepCopy(),
 				}, nil
 			}
 		}
 		if inWrCache {
 			return &PolicypkgAccessControlPolicy{
 				client:              group.client,
-				AccessControlPolicy: resWrCache.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy),
+				AccessControlPolicy: resWrCache.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy).DeepCopy(),
 			}, nil
 		}
 	}
@@ -13311,8 +13271,8 @@ func (group *PolicypkgTsmV1) DeleteAccessControlPolicyByName(ctx context.Context
 				return err
 			}
 		} else {
-			if s, ok := subscriptionMap.Load("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"); ok {
-				s.(subscription).WriteCacheObjects.Delete(hashedName)
+			if s, ok := group.client.subscriptions.Load("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"); ok {
+				s.(*subscription).WriteCacheObjects.Delete(hashedName)
 			}
 			break
 		}
@@ -13391,9 +13351,9 @@ func (group *PolicypkgTsmV1) CreateAccessControlPolicyByName(ctx context.Context
 			}
 		} else {
 			logger.Debugf("[CreateAccessControlPolicyByName] AccessControlPolicy: %s created successfully", objToCreate.GetName())
-			if s, ok := subscriptionMap.Load("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[CreateAccessControlPolicyByName] AccessControlPolicy: %s stored in wr-cache", objToCreate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
 		}
@@ -13506,9 +13466,9 @@ func (group *PolicypkgTsmV1) UpdateAccessControlPolicyByName(ctx context.Context
 			}
 		} else {
 			logger.Debugf("[UpdateAccessControlPolicyByName] Patch AccessControlPolicy Success :%s", objToUpdate.GetName())
-			if s, ok := subscriptionMap.Load("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[UpdateAccessControlPolicyByName] %s stored in wr-cache", objToUpdate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
@@ -13524,14 +13484,14 @@ func (group *PolicypkgTsmV1) UpdateAccessControlPolicyByName(ctx context.Context
 func (group *PolicypkgTsmV1) ListAccessControlPolicies(ctx context.Context,
 	opts metav1.ListOptions) (result []*PolicypkgAccessControlPolicy, err error) {
 	key := "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		items := s.(subscription).informer.GetStore().List()
+	if s, ok := group.client.subscriptions.Load(key); ok {
+		items := s.(*subscription).informer.GetStore().List()
 		result = make([]*PolicypkgAccessControlPolicy, len(items))
 		for k, v := range items {
 			item, _ := v.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy)
 			result[k] = &PolicypkgAccessControlPolicy{
 				client:              group.client,
-				AccessControlPolicy: item,
+				AccessControlPolicy: item.DeepCopy(),
 			}
 		}
 	} else {
@@ -13722,9 +13682,9 @@ type accesscontrolpolicyPolicypkgTsmV1Chainer struct {
 
 func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) Subscribe() {
 	key := "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.client.subscriptions.Load(key); !ok {
 		informer := informerpolicypkgtsmtanzuvmwarecomv1.NewAccessControlPolicyInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -13733,16 +13693,12 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) Subscribe() {
 }
 
 func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) Unsubscribe() {
-	key := "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		close(s.(subscription).stop)
-		subscriptionMap.Delete(key)
-	}
+	c.client.unsubscribe("accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com")
 }
 
 func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) IsSubscribed() bool {
 	key := "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"
-	_, ok := subscriptionMap.Load(key)
+	_, ok := c.client.subscriptions.Load(key)
 	return ok
 }
 
@@ -13776,14 +13732,14 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB fu
 		informer       cache.SharedIndexInformer
 	)
 	key := "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for PolicypkgAccessControlPolicy")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for PolicypkgAccessControlPolicy, so creating a new one")
 		informer = informerpolicypkgtsmtanzuvmwarecomv1.NewAccessControlPolicyInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -13793,7 +13749,7 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB fu
 		AddFunc: func(obj interface{}) {
 			nc := &PolicypkgAccessControlPolicy{
 				client:              c.client,
-				AccessControlPolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy),
+				AccessControlPolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com name %s", nc.AccessControlPolicy.Name)
 
@@ -13829,11 +13785,11 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB fu
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &PolicypkgAccessControlPolicy{
 				client:              c.client,
-				AccessControlPolicy: oldObj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy),
+				AccessControlPolicy: oldObj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy).DeepCopy(),
 			}
 			newData := &PolicypkgAccessControlPolicy{
 				client:              c.client,
-				AccessControlPolicy: newObj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy),
+				AccessControlPolicy: newObj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.AccessControlPolicy.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
@@ -13842,7 +13798,7 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB fu
 		DeleteFunc: func(obj interface{}) {
 			nc := &PolicypkgAccessControlPolicy{
 				client:              c.client,
-				AccessControlPolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy),
+				AccessControlPolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com name %s", nc.AccessControlPolicy.Name)
 
@@ -13890,14 +13846,14 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterAddCallback(cbfn func
 	)
 
 	key := "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for PolicypkgAccessControlPolicy")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for PolicypkgAccessControlPolicy, so creating a new one")
 		informer = informerpolicypkgtsmtanzuvmwarecomv1.NewAccessControlPolicyInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -13908,7 +13864,7 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterAddCallback(cbfn func
 		AddFunc: func(obj interface{}) {
 			nc := &PolicypkgAccessControlPolicy{
 				client:              c.client,
-				AccessControlPolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy),
+				AccessControlPolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy).DeepCopy(),
 			}
 			logger.Debugf("[RegisterAddCallback] Got Add event for accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com name %s", nc.AccessControlPolicy.Name)
 
@@ -13956,14 +13912,14 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterUpdateCallback(cbfn f
 	)
 
 	key := "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for PolicypkgAccessControlPolicy")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for PolicypkgAccessControlPolicy, so creating a new one")
 		informer = informerpolicypkgtsmtanzuvmwarecomv1.NewAccessControlPolicyInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -13974,11 +13930,11 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterUpdateCallback(cbfn f
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &PolicypkgAccessControlPolicy{
 				client:              c.client,
-				AccessControlPolicy: oldObj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy),
+				AccessControlPolicy: oldObj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy).DeepCopy(),
 			}
 			newData := &PolicypkgAccessControlPolicy{
 				client:              c.client,
-				AccessControlPolicy: newObj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy),
+				AccessControlPolicy: newObj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy).DeepCopy(),
 			}
 			logger.Debugf("[RegisterUpdateCallback] Got Update event for accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.AccessControlPolicy.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
@@ -13997,14 +13953,14 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterDeleteCallback(cbfn f
 	)
 
 	key := "accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for PolicypkgAccessControlPolicy")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for PolicypkgAccessControlPolicy, so creating a new one")
 		informer = informerpolicypkgtsmtanzuvmwarecomv1.NewAccessControlPolicyInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -14015,7 +13971,7 @@ func (c *accesscontrolpolicyPolicypkgTsmV1Chainer) RegisterDeleteCallback(cbfn f
 		DeleteFunc: func(obj interface{}) {
 			nc := &PolicypkgAccessControlPolicy{
 				client:              c.client,
-				AccessControlPolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy),
+				AccessControlPolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.AccessControlPolicy).DeepCopy(),
 			}
 			logger.Debugf("[RegisterDeleteCallback] Got Delete event for accesscontrolpolicies.policypkg.tsm.tanzu.vmware.com name %s", nc.AccessControlPolicy.Name)
 
@@ -14120,10 +14076,10 @@ func (group *PolicypkgTsmV1) GetACPConfigChild(grp, kind, name string) basepolic
 // name and parents names. Use it when you know hashed name of object.
 func (group *PolicypkgTsmV1) GetACPConfigByName(ctx context.Context, hashedName string) (*PolicypkgACPConfig, error) {
 	key := "acpconfigs.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := group.client.subscriptions.Load(key); ok {
 		// Check if the object is in write cache.
-		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
-		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
+		resWrCache, inWrCache := s.(*subscription).WriteCacheObjects.Load(hashedName)
+		item, exists, _ := s.(*subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
 			logger.Debugf("[GetACPConfigByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig)
@@ -14143,18 +14099,18 @@ func (group *PolicypkgTsmV1) GetACPConfigByName(ctx context.Context, hashedName 
 
 			if !inWrCache || subsCacheVersion >= writeCacheVersion {
 				if inWrCache {
-					s.(subscription).WriteCacheObjects.Delete(hashedName)
+					s.(*subscription).WriteCacheObjects.Delete(hashedName)
 				}
 				return &PolicypkgACPConfig{
 					client:    group.client,
-					ACPConfig: resultCache,
+					ACPConfig: resultCache.DeepCopy(),
 				}, nil
 			}
 		}
 		if inWrCache {
 			return &PolicypkgACPConfig{
 				client:    group.client,
-				ACPConfig: resWrCache.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig),
+				ACPConfig: resWrCache.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig).DeepCopy(),
 			}, nil
 		}
 	}
@@ -14297,8 +14253,8 @@ func (group *PolicypkgTsmV1) DeleteACPConfigByName(ctx context.Context, hashedNa
 				return err
 			}
 		} else {
-			if s, ok := subscriptionMap.Load("acpconfigs.policypkg.tsm.tanzu.vmware.com"); ok {
-				s.(subscription).WriteCacheObjects.Delete(hashedName)
+			if s, ok := group.client.subscriptions.Load("acpconfigs.policypkg.tsm.tanzu.vmware.com"); ok {
+				s.(*subscription).WriteCacheObjects.Delete(hashedName)
 			}
 			break
 		}
@@ -14378,9 +14334,9 @@ func (group *PolicypkgTsmV1) CreateACPConfigByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[CreateACPConfigByName] ACPConfig: %s created successfully", objToCreate.GetName())
-			if s, ok := subscriptionMap.Load("acpconfigs.policypkg.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("acpconfigs.policypkg.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[CreateACPConfigByName] ACPConfig: %s stored in wr-cache", objToCreate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
 		}
@@ -14417,8 +14373,8 @@ func (group *PolicypkgTsmV1) SetACPConfigStatusByName(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	if sub, ok := subscriptionMap.Load("acpconfigs.policypkg.tsm.tanzu.vmware.com"); ok {
-		sub.(subscription).WriteCacheObjects.Store(result.Name, result)
+	if sub, ok := group.client.subscriptions.Load("acpconfigs.policypkg.tsm.tanzu.vmware.com"); ok {
+		sub.(*subscription).WriteCacheObjects.Store(result.Name, result)
 	}
 	return &PolicypkgACPConfig{client: group.client, ACPConfig: result}, nil
 }
@@ -14643,9 +14599,9 @@ func (group *PolicypkgTsmV1) UpdateACPConfigByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[UpdateACPConfigByName] Patch ACPConfig Success :%s", objToUpdate.GetName())
-			if s, ok := subscriptionMap.Load("acpconfigs.policypkg.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("acpconfigs.policypkg.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[UpdateACPConfigByName] %s stored in wr-cache", objToUpdate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
@@ -14661,14 +14617,14 @@ func (group *PolicypkgTsmV1) UpdateACPConfigByName(ctx context.Context,
 func (group *PolicypkgTsmV1) ListACPConfigs(ctx context.Context,
 	opts metav1.ListOptions) (result []*PolicypkgACPConfig, err error) {
 	key := "acpconfigs.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		items := s.(subscription).informer.GetStore().List()
+	if s, ok := group.client.subscriptions.Load(key); ok {
+		items := s.(*subscription).informer.GetStore().List()
 		result = make([]*PolicypkgACPConfig, len(items))
 		for k, v := range items {
 			item, _ := v.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig)
 			result[k] = &PolicypkgACPConfig{
 				client:    group.client,
-				ACPConfig: item,
+				ACPConfig: item.DeepCopy(),
 			}
 		}
 	} else {
@@ -14889,9 +14845,9 @@ type acpconfigPolicypkgTsmV1Chainer struct {
 
 func (c *acpconfigPolicypkgTsmV1Chainer) Subscribe() {
 	key := "acpconfigs.policypkg.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.client.subscriptions.Load(key); !ok {
 		informer := informerpolicypkgtsmtanzuvmwarecomv1.NewACPConfigInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -14900,16 +14856,12 @@ func (c *acpconfigPolicypkgTsmV1Chainer) Subscribe() {
 }
 
 func (c *acpconfigPolicypkgTsmV1Chainer) Unsubscribe() {
-	key := "acpconfigs.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		close(s.(subscription).stop)
-		subscriptionMap.Delete(key)
-	}
+	c.client.unsubscribe("acpconfigs.policypkg.tsm.tanzu.vmware.com")
 }
 
 func (c *acpconfigPolicypkgTsmV1Chainer) IsSubscribed() bool {
 	key := "acpconfigs.policypkg.tsm.tanzu.vmware.com"
-	_, ok := subscriptionMap.Load(key)
+	_, ok := c.client.subscriptions.Load(key)
 	return ok
 }
 
@@ -14943,14 +14895,14 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Po
 		informer       cache.SharedIndexInformer
 	)
 	key := "acpconfigs.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for PolicypkgACPConfig")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for PolicypkgACPConfig, so creating a new one")
 		informer = informerpolicypkgtsmtanzuvmwarecomv1.NewACPConfigInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -14960,7 +14912,7 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Po
 		AddFunc: func(obj interface{}) {
 			nc := &PolicypkgACPConfig{
 				client:    c.client,
-				ACPConfig: obj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig),
+				ACPConfig: obj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for acpconfigs.policypkg.tsm.tanzu.vmware.com name %s", nc.ACPConfig.Name)
 
@@ -14996,11 +14948,11 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Po
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &PolicypkgACPConfig{
 				client:    c.client,
-				ACPConfig: oldObj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig),
+				ACPConfig: oldObj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig).DeepCopy(),
 			}
 			newData := &PolicypkgACPConfig{
 				client:    c.client,
-				ACPConfig: newObj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig),
+				ACPConfig: newObj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for acpconfigs.policypkg.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.ACPConfig.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
@@ -15009,7 +14961,7 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Po
 		DeleteFunc: func(obj interface{}) {
 			nc := &PolicypkgACPConfig{
 				client:    c.client,
-				ACPConfig: obj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig),
+				ACPConfig: obj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for acpconfigs.policypkg.tsm.tanzu.vmware.com name %s", nc.ACPConfig.Name)
 
@@ -15057,14 +15009,14 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Poli
 	)
 
 	key := "acpconfigs.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for PolicypkgACPConfig")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for PolicypkgACPConfig, so creating a new one")
 		informer = informerpolicypkgtsmtanzuvmwarecomv1.NewACPConfigInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -15075,7 +15027,7 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Poli
 		AddFunc: func(obj interface{}) {
 			nc := &PolicypkgACPConfig{
 				client:    c.client,
-				ACPConfig: obj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig),
+				ACPConfig: obj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig).DeepCopy(),
 			}
 			logger.Debugf("[RegisterAddCallback] Got Add event for acpconfigs.policypkg.tsm.tanzu.vmware.com name %s", nc.ACPConfig.Name)
 
@@ -15123,14 +15075,14 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj
 	)
 
 	key := "acpconfigs.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for PolicypkgACPConfig")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for PolicypkgACPConfig, so creating a new one")
 		informer = informerpolicypkgtsmtanzuvmwarecomv1.NewACPConfigInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -15141,11 +15093,11 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &PolicypkgACPConfig{
 				client:    c.client,
-				ACPConfig: oldObj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig),
+				ACPConfig: oldObj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig).DeepCopy(),
 			}
 			newData := &PolicypkgACPConfig{
 				client:    c.client,
-				ACPConfig: newObj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig),
+				ACPConfig: newObj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig).DeepCopy(),
 			}
 			logger.Debugf("[RegisterUpdateCallback] Got Update event for acpconfigs.policypkg.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.ACPConfig.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
@@ -15164,14 +15116,14 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *P
 	)
 
 	key := "acpconfigs.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for PolicypkgACPConfig")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for PolicypkgACPConfig, so creating a new one")
 		informer = informerpolicypkgtsmtanzuvmwarecomv1.NewACPConfigInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -15182,7 +15134,7 @@ func (c *acpconfigPolicypkgTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *P
 		DeleteFunc: func(obj interface{}) {
 			nc := &PolicypkgACPConfig{
 				client:    c.client,
-				ACPConfig: obj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig),
+				ACPConfig: obj.(*basepolicypkgtsmtanzuvmwarecomv1.ACPConfig).DeepCopy(),
 			}
 			logger.Debugf("[RegisterDeleteCallback] Got Delete event for acpconfigs.policypkg.tsm.tanzu.vmware.com name %s", nc.ACPConfig.Name)
 
@@ -15275,10 +15227,10 @@ func (group *PolicypkgTsmV1) GetVMpolicyChild(grp, kind, name string) basepolicy
 // name and parents names. Use it when you know hashed name of object.
 func (group *PolicypkgTsmV1) GetVMpolicyByName(ctx context.Context, hashedName string) (*PolicypkgVMpolicy, error) {
 	key := "vmpolicies.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := group.client.subscriptions.Load(key); ok {
 		// Check if the object is in write cache.
-		resWrCache, inWrCache := s.(subscription).WriteCacheObjects.Load(hashedName)
-		item, exists, _ := s.(subscription).informer.GetStore().GetByKey(hashedName)
+		resWrCache, inWrCache := s.(*subscription).WriteCacheObjects.Load(hashedName)
+		item, exists, _ := s.(*subscription).informer.GetStore().GetByKey(hashedName)
 		if exists {
 			logger.Debugf("[GetVMpolicyByName] Object: %s exists in cache", hashedName)
 			resultCache, _ := item.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy)
@@ -15298,18 +15250,18 @@ func (group *PolicypkgTsmV1) GetVMpolicyByName(ctx context.Context, hashedName s
 
 			if !inWrCache || subsCacheVersion >= writeCacheVersion {
 				if inWrCache {
-					s.(subscription).WriteCacheObjects.Delete(hashedName)
+					s.(*subscription).WriteCacheObjects.Delete(hashedName)
 				}
 				return &PolicypkgVMpolicy{
 					client:   group.client,
-					VMpolicy: resultCache,
+					VMpolicy: resultCache.DeepCopy(),
 				}, nil
 			}
 		}
 		if inWrCache {
 			return &PolicypkgVMpolicy{
 				client:   group.client,
-				VMpolicy: resWrCache.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy),
+				VMpolicy: resWrCache.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy).DeepCopy(),
 			}, nil
 		}
 	}
@@ -15452,8 +15404,8 @@ func (group *PolicypkgTsmV1) DeleteVMpolicyByName(ctx context.Context, hashedNam
 				return err
 			}
 		} else {
-			if s, ok := subscriptionMap.Load("vmpolicies.policypkg.tsm.tanzu.vmware.com"); ok {
-				s.(subscription).WriteCacheObjects.Delete(hashedName)
+			if s, ok := group.client.subscriptions.Load("vmpolicies.policypkg.tsm.tanzu.vmware.com"); ok {
+				s.(*subscription).WriteCacheObjects.Delete(hashedName)
 			}
 			break
 		}
@@ -15530,9 +15482,9 @@ func (group *PolicypkgTsmV1) CreateVMpolicyByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[CreateVMpolicyByName] VMpolicy: %s created successfully", objToCreate.GetName())
-			if s, ok := subscriptionMap.Load("vmpolicies.policypkg.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("vmpolicies.policypkg.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[CreateVMpolicyByName] VMpolicy: %s stored in wr-cache", objToCreate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToCreate.GetName(), result)
 			}
 			break
 		}
@@ -15645,9 +15597,9 @@ func (group *PolicypkgTsmV1) UpdateVMpolicyByName(ctx context.Context,
 			}
 		} else {
 			logger.Debugf("[UpdateVMpolicyByName] Patch VMpolicy Success :%s", objToUpdate.GetName())
-			if s, ok := subscriptionMap.Load("vmpolicies.policypkg.tsm.tanzu.vmware.com"); ok {
+			if s, ok := group.client.subscriptions.Load("vmpolicies.policypkg.tsm.tanzu.vmware.com"); ok {
 				logger.Debugf("[UpdateVMpolicyByName] %s stored in wr-cache", objToUpdate.GetName())
-				s.(subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
+				s.(*subscription).WriteCacheObjects.Store(objToUpdate.GetName(), result)
 			}
 			break
 		}
@@ -15663,14 +15615,14 @@ func (group *PolicypkgTsmV1) UpdateVMpolicyByName(ctx context.Context,
 func (group *PolicypkgTsmV1) ListVMpolicies(ctx context.Context,
 	opts metav1.ListOptions) (result []*PolicypkgVMpolicy, err error) {
 	key := "vmpolicies.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		items := s.(subscription).informer.GetStore().List()
+	if s, ok := group.client.subscriptions.Load(key); ok {
+		items := s.(*subscription).informer.GetStore().List()
 		result = make([]*PolicypkgVMpolicy, len(items))
 		for k, v := range items {
 			item, _ := v.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy)
 			result[k] = &PolicypkgVMpolicy{
 				client:   group.client,
-				VMpolicy: item,
+				VMpolicy: item.DeepCopy(),
 			}
 		}
 	} else {
@@ -15730,9 +15682,9 @@ type vmpolicyPolicypkgTsmV1Chainer struct {
 
 func (c *vmpolicyPolicypkgTsmV1Chainer) Subscribe() {
 	key := "vmpolicies.policypkg.tsm.tanzu.vmware.com"
-	if _, ok := subscriptionMap.Load(key); !ok {
+	if _, ok := c.client.subscriptions.Load(key); !ok {
 		informer := informerpolicypkgtsmtanzuvmwarecomv1.NewVMpolicyInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -15741,16 +15693,12 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) Subscribe() {
 }
 
 func (c *vmpolicyPolicypkgTsmV1Chainer) Unsubscribe() {
-	key := "vmpolicies.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
-		close(s.(subscription).stop)
-		subscriptionMap.Delete(key)
-	}
+	c.client.unsubscribe("vmpolicies.policypkg.tsm.tanzu.vmware.com")
 }
 
 func (c *vmpolicyPolicypkgTsmV1Chainer) IsSubscribed() bool {
 	key := "vmpolicies.policypkg.tsm.tanzu.vmware.com"
-	_, ok := subscriptionMap.Load(key)
+	_, ok := c.client.subscriptions.Load(key)
 	return ok
 }
 
@@ -15784,14 +15732,14 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Pol
 		informer       cache.SharedIndexInformer
 	)
 	key := "vmpolicies.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for PolicypkgVMpolicy")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for PolicypkgVMpolicy, so creating a new one")
 		informer = informerpolicypkgtsmtanzuvmwarecomv1.NewVMpolicyInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -15801,7 +15749,7 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Pol
 		AddFunc: func(obj interface{}) {
 			nc := &PolicypkgVMpolicy{
 				client:   c.client,
-				VMpolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy),
+				VMpolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler AddFunc] Got Add event for vmpolicies.policypkg.tsm.tanzu.vmware.com name %s", nc.VMpolicy.Name)
 
@@ -15837,11 +15785,11 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Pol
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &PolicypkgVMpolicy{
 				client:   c.client,
-				VMpolicy: oldObj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy),
+				VMpolicy: oldObj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy).DeepCopy(),
 			}
 			newData := &PolicypkgVMpolicy{
 				client:   c.client,
-				VMpolicy: newObj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy),
+				VMpolicy: newObj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler UpdateFunc] Got Update event for vmpolicies.policypkg.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.VMpolicy.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			updateCB(oldData, newData)
@@ -15850,7 +15798,7 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterEventHandler(addCB func(obj *Pol
 		DeleteFunc: func(obj interface{}) {
 			nc := &PolicypkgVMpolicy{
 				client:   c.client,
-				VMpolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy),
+				VMpolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy).DeepCopy(),
 			}
 			logger.Debugf("[RegisterEventHandler DeleteFunc] Got Delete event for vmpolicies.policypkg.tsm.tanzu.vmware.com name %s", nc.VMpolicy.Name)
 
@@ -15898,14 +15846,14 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Polic
 	)
 
 	key := "vmpolicies.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for PolicypkgVMpolicy")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for PolicypkgVMpolicy, so creating a new one")
 		informer = informerpolicypkgtsmtanzuvmwarecomv1.NewVMpolicyInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -15916,7 +15864,7 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterAddCallback(cbfn func(obj *Polic
 		AddFunc: func(obj interface{}) {
 			nc := &PolicypkgVMpolicy{
 				client:   c.client,
-				VMpolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy),
+				VMpolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy).DeepCopy(),
 			}
 			logger.Debugf("[RegisterAddCallback] Got Add event for vmpolicies.policypkg.tsm.tanzu.vmware.com name %s", nc.VMpolicy.Name)
 
@@ -15964,14 +15912,14 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj,
 	)
 
 	key := "vmpolicies.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for PolicypkgVMpolicy")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for PolicypkgVMpolicy, so creating a new one")
 		informer = informerpolicypkgtsmtanzuvmwarecomv1.NewVMpolicyInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -15982,11 +15930,11 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterUpdateCallback(cbfn func(oldObj,
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			oldData := &PolicypkgVMpolicy{
 				client:   c.client,
-				VMpolicy: oldObj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy),
+				VMpolicy: oldObj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy).DeepCopy(),
 			}
 			newData := &PolicypkgVMpolicy{
 				client:   c.client,
-				VMpolicy: newObj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy),
+				VMpolicy: newObj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy).DeepCopy(),
 			}
 			logger.Debugf("[RegisterUpdateCallback] Got Update event for vmpolicies.policypkg.tsm.tanzu.vmware.com name %s old version %s new version %s", oldData.VMpolicy.Name, oldData.ResourceVersion, newData.ResourceVersion)
 			cbfn(oldData, newData)
@@ -16005,14 +15953,14 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *Po
 	)
 
 	key := "vmpolicies.policypkg.tsm.tanzu.vmware.com"
-	if s, ok := subscriptionMap.Load(key); ok {
+	if s, ok := c.client.subscriptions.Load(key); ok {
 		fmt.Println("Informer exists for PolicypkgVMpolicy")
-		sub := s.(subscription)
+		sub := s.(*subscription)
 		informer = sub.informer
 	} else {
 		fmt.Println("Informer doesn't exists for PolicypkgVMpolicy, so creating a new one")
 		informer = informerpolicypkgtsmtanzuvmwarecomv1.NewVMpolicyInformer(c.client.baseClient, informerResyncPeriod*time.Second, cache.Indexers{})
-		subscribe(key, informer)
+		informer = c.client.subscribe(key, informer)
 
 		c.RegisterAddCallback(c.addCallback)
 		c.RegisterDeleteCallback(c.deleteCallback)
@@ -16023,7 +15971,7 @@ func (c *vmpolicyPolicypkgTsmV1Chainer) RegisterDeleteCallback(cbfn func(obj *Po
 		DeleteFunc: func(obj interface{}) {
 			nc := &PolicypkgVMpolicy{
 				client:   c.client,
-				VMpolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy),
+				VMpolicy: obj.(*basepolicypkgtsmtanzuvmwarecomv1.VMpolicy).DeepCopy(),
 			}
 			logger.Debugf("[RegisterDeleteCallback] Got Delete event for vmpolicies.policypkg.tsm.tanzu.vmware.com name %s", nc.VMpolicy.Name)
 

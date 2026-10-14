@@ -97,13 +97,12 @@ docker.publish:
 
 .PHONY: tools
 tools:
-	go install github.com/onsi/ginkgo/ginkgo@v1.16.0
-	go install github.com/onsi/gomega/...@v1.18.0
+	go install github.com/onsi/ginkgo/ginkgo@v1.16.5
 	go install golang.org/x/tools/cmd/goimports@v0.51.0
 	go install github.com/mikefarah/yq/v4@v4.52.4
 	go install ../kube-openapi/cmd/nexus-openapi-gen
 	cd ../gqlgen && go install && cd -
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "$$(go env GOPATH)"/bin v1.49.0
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 
 .PHONY: build_openapigen_in_container
 build_openapigen_in_container:

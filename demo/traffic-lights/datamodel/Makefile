@@ -4,7 +4,9 @@ CONTAINER_ID ?= ""
 DATAMODEL_LOCAL_PATH ?= $(realpath .)
 BUCKET ?= nexus-template-downloads
 COMPILER_TAG ?= latest
-COMPILER_DOCKER_REPO ?= ghcr.io/dilipmighty245
+COMPILER_DOCKER_REPO ?=
+COMPILER_IMAGE_PREFIX = $(if $(strip $(COMPILER_DOCKER_REPO)),$(patsubst %/,%,$(COMPILER_DOCKER_REPO))/)
+COMPILER_DOCKER_TAG = ${COMPILER_IMAGE_PREFIX}nexus/compiler/${GOARCH}:${COMPILER_TAG}
 VERSION ?= $(shell git rev-parse --verify HEAD 2>/dev/null)
 DATAMODEL_DOCKER_REPO ?= $(shell cat nexus.yaml | grep dockerRepo | awk '{print $$2}' | tr -d '"')
 DATAMODEL_REPO_NAME ?= $(shell cat nexus.yaml | grep groupName | awk '{print $$2}' | tr -d '"')
@@ -76,7 +78,7 @@ datamodel_build:
 			-e CRD_MODULE_PATH=${CRD_MODULE_PATH} \
 			-e CONFIG_FILE=datamodel/nexus.yaml \
 			-e FORCE=$(FORCE) \
-			${COMPILER_DOCKER_REPO}/nexus/compiler/${GOARCH}:$(COMPILER_TAG) /bin/bash -c 'make generate_code && chown -R $(shell id -u):$(shell id -g) .;'; \
+			${COMPILER_DOCKER_TAG} /bin/bash -c 'make generate_code && chown -R $(shell id -u):$(shell id -g) .;'; \
 	else \
 		docker run --pull=missing\
 			--volumes-from=$(CONTAINER_ID) \
@@ -87,7 +89,7 @@ datamodel_build:
 			-e FORCE=${FORCE} \
 			--user root:root \
 			-e FORCE=$(FORCE) \
-			${COMPILER_DOCKER_REPO}/nexus/compiler/${GOARCH}:$(COMPILER_TAG); \
+			${COMPILER_DOCKER_TAG}; \
 	fi
 
 docker_build:

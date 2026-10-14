@@ -21,12 +21,18 @@ elif name == "docker":
     if args[0] == "version": print("amd64")
     elif args[0] == "run":
         if os.environ.get("FAIL_STAGE") == "generation": sys.exit(7)
-        source = pathlib.Path(args[args.index("--volume") + 1].split(":")[0])
+        workdir = args[args.index("--workdir") + 1]
+        source = pathlib.Path(next(value.split(":")[0] for index, value in enumerate(args)
+                                   if args[index - 1] == "--volume" and value.endswith(":" + workdir)))
         crds = source / "compiler/example/output/generated/crds"
+        (source / "compiler/example/tests").mkdir(parents=True)
         crds.mkdir(parents=True)
         (crds / "root.yaml").write_text("kind: CustomResourceDefinition\n")
 elif name == "kind":
     if args[0] == "create" and os.environ.get("FAIL_STAGE") == "cluster": sys.exit(8)
+elif name == "go":
+    if args[0] == "env": print(state / args[1].lower())
+    elif os.environ.get("FAIL_STAGE") == "subscription": sys.exit(9)
 elif name == "kubectl":
     args = args[2:]  # Every operation must use the isolated kubeconfig.
     if args[0] == "create" and args[1] == "-f":
@@ -64,6 +70,7 @@ class RunnerLifecycleTests(unittest.TestCase):
                    HARNESS_STATE=str(state), TMPDIR=str(state),
                    FRAMEWORK_TEST_RESULTS=str(state / "results"),
                    E2E_COMPONENTS="resources", E2E_COMPILER_IMAGE="test/compiler:local",
+                   E2E_SDK_RUNS="1",
                    KUBECONFIG=str(kubeconfig), FAIL_STAGE=fail_stage)
         result = subprocess.run(["bash", str(ROOT / "scripts/test-framework-e2e.sh")],
                                 env=env, capture_output=True, text=True, timeout=20)
@@ -97,6 +104,12 @@ class RunnerLifecycleTests(unittest.TestCase):
     def test_resource_assertion_failure_is_not_hidden(self):
         result, calls = self.run_runner("read")
         self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(any(c[:2] == ["kind", "delete"] for c in calls))
+
+    def test_subscription_failure_is_reported_and_cluster_is_removed(self):
+        result, calls = self.run_runner("subscription")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(any(c[0] == "go" and "-tags=integration" in c for c in calls))
         self.assertTrue(any(c[:2] == ["kind", "delete"] for c in calls))
 
 

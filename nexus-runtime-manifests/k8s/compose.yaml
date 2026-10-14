@@ -22,7 +22,7 @@ services:
       HTTP_PROXY: ''
   kubernetes:
     container_name: kubernetes
-    image: ghcr.io/dilipmighty245/nexus/nexus-kube-apiserver:latest
+    image: "${NEXUS_KUBE_APISERVER_IMAGE:?Set NEXUS_KUBE_APISERVER_IMAGE to an available kube-apiserver image}"
     command: kube-apiserver --etcd-servers=http://etcd:2379 --service-account-key-file=/custom/k8s/certs/sa.pub --service-account-signing-key-file=/custom/k8s/certs/sa.key --tls-cert-file=/custom/k8s/certs/apiserver.crt --tls-private-key-file=/custom/k8s/certs/apiserver.key --client-ca-file=/custom/k8s/certs/ca.crt --service-account-issuer=api --service-cluster-ip-range=10.24.0.0/16 --disable-admission-plugins=CertificateApproval,CertificateSigning,CertificateSubjectRestriction,DefaultIngressClass,DefaultStorageClass,DefaultTolerationSeconds,LimitRanger,MutatingAdmissionWebhook,NamespaceLifecycle,PersistentVolumeClaimResize,PodSecurity,Priority,ResourceQuota,RuntimeClass,ServiceAccount,StorageObjectInUseProtection,TaintNodesByCondition,ValidatingAdmissionPolicy,ValidatingAdmissionWebhook,NodeRestriction,PodNodeSelector
     volumes:
       - ./certs:/custom/k8s/certs

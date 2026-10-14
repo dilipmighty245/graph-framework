@@ -2,9 +2,14 @@
 # Runs inside the compiler image against an isolated working-tree snapshot.
 set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-for tool in go git make jq yq goimports gqlgen nexus-openapi-gen; do
+for tool in go git make jq yq goimports; do
     command -v "$tool" >/dev/null || { echo "Compiler image is missing $tool" >&2; exit 2; }
 done
+mkdir -p "$root/artifacts/e2e-bin"
+export PATH="$root/artifacts/e2e-bin:$PATH"
+# Build forked generators from the snapshot, including when using a builder image.
+(cd "$root/gqlgen" && go build -o "$root/artifacts/e2e-bin/gqlgen" .)
+(cd "$root/kube-openapi" && go build -o "$root/artifacts/e2e-bin/nexus-openapi-gen" ./cmd/nexus-openapi-gen)
 cd "$root/compiler"
 export DEFAULT_CLIENT_NAME
 DEFAULT_CLIENT_NAME=$(yq eval '.k8s_clients.default' manifest.yaml)

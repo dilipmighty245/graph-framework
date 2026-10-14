@@ -22,6 +22,12 @@ Choose the deployment path, configure registries and image versions, generate an
 
 Several defaults refer to environment-specific registries and local development credentials. A production deployment needs its own credentials, storage policy, network configuration, and component configuration.
 
+Framework build tags are local by default. Supply `DOCKER_REGISTRY` explicitly
+for registry downloads or publication. The legacy k0s proxy requires
+`NEXUS_KUBECTL_IMAGE`; the standalone API-server Compose workflow requires
+`NEXUS_KUBE_APISERVER_IMAGE`. Set these to images you have built or verified for
+your environment. These workflows do not have a prepublished framework registry.
+
 ## Validation
 
 Render Helm templates with representative values, check resource names and selectors, and run installation against a disposable environment. Verify API-server access, gateway readiness, model installation, generated-client operations, and cleanup.

@@ -1,5 +1,5 @@
 
-FROM --platform=linux/amd64 golang:1.19 as builder
+FROM --platform=linux/amd64 docker.io/library/golang:1.27.2-bookworm as builder
 
 ARG API_GW_COMPONENT_NAME 
 WORKDIR /app

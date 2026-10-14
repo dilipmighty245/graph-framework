@@ -431,6 +431,7 @@ func RenderClusterRoleTemplate(baseGroupName string, ruleMap map[string][]string
 	for key, val := range ruleMap {
 		vars.Rules = append(vars.Rules, Rule{ApiGroup: key, Resources: val})
 	}
+	sort.Slice(vars.Rules, func(i, j int) bool { return vars.Rules[i].ApiGroup < vars.Rules[j].ApiGroup })
 	crTemplate, err := readTemplateFile(clusterRoleTemplate)
 	if err != nil {
 		return nil, err

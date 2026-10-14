@@ -75,6 +75,8 @@ nexus-runtime-manifests/k8s/ca*
 sock-shop-saas-app/*
 
 # Locally built executables
+__pycache__/
+*.pyc
 /authz-controller/cmd/authz-controller/authz-controller
 /calibration/bin/calib
 /compiler/example/datamodel/build/nexus-gql/server

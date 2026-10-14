@@ -8,6 +8,7 @@ make test.framework            # Complete source suites across framework modules
 make test.framework.compiler   # Compiler packages and commands
 make test.framework.gateway    # Gateway and controller suites; generated admin API required
 make test.framework.e2e        # Fresh generation, generated SDK tests, and Kind lifecycle
+make test.framework.builders   # Build public Go builders; generate/test inside containers
 make test.framework.all        # Source suites followed by E2E
 make test.framework.race       # Source suites with the race detector
 make test.framework.stability  # Repeat all checks three times with race detection
@@ -41,9 +42,18 @@ A compatible local compiler image can supply the build tools instead:
 E2E_COMPILER_IMAGE=your-local-compiler:your-tag make test.framework.e2e
 ```
 
-The image must include Go, Git, Make, jq, yq v4, goimports, gqlgen, and
-nexus-openapi-gen built for the selected Go toolchain. The host build is the
-default; it avoids depending on a prepublished framework image.
+The image must include Go, Git, Make, jq, yq v4, and goimports. The runner builds
+gqlgen and nexus-openapi-gen from the current source snapshot. The host build is
+the default; it avoids depending on a prepublished framework image.
+
+`make test.framework.builders` builds `compiler/builder/Dockerfile` and
+`authz-controller/builder/Dockerfile` using the official public
+[`docker.io/library/golang:1.27.2-bookworm`](https://hub.docker.com/_/golang) base.
+It checks their toolchains, generates both models inside the compiler builder,
+and runs authorization race tests inside the authorization builder. The remaining
+Kind resource, subscription, gateway, and GraphQL checks use those fresh outputs.
+The builder images stay available locally for reuse. Override their tags with
+`COMPILER_BUILDER_IMAGE` and `AUTHZ_BUILDER_IMAGE`.
 
 ## Coverage
 
@@ -78,6 +88,22 @@ Select services with `E2E_COMPONENTS=resources`, `resources,gateway`, or
 `resources,graphql`. The default is `resources,gateway,graphql`.
 `E2E_KIND_IMAGE` selects a Kind node image. Missing prerequisites and failed
 service readiness fail the run.
+
+The real generated-SDK subscription test runs three times in fresh Go test
+processes by default (`E2E_SDK_RUNS` overrides the count). It uses the disposable
+cluster and verifies:
+
+- SDK creation of a root and child, hashed names, and hierarchy labels/caches.
+- Add, update, and delete events, including old/new field values, on two clients.
+- Per-client subscription isolation and safe copies of cached read objects.
+- Unsubscribe stopping one observer while another continues receiving events.
+- Resubscribe replaying current state, deletion clearing hierarchy caches, and
+  repeated/concurrent unsubscribe completing without races or double closes.
+
+The test is under `compiler/example/tests/integration`, enabled with the
+`integration` build tag. Run it through the E2E targets so it receives freshly
+generated code and an isolated cluster; it is not part of the ordinary fake-client
+unit suite. Per-pass event results are saved as `subscriptions-N.log`.
 
 The Kind service account has cluster-admin access within the disposable cluster.
 The runner does not change the active kubeconfig or install into an existing

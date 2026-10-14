@@ -95,6 +95,10 @@ Start with the [compiler](compiler/README.md), inspect its [example datamodel](c
 
 Each component has its own `go.mod`. Run Go commands from the component directory. The root module does not aggregate the repository, so root-level `go test ./...` does not validate the framework.
 
+Go build containers use the [official Docker Hub Go image](https://hub.docker.com/_/golang).
+Framework image tags are local by default. Set `DOCKER_REGISTRY` explicitly when
+downloading or publishing your own framework images.
+
 For example, to check the shared library:
 
 ```sh
@@ -118,6 +122,7 @@ From the repository root:
 make test.framework          # Complete source suites across framework modules
 make test.framework.gateway  # Gateway and controllers after admin API generation
 make test.framework.all      # Source suites, fresh generation, and Kind E2E
+make test.framework.builders # Public Go builders, generation, and live subscription tests
 make test.framework.stability # Repeat all checks three times
 ```
 

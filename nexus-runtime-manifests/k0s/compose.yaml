@@ -29,7 +29,7 @@ services:
     depends_on:
       - k0s
     container_name: k8s-proxy
-    image: ghcr.io/dilipmighty245/nexus/nexus-etcd-kubectl:latest
+    image: "${NEXUS_KUBECTL_IMAGE:?Set NEXUS_KUBECTL_IMAGE to an available kubectl image}"
     command: /usr/local/bin/kubectl proxy -s https://k0s:6443 --disable-filter=true --v=1 --kubeconfig /var/lib/k0s/pki/admin.conf
     hostname: k8s-proxy
     privileged: true
