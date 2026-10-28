@@ -73,7 +73,6 @@ class RunnerLifecycleTests(unittest.TestCase):
                    E2E_COMPONENTS="resources", E2E_COMPILER_IMAGE="test/compiler:local",
                    E2E_SDK_RUNS="1",
                    E2E_SUBSCRIPTION_COMPARE_STREAMING=str(compare_streaming).lower(),
-                   E2E_SUBSCRIPTION_CLIENT_GO_VERSION="v0.34.3",
                    KUBECONFIG=str(kubeconfig), FAIL_STAGE=fail_stage)
         result = subprocess.run(["bash", str(ROOT / "scripts/test-framework-e2e.sh")],
                                 env=env, capture_output=True, text=True, timeout=20)
@@ -115,18 +114,17 @@ class RunnerLifecycleTests(unittest.TestCase):
         self.assertTrue(any(c[0] == "go" and "-tags=integration" in c for c in calls))
         self.assertTrue(any(c[:2] == ["kind", "delete"] for c in calls))
 
-    def test_streaming_comparison_runs_three_modes_in_isolated_module(self):
+    def test_streaming_comparison_uses_both_modes_without_module_edits(self):
         result, calls = self.run_runner(compare_streaming=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(sum(c[0] == "go" and "-tags=integration" in c for c in calls), 3)
-        self.assertEqual(sum(c[:3] == ["go", "mod", "edit"] for c in calls), 5)
-        self.assertTrue(any("-replace=k8s.io/client-go=k8s.io/client-go@v0.34.3" in c for c in calls))
+        self.assertEqual(sum(c[0] == "go" and "-tags=integration" in c for c in calls), 2)
+        self.assertEqual(sum(c[:3] == ["go", "mod", "edit"] for c in calls), 0)
         self.assertTrue(any(c[:2] == ["kind", "delete"] for c in calls))
 
     def test_streaming_failure_is_reported_and_cluster_is_removed(self):
         result, calls = self.run_runner("streaming", compare_streaming=True)
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(sum(c[0] == "go" and "-tags=integration" in c for c in calls), 3)
+        self.assertEqual(sum(c[0] == "go" and "-tags=integration" in c for c in calls), 2)
         self.assertTrue(any(c[:2] == ["kind", "delete"] for c in calls))
 
 

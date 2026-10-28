@@ -11,10 +11,14 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
+	clientfeatures "k8s.io/client-go/features"
+	clientfeaturestesting "k8s.io/client-go/features/testing"
 	"k8s.io/client-go/tools/cache"
 )
 
 func TestSubscriptionSharesInformerAndInternalHandler(t *testing.T) {
+	// This in-memory fixture implements ordinary LIST/WATCH, not WatchList.
+	clientfeaturestesting.SetFeatureDuringTest(t, clientfeatures.WatchListClient, false)
 	client := &Clientset{}
 	t.Cleanup(client.UnsubscribeAll)
 	var factories, adds int32

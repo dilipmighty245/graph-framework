@@ -2,7 +2,7 @@ version: "3.9"
 services:
   etcd:
     container_name: etcd
-    image: quay.io/coreos/etcd:v3.5.10
+    image: quay.io/coreos/etcd:v3.5.24
     restart: "always"
     network_mode: nexus
     hostname: etcd
@@ -22,7 +22,7 @@ services:
       HTTP_PROXY: ''
   kubernetes:
     container_name: kubernetes
-    image: "${NEXUS_KUBE_APISERVER_IMAGE:?Set NEXUS_KUBE_APISERVER_IMAGE to an available kube-apiserver image}"
+    image: "${NEXUS_KUBE_APISERVER_IMAGE:-registry.k8s.io/kube-apiserver:v1.34.3}"
     command: kube-apiserver --etcd-servers=http://etcd:2379 --service-account-key-file=/custom/k8s/certs/sa.pub --service-account-signing-key-file=/custom/k8s/certs/sa.key --tls-cert-file=/custom/k8s/certs/apiserver.crt --tls-private-key-file=/custom/k8s/certs/apiserver.key --client-ca-file=/custom/k8s/certs/ca.crt --service-account-issuer=api --service-cluster-ip-range=10.24.0.0/16 --disable-admission-plugins=CertificateApproval,CertificateSigning,CertificateSubjectRestriction,DefaultIngressClass,DefaultStorageClass,DefaultTolerationSeconds,LimitRanger,MutatingAdmissionWebhook,NamespaceLifecycle,PersistentVolumeClaimResize,PodSecurity,Priority,ResourceQuota,RuntimeClass,ServiceAccount,StorageObjectInUseProtection,TaintNodesByCondition,ValidatingAdmissionPolicy,ValidatingAdmissionWebhook,NodeRestriction,PodNodeSelector
     volumes:
       - ./certs:/custom/k8s/certs
@@ -38,7 +38,7 @@ services:
       HTTP_PROXY: ''
   k8s-proxy:
     container_name: k8s-proxy
-    image: bitnami/kubectl
+    image: "${NEXUS_KUBECTL_IMAGE:-registry.k8s.io/kubectl:v1.34.3}"
     command: proxy --disable-filter=true --v=9 --kubeconfig /var/lib/k0s/pki/kubeconfig -p $KUBECTL_PROXY_PORT --address "0.0.0.0"
     hostname: k8s-proxy
     privileged: true

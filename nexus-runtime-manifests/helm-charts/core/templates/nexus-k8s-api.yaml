@@ -1,104 +1,3 @@
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: nexus-k8scert-secret-permission
-  namespace: {{ default  .Release.Namespace .Values.global.namespace }}
-rules:
-- apiGroups:
-  - ""
-  resources:
-  - "secrets"
-  verbs:
-  - get
-  - watch
-  - list
-  - create
-  - delete
-  - patch
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: nexus-k8scerts-service-account
-  namespace: {{ default  .Release.Namespace .Values.global.namespace }}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: nexus-k8scert-create-secret-rbac
-  namespace: {{ default  .Release.Namespace .Values.global.namespace }}
-subjects:
-- kind: ServiceAccount
-  name: nexus-k8scerts-service-account
-roleRef:
-  kind: Role
-  name: nexus-k8scert-secret-permission
-  apiGroup: rbac.authorization.k8s.io
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: nexus-k8scert-creation-job
-  namespace: {{ default  .Release.Namespace .Values.global.namespace }}
-  annotations:
-    {{- template "argoJobHook" .}}
-spec:
-  template:
-    metadata:
-      annotations:
-        "sidecar.istio.io/inject": "false"
-    spec:
-      serviceAccountName: nexus-k8scerts-service-account
-      containers:
-      - name: k8scert-creation
-        image: "{{ if .Values.imageRegistry }}{{ trimSuffix "/" .Values.imageRegistry }}/{{ end }}nexus/debugtools:{{ default .Values.debugtools.imageTag .Values.imageTag }}"
-        imagePullPolicy: IfNotPresent
-        command:
-        - "/bin/bash"
-        - "-c"
-        - |
-          set -e
-          openssl rand -out /root/.rnd -hex 256
-          openssl genrsa -out /tmp/ca.key 2048
-          openssl req -x509 -new -nodes -key /tmp/ca.key -subj "/CN=nexus-apiserver" -days 10000 -out /tmp/ca.crt
-          if kubectl get secret nexus-customapi-ca -n $KUBERNETES_POD_NAMESPACE 1>&2>/dev/null; then \
-            echo "Skipping Secret ${secret} creation on $KUBERNETES_POD_NAMESPACE as it already exists"
-            exit 0
-          else
-            kubectl create secret generic nexus-customapi-ca --from-file=/tmp/ca.key --from-file=/tmp/ca.crt -n $KUBERNETES_POD_NAMESPACE --dry-run -o yaml | kubectl apply -f -
-          fi
-        env:
-          - name: KUBERNETES_POD_NAMESPACE
-            valueFrom:
-              fieldRef:
-                apiVersion: v1
-                fieldPath: metadata.namespace
-      restartPolicy: Never
-  backoffLimit: 4
----
-apiVersion: v1
-data:
-  apiserver.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURwVENDQW8yZ0F3SUJBZ0lJQjYwYTRTbitPcW93RFFZSktvWklodmNOQVFFTEJRQXdGVEVUTUJFR0ExVUUKQXhNS2EzVmlaWEp1WlhSbGN6QWVGdzB5TXpFeU1URXdNalEzTXpsYUZ3MHlOREV5TVRBd01qUTNNemxhTUJreApGekFWQmdOVkJBTVREbXQxWW1VdFlYQnBjMlZ5ZG1WeU1JSUJJakFOQmdrcWhraUc5dzBCQVFFRkFBT0NBUThBCk1JSUJDZ0tDQVFFQW1sUldtQ3U5ZmlYQjNVTkZZdVJnMlBOUldiQU9BWmFuNzZEMENnZVVNdDR3YWsyaWNJL3AKbzhwc0V0a3N4c0hqWlBBOUtETXU0clJtOHkzSENJdE9MTDEzSUpkUTlxSHFWR1VwdmE1NVA5cnMxQUJuREhEUApoYVhGVm5sR1RUakZRcXNOWkMyaWdPRlpjNVF5TmVISi9VL05tWUxvRFhnTXpESjdTU2UrU2poUW5MVmw1b3JyCjlqMURTQTJRWmI0THFDUWRvMDBCcE5CUkdxNHFQVFRrVW1sT0JYSVhYTFNzSzJncHRFbW1hYzE0WTZ0YzIwaEsKRDU0Vnd6TU95aXF4MWdaeURZVW5EU2pnY3RadDZ2Mlhxa1hDSFY0NkRBY2M3cDBiMFlzdkJRYUxreldpNSszbQpRa1gweVg2VVhTNHYrbmRqYkl5SDMzLzhtd1Blbi9Ec05RSURBUUFCbzRIME1JSHhNQTRHQTFVZER3RUIvd1FFCkF3SUZvREFUQmdOVkhTVUVEREFLQmdnckJnRUZCUWNEQVRBTUJnTlZIUk1CQWY4RUFqQUFNQjhHQTFVZEl3UVkKTUJhQUZFTHNYbWhHa2NrbVc3ZzFaUGF5NGNCalpRa2xNSUdhQmdOVkhSRUVnWkl3Z1krQ0VtdHBibVF0WTI5dQpkSEp2YkMxd2JHRnVaWUlLYTNWaVpYSnVaWFJsYzRJU2EzVmlaWEp1WlhSbGN5NWtaV1poZFd4MGdoWnJkV0psCmNtNWxkR1Z6TG1SbFptRjFiSFF1YzNaamdpUnJkV0psY201bGRHVnpMbVJsWm1GMWJIUXVjM1pqTG1Oc2RYTjAKWlhJdWJHOWpZV3lDQ1d4dlkyRnNhRzl6ZEljRUNtQUFBWWNFckJZQUFvY0Vmd0FBQVRBTkJna3Foa2lHOXcwQgpBUXNGQUFPQ0FRRUFhZE5Kc1ZHUUFtMC8rTjBjR08xRk9pMmhRWjI3YUZJQi96STVTVkdlWTZWL3EyeHJWemJtCmw1alk1REtlOHJZcE1tdDNTY0RuM3hpa1JmR2J4cTFjWStPeU8wTktJSm1xZEdmczJudC9NMDVYdnp3VTlIZzQKTUgvVUd2U1RFY3VTSWZsTnVOZHNaWW90RitWbFNRemNnK3dUU3MxNFVWemtFZ1Q1OGtvaU5xamZJZlRNVERyWQpEb0FiSGlOQ0FZTDdwQVk2WWc0b0dLWVVQYk14a1pEQ0NodVZhSUtTdlYwOFR2UkZkdzFqZlNRRzdMc2t6ZXFRCkh3a055ZUJ1cWRBTkIyWXZhdFkrbzJ4N29NNlNIVWh4THhyQ0RreVBnOXdiV201bVR3Ly9wczZ6WWtsVm1kZzYKb2ZtY2R3N2hjcEdmdS9uK2xzQW9UZmUwUTVUeUcybGg1Zz09Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
-  apiserver.key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFb2dJQkFBS0NBUUVBbWxSV21DdTlmaVhCM1VORll1UmcyUE5SV2JBT0FaYW43NkQwQ2dlVU10NHdhazJpCmNJL3BvOHBzRXRrc3hzSGpaUEE5S0RNdTRyUm04eTNIQ0l0T0xMMTNJSmRROXFIcVZHVXB2YTU1UDlyczFBQm4KREhEUGhhWEZWbmxHVFRqRlFxc05aQzJpZ09GWmM1UXlOZUhKL1UvTm1ZTG9EWGdNekRKN1NTZStTamhRbkxWbAo1b3JyOWoxRFNBMlFaYjRMcUNRZG8wMEJwTkJSR3E0cVBUVGtVbWxPQlhJWFhMU3NLMmdwdEVtbWFjMTRZNnRjCjIwaEtENTRWd3pNT3lpcXgxZ1p5RFlVbkRTamdjdFp0NnYyWHFrWENIVjQ2REFjYzdwMGIwWXN2QlFhTGt6V2kKNSszbVFrWDB5WDZVWFM0dituZGpiSXlIMzMvOG13UGVuL0RzTlFJREFRQUJBb0lCQUVjVjcra1p4S2ZWWm0ydgpiY2QyWUhHdDZkdkE3MEttRFdhZ0lhaDVBemRIQnRBQVFJRk9tSlM4U1htSkZVbmJ4dzBZWjJNYjZFMitRT2xrClBaaGU2anhMYlJMVEFCVUtVYkJjQkpUOVI1WTFGZjgwekVKN3QrcmNoNEFrVGxDRmhMOEhvUnh5dExaZWxtQloKYzZORUJGRXNzQXcwc3dSNU5wUGI4Tk9xZmNrYlhsR2RCaG1xOGY2T0pSQmwrZk1sVnpLTFFEU0puYU9PQnpCMwoxRXgzbUZDS3BVRnpoclJoR0tZdk5LbVBOSVpwS0NyREhQVWtJL0V1UFI4M2ZmdzNLajl6T3B6K2NHelIzbU45CnJiTWp1aWxuNDVaa1NpNlQ0N3dIZmJ4MytwUlRUUmRrdFFHODVIdUdodkpvQUhyTFRLc3hnNnd5RUNOV0dDMjgKRWNuc3JXVUNnWUVBeGlhanJFd1dHU0dGcmY1T0IxUXJZbGY5RlBpRHJpOEpzd0lrSSthTG8vcm9STWp6SEpldQpUcnJkR3RGMW5oWGFwOHFCdmFCZ1k0Y3NMWHlyc0xCQzlieVRGYzBiazkvQUU0UUNPZVRsbHJnSlBrWU9IZjF3CmZkb3Q3WHNRaTJ0YU0wK0U2ZEJ4NmdzMWgzWk5aQWxId0U5RFJTcktrRUJ4YnBzaHdkUDRCeThDZ1lFQXgyS1UKQlhzUjJkQ0kra3RiOEJSMEs5SHZEbStHd3VSYkJQNWlualJNbGtwTTM5bk5XS1kxWVdmMlVnbFNmaHVrRDI1SQpieFdWSFFydzM5ZVFxUlJia3ZiQzdwMDdFSC9sZkxSaGhTcWZ2NEJWc1k2UmlCVVZjK08wSHVtRUVhWVc4d0thCnV0Rm5EYlR1Wmo2TkZZb216cnNOVWpnYjhUY1ZsS1FsMjhrWDZkc0NnWUJIc3YrU2ZzMllObHNLeEhRempxOU0KSEk2RklnOXozYTFpeXFtTkhBVDNSdmo0dXNYTldNMUh5N0hwM0ZUMDZPOS91M1VLeXBkV0xEaytGRmlEektQTwpDM2dsY1Z4RE83bGkxbWQvejJXTURmZTZRdHNrMnVuemdCa1NUMitESTBzMk9kWGNUUUtMTDVjazl4ZTExTzNUCmxscS9FbWJObjZQcjQ5SnBNbXdUSFFLQmdEbFVZdk5nZTdXQmZLRmJZY2dhV1h6d0ZDaTJjSzFCTTlxdnVuTjYKM2pxb2lvb2kraVJ2UmhJSDdvK1FGcVFrRm54SlhaSnpSampmbUhzRVpKZjVQb3QzWUgxendEUHlVbTRVLzZWbQpxQ0JNS2xldmdyRDZQdnpma0Q4RExmSlZLMndjWjVrbjlOWEFISHhScUFkMWZjc2JoYTBLYlI1aWxGWDFETjJ4CmFLclpBb0dBVFVyUXNHTnBkRzZTL1FpVXZqd1ZVcGNaSGtFdmQyZGNKMGtSVkFuWENRSGxKVno1b2JzOWkzYlMKUmJQSThNYVpiOE9tVWFGR2paK0xoUVVxdTRITTZWMjdRZVlrdGQ3QmprajBJMGhpdFRYM3FvOUxuZlpheXJpdApHNEM5dE5mU1gvWjhOM3B6dHlBb1hQSFIwUkpVWmhwV3AxWlE5TGsvL1g5cDlZWW5hSFk9Ci0tLS0tRU5EIFJTQSBQUklWQVRFIEtFWS0tLS0tCg==
-  ca.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUMvakNDQWVhZ0F3SUJBZ0lCQURBTkJna3Foa2lHOXcwQkFRc0ZBREFWTVJNd0VRWURWUVFERXdwcmRXSmwKY201bGRHVnpNQjRYRFRJek1USXhNVEF5TkRjek9Wb1hEVE16TVRJd09EQXlORGN6T1Zvd0ZURVRNQkVHQTFVRQpBeE1LYTNWaVpYSnVaWFJsY3pDQ0FTSXdEUVlKS29aSWh2Y05BUUVCQlFBRGdnRVBBRENDQVFvQ2dnRUJBS1NOCndDdzkwQjNtNEFkdlFYaUl3emF0ZnFNL3FMNGVFOFFpNmQ1ZElDRytJK1c0ZTE1SkNLSUMvdStrUTB5bGVvMFQKR2xCMGxwL1NjaU9FNVlDWXJocC9Vb0gxaVk5bTBobnUyaTFZbEJ2Vks0bUJVZ2RkZUZZdU1SMkdRbzdocGpmWApsL2RCZjdUV0xrVldhaXZqZ2pocEcrYzBHeGF1cGxYV1l0U3BpQ0lTR2hPMVFYcmJnL01ucEtjdUdxMjNNcnlBCm1vQVRIVjAxWG8yNkRhb2JudWZmTDB5YUM2TWt3QVVaQTh5MC9adWNFRldZdGorblN5UzlaQ3hlcUVSTDFiTUMKN2lXL3lQUXhiZCtrbmFiU09aWHRWSnFzYWZtQjViV0k5K0ErRWNoOVZvcmtWM25vUWFNc3RYUVRvQ2x1VUwyRQp6MFpCU3BhSzVDMTRsRkYwSHI4Q0F3RUFBYU5aTUZjd0RnWURWUjBQQVFIL0JBUURBZ0trTUE4R0ExVWRFd0VCCi93UUZNQU1CQWY4d0hRWURWUjBPQkJZRUZFTHNYbWhHa2NrbVc3ZzFaUGF5NGNCalpRa2xNQlVHQTFVZEVRUU8KTUF5Q0NtdDFZbVZ5Ym1WMFpYTXdEUVlKS29aSWh2Y05BUUVMQlFBRGdnRUJBR0d5eFVUcVNwUGJOWEtnVTNPVApBRGhnUzgybURqV3AwSXRBTDBHWEdGb3lUMk9KZXhCcjRaWjRZSzVkdkkwVTVxa1JMN1FOLytkNDg3ZlBkUTFTCmpKOTIxWEpYbjdpdGlWYW9MNmJpaWtFamRQeEFCODVCMnJqOUNWM3R4eTBHZzJpb1p4OEhQQ1RrcHN1YVlJTVgKOEVBelhCK25keG13VHFSUDFHSHo0VnZIQXk5cTJRSExta2NWRjNaalJvYVpkV25mcWtKQUs1QVJXZ0dhV0gxQQpDcDdpWXVVaHM1aWNpQjBPRU5HVHlqNXlxRzNMekZjWjUxU1lteExIUGljbUp5alYvNTYrTVpUUmJrRHFFV2FTCkpqVG1ERUFmdmM3QmNHTHBrUTJzRGR5S1IyYVNrRFVnSi93MVhJeVdlLzI3emZnQXlRVlI1eSttRjh3d0RSME8KT3pFPQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg== 
-  sa.pub: LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUExQWwrVXhaMVVOZTlwVE9KK2NheAp1UjJWcThqaENhd1plTzBWekpERmpxdVpDbVUyQXpTS3dLaGhnVXFuYjJhRlF0RElMTUNPdzBRSG04aGJveXcxClp6SnZ5emhiMHRxc2JXa251NC9INlNHZU1ZWmdkYU5DdkgzOTJldHhrbmI1eHJ2NWVHS3Aralc4a29PLzhTV3oKMjRjR2c1UFhnMDA4eURvQnVkNmo1bHZIcmNkbmtFWldXdTZUL1F3eTRHYmhRa01POW1Ba2lRWkh3eEtISVA1LwowbEJyeFhwV3liRWsyOFg4WFJ5M1pKQ0ZhUUVtRW1neHRLek9scytOa2h1OHUvdFRraGo3cVdmSzR0enNjTy9FCmFFZFNZVmtuZEx0NGpBeEFIT2I0U3lXbnNtZ3dOdk9GOXowU3FzaTJUZkhDUnoxOU1ndlJabXJxdXZWTGQzekwKSlFJREFRQUIKLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg== 
-  sa.key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcEFJQkFBS0NBUUVBMUFsK1V4WjFVTmU5cFRPSitjYXh1UjJWcThqaENhd1plTzBWekpERmpxdVpDbVUyCkF6U0t3S2hoZ1VxbmIyYUZRdERJTE1DT3cwUUhtOGhib3l3MVp6SnZ5emhiMHRxc2JXa251NC9INlNHZU1ZWmcKZGFOQ3ZIMzkyZXR4a25iNXhydjVlR0twK2pXOGtvTy84U1d6MjRjR2c1UFhnMDA4eURvQnVkNmo1bHZIcmNkbgprRVpXV3U2VC9Rd3k0R2JoUWtNTzltQWtpUVpId3hLSElQNS8wbEJyeFhwV3liRWsyOFg4WFJ5M1pKQ0ZhUUVtCkVtZ3h0S3pPbHMrTmtodTh1L3RUa2hqN3FXZks0dHpzY08vRWFFZFNZVmtuZEx0NGpBeEFIT2I0U3lXbnNtZ3cKTnZPRjl6MFNxc2kyVGZIQ1J6MTlNZ3ZSWm1ycXV2VkxkM3pMSlFJREFRQUJBb0lCQVFDMHFEb0hWTlV6d2YwRQo2anFlbzluOG5PWk83T0kvdVhBaWhlM1MwMjVmTm5rNFVDK0szNU53dm9ZRkFMUlR5QWUyZStoeHFNWjZQRlkzCk5xaE5DSGVmcTJ0d3ZGNFA4dHlDZzl1a2hNYVJMV0Y1Vk1LT3VFRStGQ0xiTHkwZTIxdkpKWk5TTE00aUx2S3gKNnFyNUxXUm1vRTYrZ0pKWWZ0QlEwSXR6Nyt1NWNkN2dOeXdqVjVjcGNmSytnb1BrSjgvam1adFdCS0tvV09POApkZzZvWWNpajByMGVMVno1UjVyc3NvZzdEN0lMdlFhekpLY0NTUUpqM1dXbitiTVROcDMwbk00L2thUHhDV1VNClU2bmNCckpXNzJheEdVakJkeWM2VFhpVjBpVkZLSnBWdXpkdTRYZUl4SXpEZUZVc01iRjAwd2VScndqZjFQYlEKYmRTUlpkS3BBb0dCQU5YWHNOWFZPZm4rMWVsKzdyRHl4amVJMzdPL0hLbk50ZkxqNkpDMVhtNDRWeTdZay9nYgpnelNjdFc0YWRETHhNclJsUHZGUGpWcFJLVk1saEw4MXB4ZmJTZ3d6VjFCL25NRk9kZjhvYzl1WDdwZ0xIVWVkCjNjckc1VWgvQmdyZ2ltMG94SWJKaC9PczdDUldVdGNqRUl0dkU2bVVKcE5rUldtYzRUZlc2Q0kzQW9HQkFQM1cKcnhkVjJ6RTJpdXBtc04zcGszb3FUN1lSWGQybGdIMGVmMjgzUWNRaGtzR3orV0hDSTNkUnN3aHRDaHg0OGhvSgo4MitSdkFCcTdyOXlFTDJoeThISzFFWTlsMlFOTkwzZWo0NDV2d3ZFN0RnWHQ1YWVUT2pPRzRVUkhiY2xZeVJSCmxzT3JkTVExRkZlREJ0WTA0NFJ4UjlyRUFDdU9QTERXZG14REZuK0RBb0dBZm84b0huWVMyUTFraHN2VDhxL00KZG1Pd21jNGE1YmhVM2dyYXdvSkZBQkNpTUp5SGZvaXg3M3BydWwwM3RrcWdDcm45Tlk0eWgyaVBmNkV0M29pZgpldlFTOEFPV3dwSzBNSWdDTitBMktablM0UE43QWI3QjNGZzRyTjVZc2lsUVkraUQzNDM0dzFQdGNsZ1FzVGtVCmVxRmp6ckphM2xLeTdoMm1BWWxVVzZNQ2dZRUFrZXBjQWhVSGlGV3JLeTFXMUduVnJlOHVuU0dFak1uN2YzRU4Kbmpmc1pUdExhbS96bGgrTVZhV3dQZEs0Y2orUUpDbStOMDlWL0FOOE5LNzBNcDRVUzlVMWl4OFNySi91eG9wdQppVHBtdVBROU9jMWdhb09iQUdTaWF5NjRuelF0dG8zMEZZeTA5YWp4aFpDN1dGMVV3Q2lDUHA1VzNyTEg3bnVKCjNaZi9FZE1DZ1lBMzU1bktuMkYzZFRFUTF4ZVdmQTVqYUdVZlFkNzFnMnRMNS9xQmR4b1U5czdLQzhZRUxWWUQKR3BWN3o4Y01ZQ1JyZ2V2VEpmQ2ltcC9oWTdNUEErbGVPb3F1YXJvWForZU9rN2lpRi9WUG02N05TdzgzUG83bQp5YytBREs3dExEMWhPNUl0L04wNXFJQkwwYXY5aGpIREgzaktHaVE1TE9FdFczb25ZMFZuWUE9PQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo= 
-kind: Secret
-metadata:
-  name: nexus-k8s-apiserver-certs 
-  namespace: {{ default  .Release.Namespace .Values.global.namespace }}
-type: opaque 
----
-apiVersion: v1
-data:
-  kubeconfig: YXBpVmVyc2lvbjogdjEKY2x1c3RlcnM6Ci0gY2x1c3RlcjoKICAgIGNlcnRpZmljYXRlLWF1dGhvcml0eS1kYXRhOiBMUzB0TFMxQ1JVZEpUaUJEUlZKVVNVWkpRMEZVUlMwdExTMHRDazFKU1VNdmFrTkRRV1ZoWjBGM1NVSkJaMGxDUVVSQlRrSm5hM0ZvYTJsSE9YY3dRa0ZSYzBaQlJFRldUVkpOZDBWUldVUldVVkZFUlhkd2NtUlhTbXdLWTIwMWJHUkhWbnBOUWpSWVJGUkplazFVU1hoTlZFRjVUa1JqZWs5V2IxaEVWRTE2VFZSSmQwOUVRWGxPUkdONlQxWnZkMFpVUlZSTlFrVkhRVEZWUlFwQmVFMUxZVE5XYVZwWVNuVmFXRkpzWTNwRFEwRlRTWGRFVVZsS1MyOWFTV2gyWTA1QlVVVkNRbEZCUkdkblJWQkJSRU5EUVZGdlEyZG5SVUpCUzFOT0NuZERkemt3UWpOdE5FRmtkbEZZYVVsM2VtRjBabkZOTDNGTU5HVkZPRkZwTm1RMVpFbERSeXRKSzFjMFpURTFTa05MU1VNdmRTdHJVVEI1YkdWdk1GUUtSMnhDTUd4d0wxTmphVTlGTlZsRFdYSm9jQzlWYjBneGFWazViVEJvYm5VeWFURlpiRUoyVmtzMGJVSlZaMlJrWlVaWmRVMVNNa2RSYnpkb2NHcG1XQXBzTDJSQ1pqZFVWMHhyVmxkaGFYWnFaMnBvY0Vjcll6QkhlR0YxY0d4WVYxbDBVM0JwUTBsVFIyaFBNVkZZY21KbkwwMXVjRXRqZFVkeE1qTk5jbmxCQ20xdlFWUklWakF4V0c4eU5rUmhiMkp1ZFdabVREQjVZVU0yVFd0M1FWVmFRVGg1TUM5YWRXTkZSbGRaZEdvcmJsTjVVemxhUTNobGNVVlNUREZpVFVNS04ybFhMM2xRVVhoaVpDdHJibUZpVTA5YVdIUldTbkZ6WVdadFFqVmlWMGs1SzBFclJXTm9PVlp2Y210V00yNXZVV0ZOYzNSWVVWUnZRMngxVlV3eVJRcDZNRnBDVTNCaFN6VkRNVFJzUmtZd1NISTRRMEYzUlVGQllVNWFUVVpqZDBSbldVUldVakJRUVZGSUwwSkJVVVJCWjB0clRVRTRSMEV4VldSRmQwVkNDaTkzVVVaTlFVMUNRV1k0ZDBoUldVUldVakJQUWtKWlJVWkZUSE5ZYldoSGEyTnJiVmMzWnpGYVVHRjVOR05DYWxwUmEyeE5RbFZIUVRGVlpFVlJVVThLVFVGNVEwTnRkREZaYlZaNVltMVdNRnBZVFhkRVVWbEtTMjlhU1doMlkwNUJVVVZNUWxGQlJHZG5SVUpCUjBkNWVGVlVjVk53VUdKT1dFdG5WVE5QVkFwQlJHaG5Vemd5YlVScVYzQXdTWFJCVERCSFdFZEdiM2xVTWs5S1pYaENjalJhV2pSWlN6Vmtka2t3VlRWeGExSk1OMUZPTHl0a05EZzNabEJrVVRGVENtcEtPVEl4V0VwWWJqZHBkR2xXWVc5TU5tSnBhV3RGYW1SUWVFRkNPRFZDTW5KcU9VTldNM1I0ZVRCSFp6SnBiMXA0T0VoUVExUnJjSE4xWVZsSlRWZ0tPRVZCZWxoQ0syNWtlRzEzVkhGU1VERkhTSG8wVm5aSVFYazVjVEpSU0V4dGEyTldSak5hYWxKdllWcGtWMjVtY1d0S1FVczFRVkpYWjBkaFYwZ3hRUXBEY0RkcFdYVlZhSE0xYVdOcFFqQlBSVTVIVkhscU5YbHhSek5NZWtaaldqVXhVMWx0ZUV4SVVHbGpiVXA1YWxZdk5UWXJUVnBVVW1KclJIRkZWMkZUQ2twcVZHMUVSVUZtZG1NM1FtTkhUSEJyVVRKelJHUjVTMUl5WVZOclJGVm5TaTkzTVZoSmVWZGxMekkzZW1ablFYbFJWbEkxZVN0dFJqaDNkMFJTTUU4S1QzcEZQUW90TFMwdExVVk9SQ0JEUlZKVVNVWkpRMEZVUlMwdExTMHRDZz09CiAgICBzZXJ2ZXI6IGh0dHBzOi8va2luZC1jb250cm9sLXBsYW5lOjY0NDMKICBuYW1lOiBraW5kLWtpbmQKY29udGV4dHM6Ci0gY29udGV4dDoKICAgIGNsdXN0ZXI6IGtpbmQta2luZAogICAgdXNlcjoga2luZC1raW5kCiAgbmFtZToga2luZC1raW5kCmN1cnJlbnQtY29udGV4dDoga2luZC1raW5kCmtpbmQ6IENvbmZpZwpwcmVmZXJlbmNlczoge30KdXNlcnM6Ci0gbmFtZToga2luZC1raW5kCiAgdXNlcjoKICAgIGNsaWVudC1jZXJ0aWZpY2F0ZS1kYXRhOiBMUzB0TFMxQ1JVZEpUaUJEUlZKVVNVWkpRMEZVUlMwdExTMHRDazFKU1VSSlZFTkRRV2R0WjBGM1NVSkJaMGxKVDNNMk1XSjViR0prZDI5M1JGRlpTa3R2V2tsb2RtTk9RVkZGVEVKUlFYZEdWRVZVVFVKRlIwRXhWVVVLUVhoTlMyRXpWbWxhV0VwMVdsaFNiR042UVdWR2R6QjVUWHBGZVUxVVJYZE5hbEV6VFhwc1lVWjNNSGxPUkVWNVRWUkJkMDFxVVROT1JFcGhUVVJSZUFwR2VrRldRbWRPVmtKQmIxUkViazQxWXpOU2JHSlVjSFJaV0U0d1dsaEtlazFTYTNkR2QxbEVWbEZSUkVWNFFuSmtWMHBzWTIwMWJHUkhWbnBNVjBackNtSlhiSFZOU1VsQ1NXcEJUa0puYTNGb2EybEhPWGN3UWtGUlJVWkJRVTlEUVZFNFFVMUpTVUpEWjB0RFFWRkZRWFowUjFrNVluSmxWM0JRT1ZOcGRFMEtiM0JxYUV4S1pXZEpVazFtWm5GQ1dIUTJNVzl3VDB0NmJFZGtUekJGTVZaUk0wWTJVMDFxZDA1cmFsRXpjRkk1Y1VacGFERnFjRTFVUm1jMVl6QnRjd3BXZHpjdmJWSmhkR1pSZDA1MU1uaHRjVlpsUW00eVQyZFNhbU4yU0dScVpsRlBXR1p1TkdoR01VeHRVMk5KUWpsMGFGSm1jM0pUWVdsdlRqaE9lbU0yQ2s4eFltbFdlWEIxVkRSeVJGUlZZak42WjBoR1pYaFRVRWh1UTJkNlNrSllWMFpWV0RSWGEycFRkRTlSZVRCS2REbFFiV1EwT0RWRU9GVnBhM281YzI0S2RVcHpjWE5WYUdadFpETmpXRFJ5U0VzMk1VcG9NMFZaUlRrMlpIaEhXamhVVG01b1JXVndOV2QwVkZCaGNFeDFWbVU0UTJKYU4ybHpSRTVVYzJoNGJRcFZOME5TVXpORGQyaHVRMDlRZEZGeVdIQnhlbEFyVUUwclpsSk5WWGh0ZDFaVlRXMXZVVGRaWmpkUU9XcGFabFprZVdkSVNrOTRiMEZCUWk5VFRWVkJDbXhYT1RrM1VVbEVRVkZCUW04eFdYZFdSRUZQUW1kT1ZraFJPRUpCWmpoRlFrRk5RMEpoUVhkRmQxbEVWbEl3YkVKQmQzZERaMWxKUzNkWlFrSlJWVWdLUVhkSmQwUkJXVVJXVWpCVVFWRklMMEpCU1hkQlJFRm1RbWRPVmtoVFRVVkhSRUZYWjBKU1F6ZEdOVzlTY0VoS1NteDFORTVYVkRKemRVaEJXVEpWU2dwS1ZFRk9RbWRyY1docmFVYzVkekJDUVZGelJrRkJUME5CVVVWQlZrRTRjblV2TkVjMVptWlBjV0ZGWVdwalp6bHJVVzU0VHpOMFYzRjVWRUpTY0hka0NuaGpNeThyTVVKeWVUTk1lREZyYWxORVpubzVkMWhZYUdJM1IyMWxPRWhWZUROblEzcHZkWGQzVkc5WFFXMVZlSE5QTkVWWk9IbDBWelZyWTJsb05rUUtPSEZ3TUhkb0x6WlFaREZGYkVWaFdHdGFVRlJMWkdkMVkxRTRSa3hIVVdWUE1GbHVha2xyYlVWMllXcEpRVWQ2U1VwcGNtZExXa3hpU25VeWRVVTBNZ296WkdGalMwTllRVkZqVERBdk0zVTRhWHBPVkdzME1FMXdiVzVRVjBOelNHSTNXRFUzU1VwTVpEQXhhSHBFZG1GcU5tUldOelZqUVdoU0wwdE9jbUptQ25ST2JXNUhZbEZDVWs5NVlXa3ZkRmh6ZFdGeFNsbHNiRkUxZUVGQlpqZDFlVlo2TlhWd2VHSXplVTFoVDFwYWEwaFNXVVJSVjNjeWNVdHJUMHB2WTIwS1ozRmFRVEpaWjI4MGNXMUlSREZEYUdneVUwUnFLMEUwWldsUEwwOUJUV05WVTFCR01DOU1LMnBwTUZRMVVVZG5Va0U5UFFvdExTMHRMVVZPUkNCRFJWSlVTVVpKUTBGVVJTMHRMUzB0Q2c9PQogICAgY2xpZW50LWtleS1kYXRhOiBMUzB0TFMxQ1JVZEpUaUJTVTBFZ1VGSkpWa0ZVUlNCTFJWa3RMUzB0TFFwTlNVbEZiM2RKUWtGQlMwTkJVVVZCZG5SSFdUbGljbVZYY0ZBNVUybDBUVzl3YW1oTVNtVm5TVkpOWm1aeFFsaDBOakZ2Y0U5TGVteEhaRTh3UlRGV0NsRXpSalpUVFdwM1RtdHFVVE53VWpseFJtbG9NV3B3VFZSR1p6VmpNRzF6Vm5jM0wyMVNZWFJtVVhkT2RUSjRiWEZXWlVKdU1rOW5VbXBqZGtoa2FtWUtVVTlZWm00MGFFWXhURzFUWTBsQ09YUm9VbVp6Y2xOaGFXOU9PRTU2WXpaUE1XSnBWbmx3ZFZRMGNrUlVWV0l6ZW1kSVJtVjRVMUJJYmtObmVrcENXQXBYUmxWWU5GZHJhbE4wVDFGNU1FcDBPVkJ0WkRRNE5VUTRWV2xyZWpsemJuVktjM0Z6VldobWJXUXpZMWcwY2toTE5qRkthRE5GV1VVNU5tUjRSMW80Q2xST2JtaEZaWEExWjNSVVVHRndUSFZXWlRoRFlsbzNhWE5FVGxSemFIaHRWVGREVWxNelEzZG9ia05QVUhSUmNsaHdjWHBRSzFCTksyWlNUVlY0YlhjS1ZsVk5iVzlSTjFsbU4xQTVhbHBtVm1SNVowaEtUM2h2UVVGQ0wxTk5WVUZzVnprNU4xRkpSRUZSUVVKQmIwbENRVWhyTDI0ME1FMHhNM05CY2tOS2VncDZkbVJIV1RGWk9WcHNPVGt3YWxwWk1XdFFPVXRTUVZWcFVERlZaelI2ZVdoeGIySk5hRTlNYzNFNFluQTNVekkzTHpKSWFrSlpaVFY0Y0daMVQyMWlDblEyYkRrck1GZG5WbXMyZERKUkwzUjFia2xEUXpOb2JrTndSbnBSVkc5aE9IZHJLM2c1UTB3ck5uUkhNakZyYmtoRWIxWlRhRmMwYTNKYVVFSkNMMndLZEU1bE9YaHZZVk5xU2s0MFdHTTNPWFZFYjNKbUwzUk5VR2REWkdkWVJqUnVXakJhUTNCa1Vsa3lXbGR3UlM5SFQyNXNWRkZYWTNNdlptOVdWR2hhWVFvMVdVTlNhbTVvZWxCSE5sZHhhR2hOZW5WRFdXcDVXRmRHVkVReVRHWkJlRXBPWW5KMlZuVkdlRzF5TVhWamVVdHBNbmt2Y0ZnelJVcFlaa05SZDA5VUNtWk1kVXhoU1cxQmRrSjBjbWhrWkd0QldVNXJTalZxZEdodFRtZENOV2s1Ym5OTFRFYzROVUpCTjNFMVRIWlRla2RvY21SNFExQlhjV3RZZVZaNlUyVUtWV3RvWjNCMFZVTm5XVVZCTkZOWVNVSnBXRE13UXpSTmFpdDJZa3RoYzNwM01EaGtSbFZSYURBeFNrRTFlSFEzVVZsVlZqSjJiMmRUTVRRdlpEZ3ZiQXB5VVZaWloxbFNNV1pYWmtORWRWTmhlVzFxWWs1U1NqSm5SMUZTZGpoM0syRXdWSEppY0dKSGVYQkhWbkJaVnpVM1RqQnJRMkpwWkVGWU5teFpUbGMzQ2tOcFVHNXBMMW9yYnk5NmFsSjVjREZ6S3pCbWJWcEdkRFZIVkhFMkwyOUZkaTh4U0doeE5VVnBkV2t2ZWxVd1owSnNhR3RwYlhORFoxbEZRVEpRWlU0S01VWlRiRWRPVWpOVE1UTTFXVE52Y0RsaU5FVlJVbTVzVW1OWVVuUmhNbFUzUWxwNU5uWm9iVEZXWWtoSGJuWnlSVTA0YjA1U2FYaDNVazVQY0dkTVZnb3ZSUzlQVlRSaldFdEtORWxYUkM5alEwcDZaV1JTZVU1blZtcElZbVYxTkRWdVEwSlVZMDVaTjFWWVdsSmhRa1ZTWjA1NFMzQmFabXRHT0dOUGFXNTRDbE5CZWpRM1lWaDRUVTVIYUdaTFpEVlFNR1EzUTFwU1puUXdjbFJxZEVoUlZFdHdNbGgzWTBObldVRlNMMk5tYmtoa0sxbHdhVlpuTVhSTlZHMUdaWGdLYTNJdllrNURLMVI1UnpOb1UyVlFiV296UkRSd05sbDFMelpCU1habVl6Tm9WV0pYVTNKU2MzbG1OMHN5T1NzeWNuWjRaRmRHVmxveWVWWkVPREZzUmdwcWVVNVdSMll4VjNOS01rcDBXVGQxTmpWcU1tOWxZMElyU2toVmJFSXJNMHB5YkZwRFQwTkVNRVJEUmxCc1NtSm9NbHBSUTJwM1F6RlZSMnRwTnpCWUNtSnVSSEI0VlVVMk4waENkbEZ0ZERsMGJFTkxZM2RMUW1kRFJsUkdTazk1VmtwR1ZuZFBWSGRyUTJRMVZXZDVUMjVRVTNFeE5EUTFOMmhZY21wV05HUUtja3BVZFdocmVuRlJWR0ZQU21aTE1DOXpXRFF2ZDFKaGVFMHJNbms0YzNaTWN5dG9hR2x6VlRaek9IcE1PR0ZoTkZsbk0xWkllWHBsUWpSdlFVbFNWUXBpTW1aVlVUQndaVmRvY2xwdVQweHpSVWQxYzBsUk1UVnlhMjgwZFhacFNVWlpkbUV5ZDNKWGFDdHJkbWdyTTNsUGNrZHFLMjVsWVhCS1ptaElaemxKQ21ReGJuUkJiMGRDUVV3ck5XUlZjbEZVVDNSbVVXOUJWSGxLTW01S1UwRkJXRFUyVWxGVVJtSmxTbkZCY1VkS2JWQkJaekp2T1dWdlVVTjVabnBLYkNzS1EyOU9UMFJVTm1WTlRscDNkRFJPYzBacU9HbEhla05qV1ZWclRuWlZZVFl3VlRsUGJERkdhMjlyVFZsWlYybDZWR2xVYnl0eVdqUjVURUZtVkdwdFJRcHJPRkZET0ZjNWIwVXhjM1ZYVUROSlEwMVZkakZWVkhCa1RGRk9hMDl0TUVWb1ZHTjZla2d5V1dWR2RUSk1WVVJyUXk4NUNpMHRMUzB0UlU1RUlGSlRRU0JRVWtsV1FWUkZJRXRGV1MwdExTMHRDZz09Cg== 
-kind: Secret
-metadata:
-  name: nexus-k8s-apiserver-kubeconfig
-  namespace: {{ default  .Release.Namespace .Values.global.namespace }}
-type: opaque 
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -135,19 +34,22 @@ spec:
       - command:
         - kube-apiserver
         - --etcd-servers=http://nexus-etcd:2379
-        - --service-account-key-file=/custom/k8s/certs/sa.pub
+        - --service-account-key-file=/custom/k8s/certs/sa.key
         - --service-account-signing-key-file=/custom/k8s/certs/sa.key
         - --tls-cert-file=/custom/k8s/certs/apiserver.crt
         - --tls-private-key-file=/custom/k8s/certs/apiserver.key
         - --client-ca-file=/custom/k8s/certs/ca.crt
-        - --service-account-issuer=api
+        - --service-account-issuer=https://nexus-k8s-apiserver:6443
+        - --anonymous-auth=false
+        - --authorization-mode=AlwaysAllow
         - --service-cluster-ip-range=10.24.0.0/16
         - --disable-admission-plugins=CertificateApproval,CertificateSigning,CertificateSubjectRestriction,DefaultIngressClass,DefaultStorageClass,DefaultTolerationSeconds,LimitRanger,MutatingAdmissionWebhook,NamespaceLifecycle,PersistentVolumeClaimResize,PodSecurity,Priority,ResourceQuota,RuntimeClass,ServiceAccount,StorageObjectInUseProtection,TaintNodesByCondition,ValidatingAdmissionPolicy,ValidatingAdmissionWebhook,NodeRestriction,PodNodeSelector
+        {{- if .Values.nexusKubeApiserver.image }}
+        image: {{ .Values.nexusKubeApiserver.image | quote }}
+        {{- else }}
         image: "{{ if .Values.imageRegistry }}{{ trimSuffix "/" .Values.imageRegistry }}/{{ end }}nexus/nexus-kube-apiserver:{{ default .Values.nexusKubeApiserver.imageTag .Values.imageTag }}"
-        resources:
-          requests:
-            cpu: "4000m"
-        imagePullPolicy: Always
+        {{- end }}
+        imagePullPolicy: {{ .Values.runtimeImages.pullPolicy }}
         ports:
           - containerPort: 6443
         env:
@@ -156,9 +58,6 @@ spec:
             fieldRef:
               apiVersion: v1
               fieldPath: metadata.namespace
-        ## this is to fix tls certificate error in validation layer
-        - name: GODEBUG
-          value: x509ignoreCN=0
         name: k8s-apiserver
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
@@ -172,14 +71,14 @@ spec:
       volumes:
       - name: nexus-k8s-apiserver-certs
         secret:
-            secretName: nexus-k8s-apiserver-certs
+            secretName: {{ .Values.runtimeTLS.secretName }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: nexus-k8s-apiserver
   namespace: {{ default  .Release.Namespace .Values.global.namespace }}
-  label:
+  labels:
     component: nexus-apiserver
 spec:
   type: ClusterIP
@@ -225,11 +124,11 @@ spec:
     spec:
       containers:
       - name: proxy-container
-        image: "bitnami/kubectl"
-        command: [ "kubectl", "proxy", "--disable-filter=true", "--v=9", "--address=0.0.0.0", "--kubeconfig", "/var/lib/k0s/pki/kubeconfig"]
+        image: {{ .Values.runtimeImages.kubectl | quote }}
+        command: [ "kubectl", "proxy", "--disable-filter=true", "--address=0.0.0.0", "--kubeconfig", "/var/lib/k0s/pki/kubeconfig"]
         ports:
           - containerPort: 8001
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: {{ .Values.runtimeImages.pullPolicy }}
         volumeMounts:
             - name: nexus-k8s-apiserver-kubeconfig
               mountPath: "/var/lib/k0s/pki"
@@ -239,7 +138,10 @@ spec:
       volumes:
       - name: nexus-k8s-apiserver-kubeconfig
         secret:
-            secretName: nexus-k8s-apiserver-kubeconfig
+            secretName: {{ .Values.runtimeTLS.secretName }}
+            items:
+            - key: kubeconfig
+              path: kubeconfig
 ---
 apiVersion: v1
 kind: Service
@@ -301,6 +203,8 @@ spec:
 {{- end }}
         imagePullPolicy: IfNotPresent
         env:
+        - name: KUBE_FEATURE_WatchListClient
+          value: {{ .Values.watchListClient | quote }}
         - name: KUBECONFIG
           value: /etc/config/kubeconfig/kubeconfig
         - name: APIGWCONFIG
@@ -319,7 +223,10 @@ spec:
       volumes:
       - name: nexus-k8s-apiserver-kubeconfig
         secret:
-            secretName: nexus-k8s-apiserver-kubeconfig
+            secretName: {{ .Values.runtimeTLS.secretName }}
+            items:
+            - key: kubeconfig
+              path: kubeconfig
       - configMap:
           name: nexus-api-gw
           defaultMode: 0555

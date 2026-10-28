@@ -122,7 +122,7 @@ own integration fixtures. The upstream kubebuilder scaffolding cluster suites
 are separate from framework lifecycle tests; run their documented targets in
 `kubebuilder/Makefile` when changing those plugins.
 
-## Subscription restart and streaming experiment
+## Subscription restart and streaming tests
 
 The integration suite also starts eight independent SDK clients simultaneously
 against 32 existing child objects with 4 KiB payloads. It verifies every expected
@@ -130,28 +130,23 @@ initial add callback, hierarchy-cache population, cached snapshot membership,
 and live updates. It then stops every subscriber, deletes and replaces a child
 while offline, and starts fresh clients together to check recovery.
 
-Compare the existing dependencies with an upgraded client using both LIST/WATCH
-and WatchList against the same disposable API server:
+Compare LIST/WATCH and WatchList using the production v0.34.3 dependencies and
+freshly generated clients against the same disposable API server:
 
 ```sh
-E2E_COMPONENTS=resources E2E_SDK_RUNS=1 \
-E2E_KIND_IMAGE=kindest/node:v1.34.3 \
-E2E_SUBSCRIPTION_COMPARE_STREAMING=true \
-bash scripts/test-framework-e2e.sh
+E2E_SDK_RUNS=3 FRAMEWORK_TEST_RACE=true bash scripts/test-framework-e2e.sh
 ```
 
-This opt-in mode upgrades Kubernetes dependencies only in the temporary test
-module to v0.34.3 (`E2E_SUBSCRIPTION_CLIENT_GO_VERSION` overrides this version).
-The production dependency pins and code generator are unchanged. It exercises
-the existing generated clients with the upgraded informer library; it does not
-establish compatibility of a repository-wide upgrade. The selected API server
-must support WatchList and have it enabled.
+The default server is Kind Kubernetes v1.34.3. Both modes run by default using
+separate Go processes to isolate client-go feature gates. Neither mode edits the
+test module's dependency versions. Set `E2E_SUBSCRIPTION_COMPARE_STREAMING=false`
+to run LIST/WATCH alone, or `E2E_COMPONENTS=resources` to omit gateway/GraphQL
+service checks. The selected server must support WatchList and have it enabled.
 
-Each mode runs in a separate Go process to isolate client-go feature gates.
 Successful LIST, ordinary WATCH, and initial-event WATCH requests are counted.
 Streaming must synchronize successfully with no LIST fallback. Logs are
-`subscriptions-N.log`, `subscriptions-control-N.log`,
-`subscriptions-streaming-N.log`, and `subscriptions-upgrade.log`.
+`subscriptions-N.log`, `subscriptions-streaming-N.log`, and
+`subscriptions-versions.log`.
 
 Set `SUBSCRIPTION_RESTART_CLIENTS`, `SUBSCRIPTION_RESTART_OBJECTS`, and
 `SUBSCRIPTION_RESTART_PAYLOAD_BYTES` to positive integers to vary the workload.
@@ -198,31 +193,84 @@ be run from `compiler/example/output/generated` with `go test -race ./nexus-clie
 Run compiler source tests and the E2E command locally before submitting changes.
 Local template-directory test commands do not replace the generated-SDK check.
 
-Validated after the notification refactor on 2026-10-28 with Go 1.27.0,
+Validated the production dependency upgrade on 2026-10-28 with Go 1.27.0,
 Kind Kubernetes v1.34.3, the race detector, and the default workload above.
 Each mode ran in three fresh processes with two startup rounds per process
-(18 restart rounds total):
+(12 restart rounds total):
 
-| Client / transport | LISTs per round | Ordinary WATCHes per round | Initial-event streams per round | Startup range across six rounds |
+| Production client / transport | LISTs per round | Ordinary WATCHes per round | Initial-event streams per round | Startup range across six rounds |
 | --- | ---: | ---: | ---: | --- |
-| v0.26.3 / LIST-WATCH | 120 | 120 | 0 | 117.84–124.63 ms |
-| v0.34.3 / LIST-WATCH | 120 | 120 | 0 | 115.78–125.63 ms |
-| v0.34.3 / WatchList | 0 | 0 | 120 | 116.65–125.86 ms |
+| v0.34.3 / LIST-WATCH | 120 | 120 | 0 | 117.34–132.04 ms |
+| v0.34.3 / WatchList | 0 | 0 | 120 | 118.03–221.83 ms |
 
-All nine processes passed the delayed-replay hierarchy regression, notification
-regression, restart, and existing subscription lifecycle tests. Notification callbacks made zero object GET
-requests in every mode. Fresh generation of both models, generated-client
-unit/race tests, gateway/controller checks, resource CRUD/validation, gateway and
-GraphQL probes, and all 17 framework source checks passed. The disposable cluster
-was deleted. Raw logs are in `artifacts/framework-tests/e2e-eJmxzGU2/` and
-`artifacts/framework-tests/run-P5NovJ6X/` (ignored by Git).
+All six processes passed delayed-replay, notification, restart, and existing
+subscription lifecycle tests. Notification regressions made zero parent GET
+requests. Fresh generation of both models using code-generator v0.34.3,
+generated-client unit/race tests, gateway/controller tests, resource
+CRUD/validation, gateway and standalone GraphQL probes, and all 17 framework
+source checks passed. All 12 core module graphs were audited for aligned
+Kubernetes v0.34.3 and controller-runtime v0.22.3 versions. The disposable cluster
+was deleted. Raw logs are in `artifacts/framework-tests/e2e-25DkgBwp/` and
+`artifacts/framework-tests/run-RgZO7w5H/` (ignored by Git).
 
-The generated SDK can use streaming with the upgraded informer library in this
-experiment. These startup times include the explicit cache-synchronization wait
-and are not directly comparable with the earlier experiment. They do not
-establish a latency or memory improvement. Production dependency pins remain
-unchanged; adopting streaming still requires a coordinated dependency/runtime
-upgrade. Slow application callbacks remain the caller's responsibility.
+The initial run rendered the modern chart and verified etcd v3.5.24. A direct
+API-server pull was blocked by the organization's registry policy. The runtime
+compatibility runner below uses matching images from the cached Kind node,
+without changing that policy; its results are separate from the direct Kind
+subscription measurements above.
+
+### Runtime chart compatibility
+
+`scripts/test-runtime-compatibility.sh` installs only the API infrastructure from
+each core chart in separate namespaces in a disposable Kind v1.34.3 cluster. It
+checks TLS startup, preservation of legacy HTTP endpoints, legacy controller
+operation, credential reuse on Helm upgrades, and all generated-client integration
+tests with LIST/WATCH and WatchList in separate processes. It does not install the
+framework gateway/application images or migrate an existing datastore.
+
+In addition to the E2E tools, install Helm and Python's PyYAML. Have
+`kindest/node:v1.34.3` and `quay.io/coreos/etcd:v3.5.24` cached locally. The runner
+extracts the API-server/controller images and kubectl binary from that node,
+creates a local kubectl image, and deletes its temporary cluster on exit. It
+selects Kind storage and smaller CPU requests for this smoke test. No image
+pulls or registry configuration changes are performed. Docker must support
+`docker image save --platform` (API 1.48+).
+
+It uses the local generated example SDK. If it is absent, generate and finalize
+it first using the compiler tooling described above:
+
+```sh
+make -C compiler generate_example
+cp compiler/_generated/go.mod compiler/example/output/generated/go.mod
+cp compiler/_generated/go.sum compiler/example/output/generated/go.sum
+(
+  cd compiler/example/output/generated
+  go mod edit -module=github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated
+  go mod tidy
+)
+bash scripts/test-runtime-compatibility.sh
+```
+
+The temporary rendered manifests contain private keys and are deleted with the
+private working directory. Logs under `artifacts/framework-tests/runtime-*`
+include API-server versions, subscription tests and pod diagnostics, without
+rendered Secrets. The runtime guide documents image-mirror overrides and stable
+certificate configuration for GitOps.
+
+Validated both runtime charts on 2026-10-28. All four integration processes
+(two charts × two modes) passed with the race detector, including eight restart
+rounds. Each LIST/WATCH round made 120 LISTs and 120 ordinary WATCHes; each
+WatchList round made 120 initial-event streams and no LISTs or ordinary WATCHes.
+Both servers reported v1.34.3. Legacy HTTP endpoint checks, default service-account
+creation by the controller-manager, and server-side Helm credential-reuse checks
+passed. Helm lint, mirror/existing-Secret rendering overrides, shell syntax, and
+Compose configuration checks also passed. The disposable cluster was deleted.
+Logs and `summary.tsv` are in `artifacts/framework-tests/runtime-HY2Kv23o/`.
+
+These timings include the explicit cache-synchronization wait and do not
+establish a latency or memory improvement. Applications enable streaming with
+`KUBE_FEATURE_WatchListClient=true` before startup; client-go retains its normal
+LIST/WATCH fallback. Slow application callbacks remain the caller's responsibility.
 
 ## Results
 

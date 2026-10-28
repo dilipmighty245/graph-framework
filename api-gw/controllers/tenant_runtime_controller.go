@@ -84,6 +84,7 @@ func (r *TenantRuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 // SetupWithManager sets up the controller with the Manager.
 func (r *TenantRuntimeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
+		Named("tenant-runtime").
 		For(&tenantv1.Tenant{}).
 		Complete(r)
 }

@@ -13,3 +13,16 @@ global:
     selectors: |
         app: nexus-etcd
         nexus: nexus-etcd
+
+# Reuse the generated Secret on Helm upgrades. For GitOps, provision a Secret
+# with ca.crt, apiserver.crt/key, sa.key, kubeconfig and proxy-kubeconfig.
+runtimeTLS:
+  secretName: nexus-customapi-tls
+  existingSecret: false
+  serviceName: nexus-apiserver
+  validityDays: 365
+runtimeImages:
+  apiserver: registry.k8s.io/kube-apiserver:v1.34.3
+  controllerManager: registry.k8s.io/kube-controller-manager:v1.34.3
+  kubectl: registry.k8s.io/kubectl:v1.34.3
+  pullPolicy: IfNotPresent

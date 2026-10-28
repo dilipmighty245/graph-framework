@@ -1,6 +1,8 @@
 debugtools:
   imageTag: latest
+watchListClient: true
 nexusKubeApiserver:
+  image: registry.k8s.io/kube-apiserver:v1.34.3
   imageTag: latest
 nexusApiGw:
   imageTag: latest
@@ -22,6 +24,18 @@ global:
     loadbalancer: false
   createEtcd: true
   etcd:
+    storageClassName: gp3-ebs
     selectors: |
         app: nexus-etcd
         nexus: nexus-etcd
+
+# Reuse the generated Secret on Helm upgrades. For GitOps, provision a Secret
+# with ca.crt, apiserver.crt/key, sa.key, kubeconfig and proxy-kubeconfig.
+runtimeTLS:
+  secretName: nexus-k8s-apiserver-certs
+  existingSecret: false
+  serviceName: nexus-k8s-apiserver
+  validityDays: 365
+runtimeImages:
+  kubectl: registry.k8s.io/kubectl:v1.34.3
+  pullPolicy: IfNotPresent

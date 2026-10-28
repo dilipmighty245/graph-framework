@@ -1,0 +1,31 @@
+{{- $ns := default .Release.Namespace .Values.global.namespace -}}
+{{- $name := .Values.runtimeTLS.secretName -}}
+{{- if not .Values.runtimeTLS.existingSecret -}}
+{{- $existing := lookup "v1" "Secret" $ns $name -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+type: Opaque
+data:
+{{- if and $existing (hasKey $existing.data "proxy-kubeconfig") }}
+{{ toYaml $existing.data | indent 2 }}
+{{- else }}
+{{- $days := int .Values.runtimeTLS.validityDays -}}
+{{- $service := .Values.runtimeTLS.serviceName -}}
+{{- $ca := genCA "nexus-runtime-ca" $days -}}
+{{- $dns := list $service (printf "%s.%s" $service $ns) (printf "%s.%s.svc" $service $ns) (printf "%s.%s.svc.cluster.local" $service $ns) "kind-control-plane" (printf "kind-control-plane.%s.svc" $ns) "localhost" "kubernetes" "kubernetes.default" "kubernetes.default.svc" "kubernetes.default.svc.cluster.local" -}}
+{{- $server := genSignedCert $service (list "127.0.0.1" "10.24.0.1") $dns $days $ca -}}
+{{- $client := genSignedCert "nexus-runtime-client" nil nil $days $ca -}}
+{{- $sa := genPrivateKey "rsa" }}
+  ca.crt: {{ $ca.Cert | b64enc | quote }}
+  apiserver.crt: {{ $server.Cert | b64enc | quote }}
+  apiserver.key: {{ $server.Key | b64enc | quote }}
+  sa.key: {{ $sa | b64enc | quote }}
+{{- range $key, $endpoint := dict "kubeconfig" (printf "https://%s.%s.svc:6443" $service $ns) "proxy-kubeconfig" "https://127.0.0.1:6443" }}
+{{- $config := printf "apiVersion: v1\nkind: Config\nclusters:\n- name: nexus\n  cluster:\n    server: %s\n    certificate-authority-data: %s\nusers:\n- name: nexus\n  user:\n    client-certificate-data: %s\n    client-key-data: %s\ncontexts:\n- name: nexus\n  context:\n    cluster: nexus\n    user: nexus\ncurrent-context: nexus\n" $endpoint ($ca.Cert | b64enc) ($client.Cert | b64enc) ($client.Key | b64enc) }}
+  {{ $key }}: {{ $config | b64enc | quote }}
+{{- end }}
+{{- end }}
+{{- end }}

@@ -73,7 +73,7 @@ func GetLatestNexusVersion() (string, error) {
 	if err != nil {
 		errMsg := fmt.Sprintf("Nexus CLI Upgrade check: failed to fetch latest tag from nexus-cli image registry. Please ensure you are able to access: `%s`", gcrImages)
 		fmt.Println(errMsg)
-		return "", fmt.Errorf(errMsg)
+		return "", fmt.Errorf("%s", errMsg)
 	}
 	if len(output) == 0 {
 		return "", fmt.Errorf("no tags found")

@@ -3,7 +3,7 @@
 set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 export E2E_COMPONENTS=${E2E_COMPONENTS:-resources,gateway,graphql}
-E2E_KIND_IMAGE=${E2E_KIND_IMAGE:-kindest/node:v1.37.0}
+E2E_KIND_IMAGE=${E2E_KIND_IMAGE:-kindest/node:v1.34.3}
 for component in ${E2E_COMPONENTS//,/ }; do
     case "$component" in resources|gateway|graphql) ;; *) echo "Unknown E2E component: $component" >&2; exit 2 ;; esac
 done
@@ -139,22 +139,10 @@ run_subscriptions() {
     done
 }
 run_subscriptions '' false
-if [[ ${E2E_SUBSCRIPTION_COMPARE_STREAMING:-false} == true ]]; then
-    # Upgrade only the isolated test main module. Production pins, generator
-    # inputs, and the user's module files stay untouched. Run the upgraded
-    # client once with streaming off so the feature can be compared separately
-    # from the dependency change. Each mode starts a fresh Go process.
-    streaming_version=${E2E_SUBSCRIPTION_CLIENT_GO_VERSION:-v0.34.3}
-    [[ $streaming_version =~ ^v0\.[0-9]+\.[0-9]+$ ]] || { echo 'Expected client-go version v0.MINOR.PATCH' >&2; exit 2; }
-    (
-        cd "$work/repo/compiler/example/tests"
-        for module in api apimachinery client-go apiextensions-apiserver component-base; do
-            go mod edit "-require=k8s.io/$module@$streaming_version" "-replace=k8s.io/$module=k8s.io/$module@$streaming_version"
-        done
-        go mod tidy
-        go list -m k8s.io/api k8s.io/apimachinery k8s.io/client-go
-    ) 2>&1 | tee "$results/subscriptions-upgrade.log"
-    run_subscriptions '-control' false
+if [[ ${E2E_SUBSCRIPTION_COMPARE_STREAMING:-true} == true ]]; then
+    # Both modes use the production dependency graph and freshly generated code.
+    (cd "$work/repo/compiler/example/tests" && go list -m k8s.io/api k8s.io/apimachinery k8s.io/client-go) \
+        2>&1 | tee "$results/subscriptions-versions.log"
     run_subscriptions '-streaming' true
 fi
 # These names follow common-library/pkg/nexus's hierarchy-aware naming contract.

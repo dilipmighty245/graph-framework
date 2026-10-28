@@ -117,7 +117,7 @@ var _ = Describe("ReplicationConfig Tests", func() {
 				),
 				ghttp.CombineHandlers(
 					ghttp.VerifyRequest("POST", "/apis/config.mazinger.com/v1/apicollaborationspaces"),
-					ghttp.RespondWith(200, "{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiCollaborationSpace\",\"metadata\":{\"labels\":{},\"name\":\"ac1\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
+					jsonResponse("{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiCollaborationSpace\",\"metadata\":{\"labels\":{},\"name\":\"ac1\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
 				),
 			)
 			replicationConfig = getReplicationConfigObject()
@@ -170,7 +170,7 @@ var _ = Describe("ReplicationConfig Tests", func() {
 				),
 				ghttp.CombineHandlers(
 					ghttp.VerifyRequest("POST", "/apis/config.mazinger.com/v1/apicollaborationspaces"),
-					ghttp.RespondWith(200, "{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiCollaborationSpace\",\"metadata\":{\"labels\":{\"configs.config.mazinger.com\":\"config\",\"projects.config.mazinger.com\":\"project\",\"roots.config.mazinger.com\":\"root\"},\"name\":\"ac1\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
+					jsonResponse("{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiCollaborationSpace\",\"metadata\":{\"labels\":{\"configs.config.mazinger.com\":\"config\",\"projects.config.mazinger.com\":\"project\",\"roots.config.mazinger.com\":\"root\"},\"name\":\"ac1\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
 				),
 			)
 			replicationConfig := &unstructured.Unstructured{

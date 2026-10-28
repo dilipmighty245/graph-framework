@@ -105,7 +105,7 @@ spec:
       serviceAccountName: "default"
       containers:
         - name: etcd
-          image: quay.io/coreos/etcd:v3.5.10
+          image: quay.io/coreos/etcd:v3.5.24
           resources:
             requests:
               cpu: "4000m"
@@ -203,7 +203,7 @@ spec:
         resources:
           requests:
             storage: "32Gi"
-        storageClassName: gp3-ebs
+        storageClassName: {{ .Values.global.etcd.storageClassName | quote }}
 {{- end }}
 ---
 {{- if ne .Values.global.cronApiVersion "" }}

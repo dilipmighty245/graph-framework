@@ -26,12 +26,13 @@ import (
 	"github.com/dilipmighty245/graph-framework-for-microservices/connector-controller/helpers"
 	"github.com/fluxcd/pkg/runtime/logger"
 	flag "github.com/spf13/pflag"
-	nxv1 "nexus/admin/api/build/apis/connect.admin.nexus.com/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
+	nxv1 "nexus/admin/api/build/apis/connect.admin.nexus.com/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -87,8 +88,7 @@ func run() error {
 
 	mgr, err := ctrl.NewManager(nexusK8s, ctrl.Options{
 		Scheme:                 scheme,
-		MetricsBindAddress:     metricsAddr,
-		Port:                   9443,
+		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
 		Logger:                 ctrl.Log,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,

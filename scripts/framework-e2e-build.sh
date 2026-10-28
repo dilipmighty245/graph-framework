@@ -61,6 +61,7 @@ if [[ ,$E2E_COMPONENTS, == *,gateway,* ]]; then
     CGO_ENABLED=0 GOOS=linux GOARCH="$E2E_GOARCH" go build -o "$root/artifacts/e2e-bin/gateway" ./cmd/api-gw
     for module in authz-controller connector-controller; do
         cd "$root/$module"
+        go mod tidy
         go test "${service_test_args[@]}" ./...
     done
 fi

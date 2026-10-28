@@ -89,7 +89,7 @@ spec:
       serviceAccountName: "default"
       containers:
         - name: etcd
-          image: quay.io/coreos/etcd:v3.5.10
+          image: quay.io/coreos/etcd:v3.5.24
           imagePullPolicy: "IfNotPresent"
           securityContext:
             runAsNonRoot: true

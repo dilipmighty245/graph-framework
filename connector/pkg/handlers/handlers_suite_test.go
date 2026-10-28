@@ -1,6 +1,8 @@
 package handlers_test
 
 import (
+	"github.com/onsi/gomega/ghttp"
+	"net/http"
 	"testing"
 
 	. "github.com/onsi/ginkgo"
@@ -276,4 +278,9 @@ func getDefaultResourceObj() *unstructured.Unstructured {
 func TestHandlers(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Handlers Suite")
+}
+
+// Kubernetes API responses declare their JSON content type explicitly.
+func jsonResponse(body string) http.HandlerFunc {
+	return ghttp.RespondWith(http.StatusOK, body, http.Header{"Content-Type": {"application/json"}})
 }

@@ -32,6 +32,21 @@ make init_submodules
 
 Generation also uses tools including `protoc`, Go protobuf generators, `yq`, `jq`, and Kubernetes generators. Inspect `Makefile`, `builder/Dockerfile`, `manifest.yaml`, and `scripts/` before provisioning a build environment. Existing container builders need toolchain and base-image alignment before they can be treated as a reproducible default.
 
+## Kubernetes compatibility
+
+The compiler and generated clients use Kubernetes v0.34.3 and Go 1.24 or newer.
+The code-generator submodule and `manifest.yaml` pin the same release. Generation
+uses `kube_codegen.sh`; the removed `generate-groups.sh` path is no longer used.
+Regenerate existing datamodel clients and rebuild their services and GraphQL
+plugins when adopting this release.
+
+For streaming initialization, set `KUBE_FEATURE_WatchListClient=true` in the
+application's environment before it starts. The API server must support WatchList
+(the validated target is v1.34.3). Without that variable, client-go retains its
+LIST/WATCH default. Failed streaming initialization falls back through client-go.
+The runtime compatibility notes are in
+[the runtime guide](../nexus-runtime-manifests/README.md).
+
 ## Generation
 
 The principal Make inputs are `DATAMODEL_PATH`, `CONFIG_FILE`, `GENERATED_OUTPUT_DIRECTORY`, and `CRD_MODULE_PATH`. After preparing the toolchain, the included example can be generated with:

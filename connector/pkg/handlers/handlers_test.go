@@ -75,7 +75,7 @@ var _ = Describe("Create", func() {
 				),
 				ghttp.CombineHandlers(
 					ghttp.VerifyRequest("POST", "/apis/config.mazinger.com/v1/apicollaborationspaces"),
-					ghttp.RespondWith(200, "{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiCollaborationSpace\",\"metadata\":{\"labels\":{},\"name\":\"A\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
+					jsonResponse("{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiCollaborationSpace\",\"metadata\":{\"labels\":{},\"name\":\"A\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
 				),
 				ghttp.CombineHandlers(
 					ghttp.VerifyRequest("GET", "/apis/config.mazinger.com/v1/apicollaborationspaces/B"),
@@ -83,7 +83,7 @@ var _ = Describe("Create", func() {
 				),
 				ghttp.CombineHandlers(
 					ghttp.VerifyRequest("POST", "/apis/config.mazinger.com/v1/apicollaborationspaces"),
-					ghttp.RespondWith(200, "{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiCollaborationSpace\",\"metadata\":{\"labels\":{},\"name\":\"B\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
+					jsonResponse("{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiCollaborationSpace\",\"metadata\":{\"labels\":{},\"name\":\"B\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
 				),
 			)
 
@@ -122,7 +122,7 @@ var _ = Describe("Create", func() {
 				),
 				ghttp.CombineHandlers(
 					ghttp.VerifyRequest("POST", "/apis/config.mazinger.com/v1/configs"),
-					ghttp.RespondWith(200, "{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"Config\",\"metadata\":{\"labels\":{},\"name\":\"A\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
+					jsonResponse("{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"Config\",\"metadata\":{\"labels\":{},\"name\":\"A\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
 				),
 				ghttp.CombineHandlers(
 					ghttp.VerifyRequest("GET", "/apis/config.mazinger.com/v1/configs/B"),
@@ -130,7 +130,7 @@ var _ = Describe("Create", func() {
 				),
 				ghttp.CombineHandlers(
 					ghttp.VerifyRequest("POST", "/apis/config.mazinger.com/v1/configs"),
-					ghttp.RespondWith(200, "{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"Config\",\"metadata\":{\"labels\":{},\"name\":\"B\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
+					jsonResponse("{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"Config\",\"metadata\":{\"labels\":{},\"name\":\"B\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
 				),
 			)
 
@@ -169,7 +169,7 @@ var _ = Describe("Create", func() {
 				),
 				ghttp.CombineHandlers(
 					ghttp.VerifyRequest("POST", "/apis/config.mazinger.com/v1/apicollaborationspaces"),
-					ghttp.RespondWith(200, "{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiCollaborationSpace\",\"metadata\":{\"labels\":{},\"name\":\"C\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
+					jsonResponse("{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiCollaborationSpace\",\"metadata\":{\"labels\":{},\"name\":\"C\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
 				),
 			)
 
@@ -220,7 +220,7 @@ var _ = Describe("Create", func() {
 					),
 					ghttp.CombineHandlers(
 						ghttp.VerifyRequest("POST", "/apis/config.mazinger.com/v1/apidevspaces"),
-						ghttp.RespondWith(200, "{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiDevSpace\",\"metadata\":{\"labels\":{\"apicollaborationspaces.config.mazinger.com\":\"foo\",\"configs.apix.mazinger.com\":\"config\",\"nexus/display_name\":\"bar\",\"projects.apix.mazinger.com\":\"project\",\"roots.apix.mazinger.com\":\"root\"},\"name\":\"bar\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
+						jsonResponse("{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiDevSpace\",\"metadata\":{\"labels\":{\"apicollaborationspaces.config.mazinger.com\":\"foo\",\"configs.apix.mazinger.com\":\"config\",\"nexus/display_name\":\"bar\",\"projects.apix.mazinger.com\":\"project\",\"roots.apix.mazinger.com\":\"root\"},\"name\":\"bar\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
 					),
 				)
 
@@ -263,7 +263,7 @@ var _ = Describe("Create", func() {
 					),
 					ghttp.CombineHandlers(
 						ghttp.VerifyRequest("POST", "/apis/config.mazinger.com/v1/apicollaborationspaces"),
-						ghttp.RespondWith(200, "{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiCollaborationSpace\",\"metadata\":{\"labels\":{\"configs.apix.mazinger.com\":\"config\",\"nexus/display_name\":\"foo\",\"projects.apix.mazinger.com\":\"project\",\"roots.apix.mazinger.com\":\"root\"},\"name\":\"foo\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
+						jsonResponse("{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiCollaborationSpace\",\"metadata\":{\"labels\":{\"configs.apix.mazinger.com\":\"config\",\"nexus/display_name\":\"foo\",\"projects.apix.mazinger.com\":\"project\",\"roots.apix.mazinger.com\":\"root\"},\"name\":\"foo\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
 					),
 					//Child request
 					ghttp.CombineHandlers(
@@ -272,7 +272,7 @@ var _ = Describe("Create", func() {
 					),
 					ghttp.CombineHandlers(
 						ghttp.VerifyRequest("POST", "/apis/config.mazinger.com/v1/apidevspaces"),
-						ghttp.RespondWith(200, "{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiDevSpace\",\"metadata\":{\"labels\":{\"configs.apix.mazinger.com\":\"config\",\"nexus/display_name\":\"bar\",\"apicollaborationspaces.config.mazinger.com\":\"foo\",\"projects.apix.mazinger.com\":\"project\",\"roots.apix.mazinger.com\":\"root\"},\"name\":\"foo\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
+						jsonResponse("{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiDevSpace\",\"metadata\":{\"labels\":{\"configs.apix.mazinger.com\":\"config\",\"nexus/display_name\":\"bar\",\"apicollaborationspaces.config.mazinger.com\":\"foo\",\"projects.apix.mazinger.com\":\"project\",\"roots.apix.mazinger.com\":\"root\"},\"name\":\"foo\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
 					),
 				)
 
@@ -350,11 +350,11 @@ var _ = Describe("Create", func() {
 					),
 					ghttp.CombineHandlers(
 						ghttp.VerifyRequest("GET", "/apis/config.mazinger.com/v1/configs"),
-						ghttp.RespondWith(200, "{\"apiVersion\":\"v1\",\"kind\":\"List\",\"items\":[{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiDevSpace\",\"metadata\":{\"name\":\"status_fail\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}},{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiDevSpace\",\"metadata\":{\"name\":\"status_fail\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}]}"),
+						jsonResponse("{\"apiVersion\":\"v1\",\"kind\":\"List\",\"items\":[{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiDevSpace\",\"metadata\":{\"name\":\"status_fail\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}},{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiDevSpace\",\"metadata\":{\"name\":\"status_fail\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}]}"),
 					),
 					ghttp.CombineHandlers(
 						ghttp.VerifyRequest("POST", "/apis/config.mazinger.com/v1/apidevspaces"),
-						ghttp.RespondWith(200, "{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiDevSpace\",\"metadata\":{\"labels\":{\"configs.apix.mazinger.com\":\"config\",\"nexus/display_name\":\"bar\",\"projects.apix.mazinger.com\":\"project\",\"roots.apix.mazinger.com\":\"root\"},\"name\":\"foo\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
+						jsonResponse("{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiDevSpace\",\"metadata\":{\"labels\":{\"configs.apix.mazinger.com\":\"config\",\"nexus/display_name\":\"bar\",\"projects.apix.mazinger.com\":\"project\",\"roots.apix.mazinger.com\":\"root\"},\"name\":\"foo\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
 					),
 				)
 
@@ -397,11 +397,11 @@ var _ = Describe("Create", func() {
 					),
 					ghttp.CombineHandlers(
 						ghttp.VerifyRequest("GET", "/apis/config.mazinger.com/v1/configs"),
-						ghttp.RespondWith(200, "{\"apiVersion\":\"v1\",\"kind\":\"List\",\"items\":[{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiDevSpace\",\"metadata\":{\"name\":\"status_fail\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}},{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiDevSpace\",\"metadata\":{\"name\":\"status_fail\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}]}"),
+						jsonResponse("{\"apiVersion\":\"v1\",\"kind\":\"List\",\"items\":[{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiDevSpace\",\"metadata\":{\"name\":\"status_fail\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}},{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiDevSpace\",\"metadata\":{\"name\":\"status_fail\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}]}"),
 					),
 					ghttp.CombineHandlers(
 						ghttp.VerifyRequest("POST", "/apis/apps/v1/deployments"),
-						ghttp.RespondWith(200, "{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"Deployment\",\"metadata\":{\"name\":\"zoo\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
+						jsonResponse("{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"Deployment\",\"metadata\":{\"name\":\"zoo\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
 					),
 				)
 
@@ -557,7 +557,7 @@ var _ = Describe("Create", func() {
 			),
 			ghttp.CombineHandlers(
 				ghttp.VerifyRequest("POST", "/apis/config.mazinger.com/v1/apicollaborationspaces"),
-				ghttp.RespondWith(200, "{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiCollaborationSpace\",\"metadata\":{\"labels\":{\"configs.apix.mazinger.com\":\"config\",\"nexus/display_name\":\"foo\",\"projects.apix.mazinger.com\":\"project\",\"roots.apix.mazinger.com\":\"root\"},\"name\":\"foo\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
+				jsonResponse("{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiCollaborationSpace\",\"metadata\":{\"labels\":{\"configs.apix.mazinger.com\":\"config\",\"nexus/display_name\":\"foo\",\"projects.apix.mazinger.com\":\"project\",\"roots.apix.mazinger.com\":\"root\"},\"name\":\"foo\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
 			),
 		)
 
@@ -593,7 +593,7 @@ var _ = Describe("Create", func() {
 				),
 				ghttp.CombineHandlers(
 					ghttp.VerifyRequest("POST", "/apis/config.mazinger.com/v1/apicollaborationspaces"),
-					ghttp.RespondWith(200, "{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiCollaborationSpace\",\"metadata\":{\"labels\":{\"configs.apix.mazinger.com\":\"config\",\"nexus/display_name\":\"foo\",\"projects.apix.mazinger.com\":\"project\",\"roots.apix.mazinger.com\":\"root\"},\"name\":\"foo\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
+					jsonResponse("{\"apiVersion\":\"config.mazinger.com/v1\",\"kind\":\"ApiCollaborationSpace\",\"metadata\":{\"labels\":{\"configs.apix.mazinger.com\":\"config\",\"nexus/display_name\":\"foo\",\"projects.apix.mazinger.com\":\"project\",\"roots.apix.mazinger.com\":\"root\"},\"name\":\"foo\",\"namespace\":\"\"},\"spec\":{\"example\":\"example\"}}"),
 				),
 			)
 
