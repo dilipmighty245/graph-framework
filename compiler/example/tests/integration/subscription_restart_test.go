@@ -152,6 +152,10 @@ func TestSubscriptionRestartStorm(t *testing.T) {
 					defer started.Done()
 					<-gate
 					client.SubscribeAll()
+					if err := client.WaitForCacheSync(ctx); err != nil {
+						errors <- fmt.Errorf("client %d cache synchronization: %w", index, err)
+						return
+					}
 					var seenMu sync.Mutex
 					seen := map[string]bool{}
 					_, err := client.RootRoot().Config("default").FooExample("").RegisterAddCallback(func(obj *nexusclient.ConfigFooTypeABC) {

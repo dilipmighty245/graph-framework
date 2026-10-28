@@ -156,32 +156,73 @@ Streaming must synchronize successfully with no LIST fallback. Logs are
 Set `SUBSCRIPTION_RESTART_CLIENTS`, `SUBSCRIPTION_RESTART_OBJECTS`, and
 `SUBSCRIPTION_RESTART_PAYLOAD_BYTES` to positive integers to vary the workload.
 Startup timings are observations from a correctness test with the race detector,
-not a capacity benchmark. This test waits explicitly for initialization; it does
-not fix or validate immediate cached reads after `SubscribeAll()`, API-server
-restart/compaction, slow handlers, or deployment readiness. It does not measure
-API-server peak memory.
+not a capacity benchmark. The test now waits for every subscribed informer store
+to synchronize before checking callbacks and hierarchy contents. It does not
+exercise API-server restart/compaction or slow application callbacks, and does
+not measure API-server peak memory.
 
-Observed on 2026-10-28 with Go 1.27.0, Kind Kubernetes v1.34.3, the race
-detector, and the default workload above (one process per mode, two startup
-rounds per process):
+Generated clients expose an optional, cancellable initialization wait:
 
-| Client / transport | LISTs per round | Ordinary WATCHes per round | Initial-event streams per round | Startup, rounds 1 / 2 |
+```go
+client.SubscribeAll()
+if err := client.WaitForCacheSync(ctx); err != nil {
+    return err
+}
+```
+
+This waits for informer stores, not for application callbacks to finish. Existing
+subscription and callback signatures are preserved. List reads use the API while
+an informer is initially unsynchronized, then use its cache as before. Add/delete
+notifications maintain relationships from object labels without fetching or
+polling parents. Both ordinary deletions and informer deletion tombstones are
+accepted. No notification queue or event-coalescing policy is added.
+
+The notification regression test holds the initial LIST/stream open and verifies
+that an immediate list still returns the API's objects, synchronization can time
+out, and callbacks receive safe object copies. It then verifies both combined and
+individual add/delete callbacks with absent parents and zero object GET requests.
+Generated-client unit tests cover concurrent informer creation and tombstones.
+The delayed-replay regression blocks an add-only listener, deletes its queued
+children, then drains replay and checks that no hierarchy entries reappear.
+Hierarchy state has one internal writer; application callbacks only receive
+copies and never reapply hierarchy updates. See the [compiler release
+notes](../compiler/CHANGELOG.md) for notification timing changes.
+
+`compiler/_generated_base_structure/` is a generation input, not a standalone Go
+module. Its tests need the emitted client definitions and must run after
+generation. `make test.framework.e2e` generates an isolated SDK and runs its unit
+tests before creating Kind. After generating a local example SDK, they can also
+be run from `compiler/example/output/generated` with `go test -race ./nexus-client`
+(include `-ldflags=-linkmode=external` on macOS).
+
+Run compiler source tests and the E2E command locally before submitting changes.
+Local template-directory test commands do not replace the generated-SDK check.
+
+Validated after the notification refactor on 2026-10-28 with Go 1.27.0,
+Kind Kubernetes v1.34.3, the race detector, and the default workload above.
+Each mode ran in three fresh processes with two startup rounds per process
+(18 restart rounds total):
+
+| Client / transport | LISTs per round | Ordinary WATCHes per round | Initial-event streams per round | Startup range across six rounds |
 | --- | ---: | ---: | ---: | --- |
-| v0.26.3 / LIST-WATCH | 120 | 120 | 0 | 56.94 / 49.89 ms |
-| v0.34.3 / LIST-WATCH | 120 | 120 | 0 | 66.07 / 48.96 ms |
-| v0.34.3 / WatchList | 0 | 0 | 120 | 115.81 / 79.40 ms |
+| v0.26.3 / LIST-WATCH | 120 | 120 | 0 | 117.84–124.63 ms |
+| v0.34.3 / LIST-WATCH | 120 | 120 | 0 | 115.78–125.63 ms |
+| v0.34.3 / WatchList | 0 | 0 | 120 | 116.65–125.86 ms |
 
-All modes passed the restart and existing subscription lifecycle tests. Fresh
-generation, generated-client unit/race tests, resource CRUD/validation, and the
-seven runner isolation/cleanup checks also passed. The disposable cluster was
-deleted. Raw live-run logs are in
-`artifacts/framework-tests/e2e-NAQWaTLa/` (ignored by Git).
+All nine processes passed the delayed-replay hierarchy regression, notification
+regression, restart, and existing subscription lifecycle tests. Notification callbacks made zero object GET
+requests in every mode. Fresh generation of both models, generated-client
+unit/race tests, gateway/controller checks, resource CRUD/validation, gateway and
+GraphQL probes, and all 17 framework source checks passed. The disposable cluster
+was deleted. Raw logs are in `artifacts/framework-tests/e2e-eJmxzGU2/` and
+`artifacts/framework-tests/run-P5NovJ6X/` (ignored by Git).
 
-The existing generated SDK can use streaming with the upgraded informer library
-in this experiment. Streaming was slower for this small workload; these results
-do not establish a latency or memory improvement. Production adoption still
-requires a coordinated dependency/runtime upgrade and the startup-readiness and
-callback-processing fixes identified in review.
+The generated SDK can use streaming with the upgraded informer library in this
+experiment. These startup times include the explicit cache-synchronization wait
+and are not directly comparable with the earlier experiment. They do not
+establish a latency or memory improvement. Production dependency pins remain
+unchanged; adopting streaming still requires a coordinated dependency/runtime
+upgrade. Slow application callbacks remain the caller's responsibility.
 
 ## Results
 
