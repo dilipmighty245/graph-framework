@@ -33,6 +33,7 @@ elif name == "kind":
 elif name == "go":
     if args[0] == "env": print(state / args[1].lower())
     elif os.environ.get("FAIL_STAGE") == "subscription": sys.exit(9)
+    elif os.environ.get("FAIL_STAGE") == "streaming" and os.environ.get("KUBE_FEATURE_WatchListClient") == "true": sys.exit(10)
 elif name == "kubectl":
     args = args[2:]  # Every operation must use the isolated kubeconfig.
     if args[0] == "create" and args[1] == "-f":
@@ -54,7 +55,7 @@ elif name == "kubectl":
 
 
 class RunnerLifecycleTests(unittest.TestCase):
-    def run_runner(self, fail_stage=""):
+    def run_runner(self, fail_stage="", compare_streaming=False):
         temp = tempfile.TemporaryDirectory(prefix="framework-harness-")
         self.addCleanup(temp.cleanup)
         state = Path(temp.name)
@@ -71,6 +72,8 @@ class RunnerLifecycleTests(unittest.TestCase):
                    FRAMEWORK_TEST_RESULTS=str(state / "results"),
                    E2E_COMPONENTS="resources", E2E_COMPILER_IMAGE="test/compiler:local",
                    E2E_SDK_RUNS="1",
+                   E2E_SUBSCRIPTION_COMPARE_STREAMING=str(compare_streaming).lower(),
+                   E2E_SUBSCRIPTION_CLIENT_GO_VERSION="v0.34.3",
                    KUBECONFIG=str(kubeconfig), FAIL_STAGE=fail_stage)
         result = subprocess.run(["bash", str(ROOT / "scripts/test-framework-e2e.sh")],
                                 env=env, capture_output=True, text=True, timeout=20)
@@ -110,6 +113,20 @@ class RunnerLifecycleTests(unittest.TestCase):
         result, calls = self.run_runner("subscription")
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(any(c[0] == "go" and "-tags=integration" in c for c in calls))
+        self.assertTrue(any(c[:2] == ["kind", "delete"] for c in calls))
+
+    def test_streaming_comparison_runs_three_modes_in_isolated_module(self):
+        result, calls = self.run_runner(compare_streaming=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(sum(c[0] == "go" and "-tags=integration" in c for c in calls), 3)
+        self.assertEqual(sum(c[:3] == ["go", "mod", "edit"] for c in calls), 5)
+        self.assertTrue(any("-replace=k8s.io/client-go=k8s.io/client-go@v0.34.3" in c for c in calls))
+        self.assertTrue(any(c[:2] == ["kind", "delete"] for c in calls))
+
+    def test_streaming_failure_is_reported_and_cluster_is_removed(self):
+        result, calls = self.run_runner("streaming", compare_streaming=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(sum(c[0] == "go" and "-tags=integration" in c for c in calls), 3)
         self.assertTrue(any(c[:2] == ["kind", "delete"] for c in calls))
 
 

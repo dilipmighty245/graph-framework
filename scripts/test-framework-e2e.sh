@@ -129,11 +129,34 @@ sdk_runs=${E2E_SDK_RUNS:-3}
 [[ $sdk_runs =~ ^[1-9][0-9]*$ ]] || { echo 'E2E_SDK_RUNS must be a positive integer.' >&2; exit 2; }
 link_flags=${FRAMEWORK_TEST_LDFLAGS:-}
 if [[ $(uname -s) == Darwin && -z "$link_flags" ]]; then link_flags=-linkmode=external; fi
-for ((sdk_run=1; sdk_run<=sdk_runs; sdk_run++)); do
-    (cd "$work/repo/compiler/example/tests" && KUBECONFIG="$work/kubeconfig" \
-        go test -tags=integration -timeout=4m -mod=mod -race -count=1 -v \
-        -ldflags="$link_flags" ./integration) 2>&1 | tee "$results/subscriptions-$sdk_run.log"
-done
+run_subscriptions() {
+    local mode=$1 streaming=$2 sdk_run
+    for ((sdk_run=1; sdk_run<=sdk_runs; sdk_run++)); do
+        (cd "$work/repo/compiler/example/tests" && KUBECONFIG="$work/kubeconfig" \
+            KUBE_FEATURE_WatchListClient="$streaming" SUBSCRIPTION_EXPECT_WATCH_LIST="$streaming" \
+            go test -tags=integration -timeout=4m -mod=mod -race -count=1 -v \
+            -ldflags="$link_flags" ./integration) 2>&1 | tee "$results/subscriptions${mode}-$sdk_run.log"
+    done
+}
+run_subscriptions '' false
+if [[ ${E2E_SUBSCRIPTION_COMPARE_STREAMING:-false} == true ]]; then
+    # Upgrade only the isolated test main module. Production pins, generator
+    # inputs, and the user's module files stay untouched. Run the upgraded
+    # client once with streaming off so the feature can be compared separately
+    # from the dependency change. Each mode starts a fresh Go process.
+    streaming_version=${E2E_SUBSCRIPTION_CLIENT_GO_VERSION:-v0.34.3}
+    [[ $streaming_version =~ ^v0\.[0-9]+\.[0-9]+$ ]] || { echo 'Expected client-go version v0.MINOR.PATCH' >&2; exit 2; }
+    (
+        cd "$work/repo/compiler/example/tests"
+        for module in api apimachinery client-go apiextensions-apiserver component-base; do
+            go mod edit "-require=k8s.io/$module@$streaming_version" "-replace=k8s.io/$module=k8s.io/$module@$streaming_version"
+        done
+        go mod tidy
+        go list -m k8s.io/api k8s.io/apimachinery k8s.io/client-go
+    ) 2>&1 | tee "$results/subscriptions-upgrade.log"
+    run_subscriptions '-control' false
+    run_subscriptions '-streaming' true
+fi
 # These names follow common-library/pkg/nexus's hierarchy-aware naming contract.
 root_name=$(python3 -c 'import hashlib; print(hashlib.sha1(b"roots.root.nexus.com:default").hexdigest())')
 config_name=$(python3 -c 'import hashlib; print(hashlib.sha1(b"roots.root.nexus.com:default/configs.config.nexus.com:default").hexdigest())')

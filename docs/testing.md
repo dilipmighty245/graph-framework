@@ -122,6 +122,67 @@ own integration fixtures. The upstream kubebuilder scaffolding cluster suites
 are separate from framework lifecycle tests; run their documented targets in
 `kubebuilder/Makefile` when changing those plugins.
 
+## Subscription restart and streaming experiment
+
+The integration suite also starts eight independent SDK clients simultaneously
+against 32 existing child objects with 4 KiB payloads. It verifies every expected
+initial add callback, hierarchy-cache population, cached snapshot membership,
+and live updates. It then stops every subscriber, deletes and replaces a child
+while offline, and starts fresh clients together to check recovery.
+
+Compare the existing dependencies with an upgraded client using both LIST/WATCH
+and WatchList against the same disposable API server:
+
+```sh
+E2E_COMPONENTS=resources E2E_SDK_RUNS=1 \
+E2E_KIND_IMAGE=kindest/node:v1.34.3 \
+E2E_SUBSCRIPTION_COMPARE_STREAMING=true \
+bash scripts/test-framework-e2e.sh
+```
+
+This opt-in mode upgrades Kubernetes dependencies only in the temporary test
+module to v0.34.3 (`E2E_SUBSCRIPTION_CLIENT_GO_VERSION` overrides this version).
+The production dependency pins and code generator are unchanged. It exercises
+the existing generated clients with the upgraded informer library; it does not
+establish compatibility of a repository-wide upgrade. The selected API server
+must support WatchList and have it enabled.
+
+Each mode runs in a separate Go process to isolate client-go feature gates.
+Successful LIST, ordinary WATCH, and initial-event WATCH requests are counted.
+Streaming must synchronize successfully with no LIST fallback. Logs are
+`subscriptions-N.log`, `subscriptions-control-N.log`,
+`subscriptions-streaming-N.log`, and `subscriptions-upgrade.log`.
+
+Set `SUBSCRIPTION_RESTART_CLIENTS`, `SUBSCRIPTION_RESTART_OBJECTS`, and
+`SUBSCRIPTION_RESTART_PAYLOAD_BYTES` to positive integers to vary the workload.
+Startup timings are observations from a correctness test with the race detector,
+not a capacity benchmark. This test waits explicitly for initialization; it does
+not fix or validate immediate cached reads after `SubscribeAll()`, API-server
+restart/compaction, slow handlers, or deployment readiness. It does not measure
+API-server peak memory.
+
+Observed on 2026-10-28 with Go 1.27.0, Kind Kubernetes v1.34.3, the race
+detector, and the default workload above (one process per mode, two startup
+rounds per process):
+
+| Client / transport | LISTs per round | Ordinary WATCHes per round | Initial-event streams per round | Startup, rounds 1 / 2 |
+| --- | ---: | ---: | ---: | --- |
+| v0.26.3 / LIST-WATCH | 120 | 120 | 0 | 56.94 / 49.89 ms |
+| v0.34.3 / LIST-WATCH | 120 | 120 | 0 | 66.07 / 48.96 ms |
+| v0.34.3 / WatchList | 0 | 0 | 120 | 115.81 / 79.40 ms |
+
+All modes passed the restart and existing subscription lifecycle tests. Fresh
+generation, generated-client unit/race tests, resource CRUD/validation, and the
+seven runner isolation/cleanup checks also passed. The disposable cluster was
+deleted. Raw live-run logs are in
+`artifacts/framework-tests/e2e-NAQWaTLa/` (ignored by Git).
+
+The existing generated SDK can use streaming with the upgraded informer library
+in this experiment. Streaming was slower for this small workload; these results
+do not establish a latency or memory improvement. Production adoption still
+requires a coordinated dependency/runtime upgrade and the startup-readiness and
+callback-processing fixes identified in review.
+
 ## Results
 
 Each invocation writes logs to a unique directory under
