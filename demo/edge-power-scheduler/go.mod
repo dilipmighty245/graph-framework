@@ -1,6 +1,6 @@
 module powerscheduler
 
-go 1.18
+go 1.27.3
 
 replace powerschedulermodel => ./datamodel
 

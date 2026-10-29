@@ -1,6 +1,6 @@
 module github.com/dilipmighty245/graph-framework-for-microservices/validation
 
-go 1.24.0
+go 1.27.3
 
 require (
 	github.com/dilipmighty245/graph-framework-for-microservices/common-library v0.0.0-20220428125452-2c6c391ae872

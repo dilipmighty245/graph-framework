@@ -1,6 +1,6 @@
 module github.com/dilipmighty245/graph-framework-for-microservices/connector-controller
 
-go 1.26.0
+go 1.27.3
 
 require (
 	github.com/fluxcd/pkg/runtime v0.16.2

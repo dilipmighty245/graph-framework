@@ -1,6 +1,6 @@
 module github.com/dilipmighty245/graph-framework-for-microservices/cli
 
-go 1.24.0
+go 1.27.3
 
 require (
 	github.com/aunum/log v0.0.0-20200821225356-38d2e2c8b489

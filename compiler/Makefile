@@ -204,7 +204,7 @@ generate_code:
 	@echo "Copying go.mod file of datamodel"
 	cp ${DATAMODEL_PATH}/go.mod _generated/go.mod
 	sed -i'.bak' -e "1s|.*|module nexustempmodule|" _generated/go.mod
-	cd _generated/ && go mod edit -go=1.24.0
+	cd _generated/ && go mod edit -go=1.27.3
 	@echo "Nexus Compiler: Generating base nexus code structure"
 	CRD_MODULE_PATH=${CRD_MODULE_PATH} go run cmd/nexus-sdk/main.go -config-file ${CONFIG_FILE} -dsl ${DATAMODEL_PATH} -crd-output _generated -log-level ${LOG_LEVEL}
 	mv _generated/api_names.sh scripts/
@@ -233,7 +233,7 @@ generate_code:
 	cd ${GOPATH}/src/nexustempmodule && cd nexus-gql && go mod init && \
 	go mod edit -replace nexustempmodule=${GOPATH}/src/nexustempmodule && \
 	${COMPILER_SRC_DIRECTORY}/scripts/pin_graphql_build_version.sh ${COMPILER_SRC_DIRECTORY} && \
-	go mod edit -go=1.24.0 && \
+	go mod edit -go=1.27.3 && \
 	go mod tidy && \
 	GOARCH=amd64 GOOS=linux go build -ldflags="-w -s" server.go
 	cp -r ${GOPATH}/src/nexustempmodule/nexus-gql/* _generated/nexus-gql/

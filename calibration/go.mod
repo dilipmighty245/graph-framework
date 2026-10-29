@@ -1,6 +1,6 @@
 module github.com/dilipmighty245/graph-framework-for-microservices/calibration
 
-go 1.18
+go 1.27.3
 
 require (
 	github.com/Khan/genqlient v0.5.0

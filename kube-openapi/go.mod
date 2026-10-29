@@ -1,6 +1,6 @@
 module github.com/dilipmighty245/graph-framework-for-microservices/kube-openapi
 
-go 1.17
+go 1.27.3
 
 require (
 	github.com/NYTimes/gziphandler v1.1.1

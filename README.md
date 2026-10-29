@@ -110,7 +110,7 @@ go test ./...
 
 Go is required for development. Container workflows also use Docker and Make; deployment workflows use Kubernetes tooling such as `kubectl`, Helm, or Kind. Generation requires additional tools described in the compiler guide.
 
-Compiler and generated SDK modules require Go 1.24 or newer for Kubernetes v0.34.3 libraries. The local test workflow uses Go 1.27, and public builder images use Go 1.27.2. Some independent modules and legacy builders retain their own toolchain declarations; select and validate the toolchain for the component you are building.
+Framework modules, generated SDK and application modules, and public builder images use Go 1.27.3.
 
 Generate the admin API before building services that import `api/build`. A fresh checkout does not contain those generated packages. Some installation scripts and image defaults remain tied to specific registries and must be configured for your environment.
 

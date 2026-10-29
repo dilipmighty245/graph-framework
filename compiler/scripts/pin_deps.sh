@@ -7,7 +7,7 @@ DEFAULT_CLIENT_NAME=$(yq eval '.k8s_clients.default' "$compiler_source/manifest.
 version=$(yq eval '.k8s_clients.versioned[] | select(.name == strenv(DEFAULT_CLIENT_NAME)) | .k8s_code_generator_git_tag' "$compiler_source/manifest.yaml")
 [[ -n "$version" && "$version" != null ]] || { echo 'Missing Kubernetes client version' >&2; exit 1; }
 
-go mod edit -go=1.24.0
+go mod edit -go=1.27.3
 # Keep SDK runtime dependencies explicit. Transitive versions come from these
 # modules and the copied datamodel go.mod; unused controller/cert-manager pins
 # would impose obsolete constraints on SDKs that do not import those packages.

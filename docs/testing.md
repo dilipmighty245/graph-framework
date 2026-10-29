@@ -29,9 +29,9 @@ into success or accepted through a baseline allowlist.
 
 ## Prerequisites
 
-Use Go 1.27, Python 3, and a platform C toolchain for race tests. Generator tooling
-requires Go 1.26 or newer because the source-analysis dependency must understand
-the compiler's export format. Tests need permission to start local HTTP servers.
+Use Go 1.27.3, Python 3, and a platform C toolchain for race tests. Generated
+modules and public builder images use the same Go version. Tests need permission
+to start local HTTP servers.
 On macOS the scripts use the external linker; `FRAMEWORK_TEST_LDFLAGS` overrides
 that setting.
 
@@ -53,7 +53,7 @@ the default; it avoids depending on a prepublished framework image.
 
 `make test.framework.builders` builds `compiler/builder/Dockerfile` and
 `authz-controller/builder/Dockerfile` using the official public
-[`docker.io/library/golang:1.27.2-bookworm`](https://hub.docker.com/_/golang) base.
+[`docker.io/library/golang:1.27.3-bookworm`](https://hub.docker.com/_/golang) base.
 It checks their toolchains, generates both models inside the compiler builder,
 and runs authorization race tests inside the authorization builder. The remaining
 Kind resource, subscription, gateway, and GraphQL checks use those fresh outputs.

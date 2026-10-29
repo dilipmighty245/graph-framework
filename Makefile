@@ -81,7 +81,7 @@ cli.build.darwin:
 		--volume ${HOME}/.cache/go-build:/root/.cache/go-build \
 		-e GOCACHE=/root/.cache/go-build \
 		-w ${DOCKER_BUILD_MOUNT_DIR}/${CLI_DIR} \
-		docker.io/library/golang:1.27.2-bookworm \
+		docker.io/library/golang:1.27.3-bookworm \
 		/bin/bash -c "git config --global --add safe.directory '*' && go mod download && make build.darwin";
 
 .PHONY: cli.build.linux
@@ -92,7 +92,7 @@ cli.build.linux:
 		-w ${DOCKER_BUILD_MOUNT_DIR}/${CLI_DIR} \
 		--volume ${HOME}/.cache/go-build:/root/.cache/go-build \
 		-e GOCACHE=/root/.cache/go-build \
-		docker.io/library/golang:1.27.2-bookworm \
+		docker.io/library/golang:1.27.3-bookworm \
 		/bin/bash -c "git config --global --add safe.directory '*' && go mod download && make build.linux";
 
 .PHONY: cli.install.darwin
@@ -142,7 +142,7 @@ api-gw.docker.kubeconfig:
 		--pull=missing \
 		--volume $(realpath .):${DOCKER_BUILD_MOUNT_DIR} \
 		-w ${DOCKER_BUILD_MOUNT_DIR}/${API_GW_COMPONENT_NAME} \
-		docker.io/library/golang:1.27.2-bookworm \
+		docker.io/library/golang:1.27.3-bookworm \
 		/bin/bash -c "go mod download && GOOS=linux GOARCH=amd64 go build -buildvcs=false -o bin/${API_GW_COMPONENT_NAME}";
 	docker build --platform ${DOCKER_BUILDER_PLATFORM} -t ${API_GW_DOCKER_IMAGE} -f api-gw/Dockerfile .
 

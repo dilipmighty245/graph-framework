@@ -9,15 +9,15 @@ results=${FRAMEWORK_TEST_RESULTS:-"$root/artifacts/framework-tests"}
 mkdir -p "$results"
 results=$(mktemp -d "$results/builders-XXXXXXXX")
 printf 'Builder results: %s\n' "$results"
-export E2E_COMPILER_IMAGE=${COMPILER_BUILDER_IMAGE:-nexus/compiler-builder:go1.27.2}
-export E2E_AUTHZ_BUILDER_IMAGE=${AUTHZ_BUILDER_IMAGE:-nexus/authz-builder:go1.27.2}
+export E2E_COMPILER_IMAGE=${COMPILER_BUILDER_IMAGE:-nexus/compiler-builder:go1.27.3}
+export E2E_AUTHZ_BUILDER_IMAGE=${AUTHZ_BUILDER_IMAGE:-nexus/authz-builder:go1.27.3}
 build_args=(--progress=plain)
 for component in compiler authz-controller; do
     image=$E2E_COMPILER_IMAGE
     if [[ $component == authz-controller ]]; then image=$E2E_AUTHZ_BUILDER_IMAGE; fi
     docker build "${build_args[@]}" -t "$image" "$root/$component/builder" 2>&1 | tee "$results/$component-build.log"
     docker run --rm "$image" bash -euc \
-        'go version | grep -E "go1[.]27[.]2 linux/"; goimports -h 2>&1 | head -1; golangci-lint version' \
+        'go version | grep -E "go1[.]27[.]3 linux/"; goimports -h 2>&1 | head -1; golangci-lint version' \
         2>&1 | tee "$results/$component-tools.log"
 done
 export FRAMEWORK_TEST_RACE=${FRAMEWORK_TEST_RACE:-true}

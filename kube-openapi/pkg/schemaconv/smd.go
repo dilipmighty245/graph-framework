@@ -305,7 +305,7 @@ func (c *convert) VisitKind(k *proto.Kind) {
 
 	unions, err := makeUnions(k.GetExtensions())
 	if err != nil {
-		c.reportError(err.Error())
+		c.reportError("%v", err)
 		return
 	}
 	// TODO: We should check that the fields and discriminator

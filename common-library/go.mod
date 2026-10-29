@@ -1,6 +1,6 @@
 module github.com/dilipmighty245/graph-framework-for-microservices/common-library
 
-go 1.18
+go 1.27.3
 
 require (
 	github.com/elliotchance/orderedmap v1.5.0

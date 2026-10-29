@@ -1,10 +1,10 @@
-FROM --platform=linux/amd64 golang:1.21 as builder
+FROM --platform=linux/amd64 golang:1.27.3-bookworm as builder
 WORKDIR /app
 COPY . .
 WORKDIR /app/perf
 RUN echo $(ls -1 .)
 RUN go mod tidy && make build.amd64
 
-FROM --platform=linux/amd64 golang:1.21
+FROM --platform=linux/amd64 golang:1.27.3-bookworm
 WORKDIR /app/perf
 COPY --from=0 /app/perf/bin/amd64/* /bin/

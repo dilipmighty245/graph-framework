@@ -1,6 +1,6 @@
 module github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/tests
 
-go 1.26.0
+go 1.27.3
 
 replace github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated => ../output/generated
 

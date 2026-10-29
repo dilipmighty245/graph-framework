@@ -1,5 +1,5 @@
 # Public Go toolchain; build with --platform to select the target architecture.
-FROM docker.io/library/golang:1.27.2-bookworm
+FROM docker.io/library/golang:1.27.3-bookworm
 
 ENV GO111MODULE=on \
     GOPROXY=https://proxy.golang.org,direct \

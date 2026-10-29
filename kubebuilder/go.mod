@@ -1,6 +1,6 @@
 module github.com/dilipmighty245/graph-framework-for-microservices/kubebuilder
 
-go 1.26.0
+go 1.27.3
 
 require (
 	github.com/cloudflare/cfssl v1.5.0 // for `kubebuilder alpha config-gen`

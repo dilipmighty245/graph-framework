@@ -1,6 +1,6 @@
 module github.com/dilipmighty245/graph-framework-for-microservices/compiler
 
-go 1.24.0
+go 1.27.3
 
 require (
 	github.com/dilipmighty245/graph-framework-for-microservices/common-library v0.0.0-20221129104902-06818e531062
