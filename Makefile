@@ -517,7 +517,7 @@ clean.preview:
 clean.all:
 	@CLUSTER_NAME="$(CLUSTER_NAME)" python3 scripts/clean-framework.py --all-kind-clusters
 
-.PHONY: test.framework.builders test.framework test.framework.compiler test.framework.gateway test.framework.all test.framework.e2e test.framework.stability test.framework.race test.framework.help
+.PHONY: test.framework.builders test.framework test.framework.compiler test.framework.gateway test.framework.all test.framework.e2e test.framework.runtime test.framework.stability test.framework.race test.framework.help
 test.framework:
 	@bash scripts/test-framework.sh regression
 
@@ -527,8 +527,7 @@ test.framework.gateway:
 test.framework.compiler:
 	@bash scripts/test-framework.sh compiler
 
-test.framework.all:
-	@bash scripts/test-framework.sh all
+test.framework.all: test.framework.stability
 
 test.framework.stability:
 	@FRAMEWORK_TEST_RUNS=$${FRAMEWORK_TEST_RUNS:-3} FRAMEWORK_TEST_RACE=$${FRAMEWORK_TEST_RACE:-true} bash scripts/test-framework.sh all
@@ -542,14 +541,18 @@ test.framework.builders:
 test.framework.e2e:
 	@bash scripts/test-framework-e2e.sh
 
+test.framework.runtime:
+	@E2E_COMPONENTS=resources E2E_RUNTIME_COMPATIBILITY=true bash scripts/test-framework-e2e.sh
+
 test.framework.help:
 	@printf '%s\n' \
 	  'make test.framework          Run complete source suites across framework modules' \
 	  'make test.framework.gateway  Run gateway and controller suites; generated admin API required' \
 	  'make test.framework.compiler Run every compiler command and package suite' \
-	  'make test.framework.all      Run source suites, generated SDK tests, services, and Kind E2E' \
+	  'make test.framework.all      Run stability: source suites, Kind E2E, and both runtime charts (3 passes)' \
 	  'make test.framework.builders Build public Go builders and run detailed Kind checks' \
 	  'make test.framework.e2e      Generate artifacts and test resources, gateway, and GraphQL in Kind' \
+	  'make test.framework.runtime  Generate a fresh SDK and test both runtime charts in Kind' \
 	  'make test.framework.stability Repeat all checks with race detection (default: 3 passes)' \
 	  'make test.framework.race     Run source suites with the race detector' \
 	  'See docs/testing.md for host tools, optional compiler images, and logs.'

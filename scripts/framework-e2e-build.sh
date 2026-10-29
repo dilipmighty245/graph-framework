@@ -8,8 +8,8 @@ done
 mkdir -p "$root/artifacts/e2e-bin"
 export PATH="$root/artifacts/e2e-bin:$PATH"
 # Build forked generators from the snapshot, including when using a builder image.
-(cd "$root/gqlgen" && go build -o "$root/artifacts/e2e-bin/gqlgen" .)
-(cd "$root/kube-openapi" && go build -o "$root/artifacts/e2e-bin/nexus-openapi-gen" ./cmd/nexus-openapi-gen)
+(cd "$root/gqlgen" && go build -mod=readonly -o "$root/artifacts/e2e-bin/gqlgen" .)
+(cd "$root/kube-openapi" && go build -mod=readonly -o "$root/artifacts/e2e-bin/nexus-openapi-gen" ./cmd/nexus-openapi-gen)
 cd "$root/compiler"
 export DEFAULT_CLIENT_NAME
 DEFAULT_CLIENT_NAME=$(yq eval '.k8s_clients.default' manifest.yaml)
@@ -25,26 +25,23 @@ cp "$root/compiler/_generated/go.mod" "$root/compiler/example/output/generated/g
 cp "$root/compiler/_generated/go.sum" "$root/compiler/example/output/generated/go.sum"
 cd "$root/compiler/example/output/generated"
 go mod edit -module=github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated
+# This module is newly generated, rather than committed dependency metadata.
 go mod tidy
-go build ./...
+go build -mod=readonly ./...
 link_flags=${FRAMEWORK_TEST_LDFLAGS:-}
 if [[ $(uname -s) == Darwin && -z "$link_flags" ]]; then link_flags=-linkmode=external; fi
-go test -timeout=2m -count=1 -race -ldflags="$link_flags" ./nexus-client
+go test -timeout=2m -mod=readonly -count=1 -race -ldflags="$link_flags" ./nexus-client
 cd "$root/compiler/example/tests"
-# Replace directives of dependencies do not propagate to this main module.
-for module in nexus gqlgen kube-openapi common-library; do
-    go mod edit "-replace=github.com/dilipmighty245/graph-framework-for-microservices/$module=$root/$module"
-done
-go mod tidy
+# Committed modules must build as checked in. Do not repair go.mod/go.sum here.
 link_flags=${FRAMEWORK_TEST_LDFLAGS:-}
 if [[ $(uname -s) == Darwin && -z "$link_flags" ]]; then link_flags=-linkmode=external; fi
-go test -timeout=3m -count=1 -race -ldflags="$link_flags" ./...
+go test -timeout=3m -mod=readonly -count=1 -race -ldflags="$link_flags" ./...
 mkdir -p "$root/artifacts/e2e-bin"
 if [[ ,$E2E_COMPONENTS, == *,graphql,* ]]; then
     cd "$root/compiler/example/output/generated/nexus-gql"
     go mod edit "-replace=github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated=$root/compiler/example/output/generated"
     go mod tidy
-    CGO_ENABLED=0 GOOS=linux GOARCH="$E2E_GOARCH" go build -o "$root/artifacts/e2e-bin/graphql" .
+    CGO_ENABLED=0 GOOS=linux GOARCH="$E2E_GOARCH" go build -mod=readonly -o "$root/artifacts/e2e-bin/graphql" .
 fi
 if [[ ,$E2E_COMPONENTS, == *,gateway,* ]]; then
     service_test_args=(-timeout=3m -mod=readonly -count=1 -ldflags="$link_flags")
@@ -56,12 +53,10 @@ if [[ ,$E2E_COMPONENTS, == *,gateway,* ]]; then
         GENERATED_OUTPUT_DIRECTORY=../api/build CRD_MODULE_PATH=nexus/admin/api/build/ \
         COMPILER_SRC_DIRECTORY="$root/compiler"
     cd "$root/api-gw"
-    go mod tidy
     go test "${service_test_args[@]}" ./pkg/... ./internal/... ./cmd/...
-    CGO_ENABLED=0 GOOS=linux GOARCH="$E2E_GOARCH" go build -o "$root/artifacts/e2e-bin/gateway" ./cmd/api-gw
+    CGO_ENABLED=0 GOOS=linux GOARCH="$E2E_GOARCH" go build -mod=readonly -o "$root/artifacts/e2e-bin/gateway" ./cmd/api-gw
     for module in authz-controller connector-controller; do
         cd "$root/$module"
-        go mod tidy
         go test "${service_test_args[@]}" ./...
     done
 fi

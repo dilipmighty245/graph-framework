@@ -8,6 +8,9 @@ version=$(yq eval '.k8s_clients.versioned[] | select(.name == strenv(DEFAULT_CLI
 [[ -n "$version" && "$version" != null ]] || { echo 'Missing Kubernetes client version' >&2; exit 1; }
 
 go mod edit -go=1.24.0
+# Keep SDK runtime dependencies explicit. Transitive versions come from these
+# modules and the copied datamodel go.mod; unused controller/cert-manager pins
+# would impose obsolete constraints on SDKs that do not import those packages.
 for module in api apimachinery client-go apiextensions-apiserver; do
   go mod edit "-require=k8s.io/$module@$version" "-replace=k8s.io/$module=k8s.io/$module@$version"
 done

@@ -55,7 +55,7 @@ for ((run=1; run<=runs; run++)); do
         done
     fi
     if [[ $mode == all ]]; then
-        run_check "kind-e2e-$run" . bash scripts/test-framework-e2e.sh
+        run_check "kind-e2e-$run" . env E2E_RUNTIME_COMPATIBILITY=true bash scripts/test-framework-e2e.sh
     fi
 done
 printf '\n'

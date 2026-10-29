@@ -28,6 +28,18 @@ elif name == "docker":
         (source / "compiler/example/tests").mkdir(parents=True)
         crds.mkdir(parents=True)
         (crds / "root.yaml").write_text("kind: CustomResourceDefinition\n")
+        runtime = source / "scripts/test-runtime-compatibility.sh"
+        runtime.parent.mkdir(parents=True, exist_ok=True)
+        runtime.write_text("""#!/usr/bin/env bash
+exec python3 - "$0" <<'PY'
+import json, os, pathlib, sys
+root = pathlib.Path(sys.argv[1]).resolve().parents[1]
+assert (root / 'compiler/example/output/generated/crds/root.yaml').exists()
+with (pathlib.Path(os.environ['HARNESS_STATE']) / 'calls.jsonl').open('a') as f:
+    f.write(json.dumps(['runtime', str(root), os.environ['FRAMEWORK_TEST_RESULTS']]) + '\\n')
+sys.exit(11 if os.environ.get('FAIL_STAGE') == 'runtime' else 0)
+PY
+""")
 elif name == "kind":
     if args[0] == "create" and os.environ.get("FAIL_STAGE") == "cluster": sys.exit(8)
 elif name == "go":
@@ -55,7 +67,7 @@ elif name == "kubectl":
 
 
 class RunnerLifecycleTests(unittest.TestCase):
-    def run_runner(self, fail_stage="", compare_streaming=False):
+    def run_runner(self, fail_stage="", compare_streaming=False, runtime=False):
         temp = tempfile.TemporaryDirectory(prefix="framework-harness-")
         self.addCleanup(temp.cleanup)
         state = Path(temp.name)
@@ -73,7 +85,10 @@ class RunnerLifecycleTests(unittest.TestCase):
                    E2E_COMPONENTS="resources", E2E_COMPILER_IMAGE="test/compiler:local",
                    E2E_SDK_RUNS="1",
                    E2E_SUBSCRIPTION_COMPARE_STREAMING=str(compare_streaming).lower(),
+                   E2E_RUNTIME_COMPATIBILITY=str(runtime).lower(),
                    KUBECONFIG=str(kubeconfig), FAIL_STAGE=fail_stage)
+        if compare_streaming is None:
+            env.pop("E2E_SUBSCRIPTION_COMPARE_STREAMING")
         result = subprocess.run(["bash", str(ROOT / "scripts/test-framework-e2e.sh")],
                                 env=env, capture_output=True, text=True, timeout=20)
         calls = [json.loads(line) for line in (state / "calls.jsonl").read_text().splitlines()]
@@ -119,6 +134,27 @@ class RunnerLifecycleTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(sum(c[0] == "go" and "-tags=integration" in c for c in calls), 2)
         self.assertEqual(sum(c[:3] == ["go", "mod", "edit"] for c in calls), 0)
+        self.assertTrue(any(c[:2] == ["kind", "delete"] for c in calls))
+
+    def test_default_runs_both_modes_with_readonly_dependencies(self):
+        result, calls = self.run_runner(compare_streaming=None)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        subscriptions = [c for c in calls if c[0] == "go" and "-tags=integration" in c]
+        self.assertEqual(len(subscriptions), 2)
+        self.assertTrue(all("-mod=readonly" in c for c in subscriptions))
+
+    def test_runtime_uses_fresh_snapshot_and_persistent_results(self):
+        result, calls = self.run_runner(runtime=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        runtime = [c for c in calls if c[0] == "runtime"]
+        self.assertEqual(len(runtime), 1)
+        self.assertNotEqual(runtime[0][1], str(ROOT))
+        self.assertTrue(Path(runtime[0][2]).name.startswith("e2e-"))
+
+    def test_runtime_failure_is_reported_and_cluster_is_removed(self):
+        result, calls = self.run_runner("runtime", runtime=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(any(c[0] == "runtime" for c in calls))
         self.assertTrue(any(c[:2] == ["kind", "delete"] for c in calls))
 
     def test_streaming_failure_is_reported_and_cluster_is_removed(self):

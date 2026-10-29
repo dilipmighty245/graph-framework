@@ -8,14 +8,19 @@ make test.framework            # Complete source suites across framework modules
 make test.framework.compiler   # Compiler packages and commands
 make test.framework.gateway    # Gateway and controller suites; generated admin API required
 make test.framework.e2e        # Fresh generation, generated SDK tests, and Kind lifecycle
+make test.framework.runtime    # Fresh generation, subscriptions, and both runtime charts
 make test.framework.builders   # Build public Go builders; generate/test inside containers
-make test.framework.all        # Source suites followed by E2E
+make test.framework.all        # Three stability passes: source, E2E, and both runtime charts
 make test.framework.race       # Source suites with the race detector
-make test.framework.stability  # Repeat all checks three times with race detection
+make test.framework.stability  # Same complete run as test.framework.all
 ```
 
-Set `FRAMEWORK_TEST_RUNS=5` to change the repetition count. The stability target
-enables source race detection by default; `FRAMEWORK_TEST_RACE=false` disables it.
+`test.framework.all` includes the stability run; both targets default to three
+passes with source race detection. Set `FRAMEWORK_TEST_RUNS=5` to change that
+count; `FRAMEWORK_TEST_RACE=false` disables source race detection. Each pass runs
+the source suites and a fresh E2E snapshot, then tests both runtime charts using
+that snapshot's generated SDK. Generated files in the checkout are not required
+or changed. Runtime chart failures fail the overall run and appear in its logs.
 Each pass uses
 `-count=1` and a new test process; this also avoids Ginkgo v1's process-global
 suite state when repeating tests. Source checks use `-mod=readonly`, enable Go's
@@ -148,6 +153,13 @@ Streaming must synchronize successfully with no LIST fallback. Logs are
 `subscriptions-N.log`, `subscriptions-streaming-N.log`, and
 `subscriptions-versions.log`.
 
+Each integration process also runs `TestSubscriptionWatchListFallback`. It
+enables WatchList for that test, injects HTTP 400 only for initial-event requests,
+and verifies rejection was observed before successful LIST/WATCH requests to the
+real cluster. It reuses the restart workload to verify snapshot replay, hierarchy,
+and live updates after fallback. This is a controlled transport failure, rather
+than a second server configured without WatchList support.
+
 Set `SUBSCRIPTION_RESTART_CLIENTS`, `SUBSCRIPTION_RESTART_OBJECTS`, and
 `SUBSCRIPTION_RESTART_PAYLOAD_BYTES` to positive integers to vary the workload.
 Startup timings are observations from a correctness test with the race detector,
@@ -193,6 +205,22 @@ be run from `compiler/example/output/generated` with `go test -race ./nexus-clie
 Run compiler source tests and the E2E command locally before submitting changes.
 Local template-directory test commands do not replace the generated-SDK check.
 
+The E2E build runs committed modules with `-mod=readonly`, without first running
+`go mod tidy` or rewriting their replacements. Missing requirements or checksums
+must fail the run. Dependency resolution is performed only for newly generated
+SDK/GraphQL modules, whose module files are assembled during generation. The
+integration test processes also use `-mod=readonly`.
+
+The 2026-10-29 review follow-up passed 20 runner checks and a full Kind E2E
+with fresh SDK/admin generation, read-only builds, race tests, both subscription
+modes, gateway/controller checks, CRUD/validation, and both GraphQL probes. Its
+eight restart rounds include four injected WatchList-rejection/fallback rounds;
+each fallback round observed 120 rejections followed by 120 successful LISTs and
+120 ordinary WATCHes. Committed module files were unchanged. A separate build
+with a deliberately omitted checksum failed without repairing its metadata.
+The interrupted run was resumed using the same generated snapshot and owned
+cluster, which was deleted after completion. Logs: `artifacts/framework-tests/e2e-aXPmK2eJ/`.
+
 Validated the production dependency upgrade on 2026-10-28 with Go 1.27.0,
 Kind Kubernetes v1.34.3, the race detector, and the default workload above.
 Each mode ran in three fresh processes with two startup rounds per process
@@ -220,6 +248,13 @@ without changing that policy; its results are separate from the direct Kind
 subscription measurements above.
 
 ### Runtime chart compatibility
+
+Use `make test.framework.runtime` for fresh generation followed by subscription
+and runtime-chart tests. `make test.framework.all` and
+`make test.framework.stability` include these chart checks on every pass. The
+chart runner uses the E2E snapshot before cleanup and saves its logs under that
+E2E result directory. Plain `make test.framework.e2e` retains its focused checks;
+`E2E_RUNTIME_COMPATIBILITY=true` includes the chart stage explicitly.
 
 `scripts/test-runtime-compatibility.sh` installs only the API infrastructure from
 each core chart in separate namespaces in a disposable Kind v1.34.3 cluster. It
@@ -273,6 +308,15 @@ establish a latency or memory improvement. Applications enable streaming with
 LIST/WATCH fallback. Slow application callbacks remain the caller's responsibility.
 
 ## Results
+
+Validated `make test.framework.all` with its default three stability passes on
+2026-10-29: all 54 suite checks passed with race detection enabled. Every pass
+included fresh SDK/admin generation, both subscription modes and rejection
+fallback, controllers, gateway/GraphQL probes, and both runtime charts. Across
+all passes, 120 restart rounds passed, including 60 injected-rejection/fallback
+rounds. All owned E2E and chart-test clusters were deleted. Master summaries and
+validation are in `artifacts/framework-tests/run-nauyg9RC/`; its logs link to each
+E2E directory and nested chart results.
 
 Each invocation writes logs to a unique directory under
 `artifacts/framework-tests`, ignored by Git. Set `FRAMEWORK_TEST_RESULTS` to use a

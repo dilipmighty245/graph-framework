@@ -5,6 +5,7 @@ package integration_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -19,6 +20,8 @@ import (
 	rootv1 "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/apis/root.nexus.com/v1"
 	nexusclient "github.com/dilipmighty245/graph-framework-for-microservices/compiler/example/output/generated/nexus-client"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clientfeatures "k8s.io/client-go/features"
+	clientfeaturestesting "k8s.io/client-go/features/testing"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -26,15 +29,28 @@ import (
 // Count actual successful API requests so an enabled feature gate alone cannot
 // make a streaming experiment pass after silently falling back to LIST/WATCH.
 type subscriptionRequests struct {
-	lists, watches, initialStreams atomic.Int64
+	lists, watches, initialStreams, rejectedStreams atomic.Int64
 }
 
 type subscriptionTransport struct {
-	next     http.RoundTripper
-	requests *subscriptionRequests
+	next          http.RoundTripper
+	requests      *subscriptionRequests
+	rejectInitial bool
 }
 
 func (s subscriptionTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if s.rejectInitial && strings.Contains(req.URL.Path, ".nexus.com/") &&
+		req.URL.Query().Get("watch") == "true" && req.URL.Query().Get("sendInitialEvents") == "true" {
+		s.requests.rejectedStreams.Add(1)
+		// Simulate a server rejecting WatchList. All fallback traffic goes to
+		// the real cluster; no synthetic snapshot or watch events are supplied.
+		return &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"kind":"Status","apiVersion":"v1","status":"Failure","reason":"BadRequest","message":"sendInitialEvents is unsupported","code":400}`)),
+			Request:    req,
+		}, nil
+	}
 	response, err := s.next.RoundTrip(req)
 	if err == nil && response.StatusCode == http.StatusOK && strings.Contains(req.URL.Path, ".nexus.com/") {
 		query := req.URL.Query()
@@ -66,6 +82,16 @@ func restartParameter(t *testing.T, name string, fallback int) int {
 // graph, stops them all, changes the graph while offline, then starts fresh
 // clients simultaneously. Run each transport mode in a fresh Go process.
 func TestSubscriptionRestartStorm(t *testing.T) {
+	testSubscriptionRestartStorm(t, false)
+}
+
+func TestSubscriptionWatchListFallback(t *testing.T) {
+	clientfeaturestesting.SetFeatureDuringTest(t, clientfeatures.WatchListClient, true)
+	t.Setenv("SUBSCRIPTION_EXPECT_WATCH_LIST", "false")
+	testSubscriptionRestartStorm(t, true)
+}
+
+func testSubscriptionRestartStorm(t *testing.T, rejectInitial bool) {
 	kubeconfig := os.Getenv("KUBECONFIG")
 	if kubeconfig == "" {
 		t.Fatal("KUBECONFIG must identify the disposable framework test cluster")
@@ -136,7 +162,9 @@ func TestSubscriptionRestartStorm(t *testing.T) {
 			clients := make([]*nexusclient.Clientset, clientCount)
 			for i := range clients {
 				cfg := rest.CopyConfig(config)
-				cfg.Wrap(func(next http.RoundTripper) http.RoundTripper { return subscriptionTransport{next, requests} })
+				cfg.Wrap(func(next http.RoundTripper) http.RoundTripper {
+					return subscriptionTransport{next: next, requests: requests, rejectInitial: rejectInitial}
+				})
 				clients[i], err = nexusclient.NewForConfig(cfg)
 				if err != nil {
 					t.Fatal(err)
@@ -249,7 +277,10 @@ func TestSubscriptionRestartStorm(t *testing.T) {
 					t.Fatalf("expected LIST/WATCH: streams=%d lists=%d", requests.initialStreams.Load(), requests.lists.Load())
 				}
 			}
-			t.Logf("clients=%d objects=%d payload_bytes=%d startup=%s lists=%d watches=%d initial_streams=%d; replay, hierarchy, snapshot and live updates verified", clientCount, len(expected), payloadBytes, startup, requests.lists.Load(), requests.watches.Load(), requests.initialStreams.Load())
+			if rejectInitial && (requests.rejectedStreams.Load() < int64(clientCount) || requests.watches.Load() < int64(clientCount)) {
+				t.Fatalf("expected rejected WatchList followed by real LIST/WATCH: rejected=%d lists=%d watches=%d", requests.rejectedStreams.Load(), requests.lists.Load(), requests.watches.Load())
+			}
+			t.Logf("clients=%d objects=%d payload_bytes=%d startup=%s lists=%d watches=%d initial_streams=%d rejected_streams=%d; replay, hierarchy, snapshot and live updates verified", clientCount, len(expected), payloadBytes, startup, requests.lists.Load(), requests.watches.Load(), requests.initialStreams.Load(), requests.rejectedStreams.Load())
 		})
 		if t.Failed() {
 			return

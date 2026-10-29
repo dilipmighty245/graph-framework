@@ -134,7 +134,7 @@ run_subscriptions() {
     for ((sdk_run=1; sdk_run<=sdk_runs; sdk_run++)); do
         (cd "$work/repo/compiler/example/tests" && KUBECONFIG="$work/kubeconfig" \
             KUBE_FEATURE_WatchListClient="$streaming" SUBSCRIPTION_EXPECT_WATCH_LIST="$streaming" \
-            go test -tags=integration -timeout=4m -mod=mod -race -count=1 -v \
+            go test -tags=integration -timeout=4m -mod=readonly -race -count=1 -v \
             -ldflags="$link_flags" ./integration) 2>&1 | tee "$results/subscriptions${mode}-$sdk_run.log"
     done
 }
@@ -259,4 +259,10 @@ for resource in "configs.config.nexus.com/$config_name" "roots.root.nexus.com/$r
     remaining=$(kube get "$resource" --ignore-not-found -o name)
     [[ -z "$remaining" ]] || { echo "Resource remained after deletion: $remaining" >&2; exit 1; }
 done
+if [[ ${E2E_RUNTIME_COMPATIBILITY:-false} == true ]]; then
+    # Reuse this run's freshly generated SDK before its isolated snapshot is
+    # deleted. Never depend on generated files in the user's working tree.
+    FRAMEWORK_TEST_RESULTS="$results" bash "$work/repo/scripts/test-runtime-compatibility.sh" \
+        2>&1 | tee "$results/runtime-compatibility.log"
+fi
 printf 'PASS: generation, generated-client tests, resource CRUD, and selected service probes\n' | tee "$results/summary.log"

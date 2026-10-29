@@ -121,7 +121,8 @@ From the repository root:
 ```sh
 make test.framework          # Complete source suites across framework modules
 make test.framework.gateway  # Gateway and controllers after admin API generation
-make test.framework.all      # Source suites, fresh generation, and Kind E2E
+make test.framework.all      # Three stability passes: source suites, Kind E2E, both runtime charts
+make test.framework.runtime  # Fresh generation and runtime-chart compatibility checks
 make test.framework.builders # Public Go builders, generation, and live subscription tests
 make test.framework.stability # Repeat all checks three times
 ```
